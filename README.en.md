@@ -34,6 +34,7 @@ orq run "audit project" --dry-run
 orq guard --vault /path/to/vault --format json
 orq config --config examples/config.example.toml --check-adapters --format json
 orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
+orq delegate "organize vault information related to GLPI"
 ```
 
 ## Development setup
