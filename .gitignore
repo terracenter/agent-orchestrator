@@ -1,0 +1,6 @@
+.state/
+/bin/
+/dist/
+orq
+*.test
+coverage.out

@@ -1,0 +1,20 @@
+[project]
+name = "agent-orchestrator"
+
+[ssot]
+type = "local-dir"
+path = "./docs"
+
+[graph]
+type = "noop"
+
+[memory]
+type = "jsonl"
+path = "~/.local/state/orq/ledger.jsonl"
+
+[shell]
+type = "standard"
+
+[policy]
+default_mode = "dry-run"
+require_confirmation_for_security = true

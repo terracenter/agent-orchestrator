@@ -1,0 +1,8 @@
+services:
+  dev:
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      XDG_STATE_HOME: /workspace/.state
