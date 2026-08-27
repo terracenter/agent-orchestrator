@@ -97,6 +97,7 @@ La política actual es:
 
 - Toda asignación debe usar par exacto `agente/modelo`.
 - No se asigna un modelo marcado como `verified=false` hasta probarlo en una tarea real pequeña.
+- NVIDIA API `openai/gpt-oss-20b` y `openai/gpt-oss-120b` quedaron validados con `/home/freddy/.config/orq/providers.env` para pruebas baratas sin gastar OpenAI de Pi.
 - AGY/open-model `gpt-oss-120b-medium` queda validado para prompts baratos, resúmenes y tareas mecánicas.
 - AGY/Google `gemini-3.5-flash-low` queda validado para tareas mecánicas, clasificación y validaciones baratas.
 - Pi/OpenAI `cheap-or-fast` para tareas mecánicas/documentales cuando esté disponible.

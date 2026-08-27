@@ -15,6 +15,8 @@ type Profile struct {
 var DefaultProfiles = []Profile{
 	{Agent: "pi", Provider: "openai", Model: "gpt-5.5", CostLevel: 2, UseFor: "orquestacion principal y sintesis de decisiones", Verified: true},
 	{Agent: "pi", Provider: "openai", Model: "cheap-or-fast", CostLevel: 1, UseFor: "alias de menor costo suficiente para tareas mecanicas/documentales", Verified: true},
+	{Agent: "nvidia-api", Provider: "nvidia", Model: "openai/gpt-oss-20b", CostLevel: 0, UseFor: "smoke tests, clasificacion barata y tareas mecanicas con API NVIDIA", Verified: true},
+	{Agent: "nvidia-api", Provider: "nvidia", Model: "openai/gpt-oss-120b", CostLevel: 0, UseFor: "validacion barata y razonamiento hospedado con API NVIDIA", Verified: true},
 	{Agent: "pi", Provider: "nvidia", Model: "free-or-low-cost", CostLevel: 0, UseFor: "tareas mecanicas, resumen y clasificacion cuando el provider este disponible", Verified: false},
 	{Agent: "haiku", Provider: "anthropic", Model: "haiku", CostLevel: 1, UseFor: "tareas mecanicas con instrucciones cerradas", Verified: true},
 	{Agent: "agy", Provider: "google", Model: "gemini-3.5-flash-low", CostLevel: 1, UseFor: "tareas mecanicas, clasificacion y validaciones baratas", Verified: true},
