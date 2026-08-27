@@ -23,6 +23,8 @@ Initial MVP: **ledger + advisory mode**.
 
 Usage guide: [docs/usage.md](docs/usage.md).
 
+Orca technical inspiration: [docs/orca-inspiracion.md](docs/orca-inspiracion.md).
+
 Current/planned commands:
 
 ```bash
