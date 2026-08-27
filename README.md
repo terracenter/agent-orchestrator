@@ -32,6 +32,7 @@ orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq run "auditar proyecto" --dry-run
 orq guard --vault /ruta/al/vault --format json
+orq guard-collision --path /home/freddy/Workspace/Obsidian
 orq config --config examples/config.example.toml --check-adapters --format json
 orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
 orq delegate "ordenar información del vault relacionada con GLPI"
