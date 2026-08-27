@@ -57,7 +57,7 @@ Usage:
   orq status [--ledger path]
   orq run <task> [--dry-run] [--format json]
   orq guard --vault <path> [--format json]
-  orq config [--config path] [--format json]
+  orq config [--config path] [--check-adapters] [--format json]
 `)
 }
 
@@ -152,6 +152,7 @@ func cmdGuard(args []string) error {
 }
 
 func cmdConfig(args []string) error {
+	checkAdapters, args := extractBoolFlag(args, "--check-adapters", false)
 	format, remaining, err := extractStringFlag(args, "--format", "text")
 	if err != nil {
 		return err
@@ -170,6 +171,18 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg = loaded
+	}
+	if checkAdapters {
+		shell, err := config.ShellAdapter(cfg)
+		if err != nil {
+			return err
+		}
+		if _, err := config.GraphAdapter(cfg, shell); err != nil {
+			return err
+		}
+		if _, err := config.MemoryAdapter(cfg); err != nil {
+			return err
+		}
 	}
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(cfg)

@@ -30,7 +30,7 @@ orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq run "auditar proyecto" --dry-run
 orq guard --vault /ruta/al/vault --format json
-orq config --config examples/config.example.toml --format json
+orq config --config examples/config.example.toml --check-adapters --format json
 ```
 
 ## Instalación de desarrollo
