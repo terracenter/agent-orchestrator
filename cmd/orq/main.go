@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/terracenter/agent-orchestrator/internal/config"
+	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/route"
@@ -38,6 +39,8 @@ func main() {
 		err = cmdConfig(os.Args[2:])
 	case "vault-order":
 		err = cmdVaultOrder(os.Args[2:])
+	case "delegate":
+		err = cmdDelegate(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -62,6 +65,7 @@ Usage:
   orq guard --vault <path> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
+  orq delegate <task> [--format json]
 `)
 }
 
@@ -152,6 +156,27 @@ func cmdGuard(args []string) error {
 	if !guard.Passed(results) {
 		return fmt.Errorf("guard failed")
 	}
+	return nil
+}
+
+func cmdDelegate(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	task := strings.TrimSpace(strings.Join(remaining, " "))
+	if task == "" {
+		return fmt.Errorf("task is required")
+	}
+	decision := route.Decide(task)
+	prompt := delegate.Prompt(task, decision)
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Decision route.Decision `json:"decision"`
+			Prompt   string         `json:"prompt"`
+		}{Decision: decision, Prompt: prompt})
+	}
+	fmt.Println(prompt)
 	return nil
 }
 

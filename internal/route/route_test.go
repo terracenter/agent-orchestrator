@@ -18,3 +18,16 @@ func TestMechanicalUsesLowLevel(t *testing.T) {
 		t.Fatalf("RecommendedLevel = %d, want <= 1", decision.RecommendedLevel)
 	}
 }
+
+func TestVaultDocumentationUsesCheapAgents(t *testing.T) {
+	decision := Decide("ordenar informacion del vault relacionada con GLPI")
+	if decision.Category != "documentacion" {
+		t.Fatalf("Category = %q, want documentacion", decision.Category)
+	}
+	if decision.RecommendedLevel != 1 {
+		t.Fatalf("RecommendedLevel = %d, want 1", decision.RecommendedLevel)
+	}
+	if len(decision.AvoidAgents) == 0 {
+		t.Fatalf("AvoidAgents empty: %+v", decision)
+	}
+}
