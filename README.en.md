@@ -40,7 +40,24 @@ This repo uses Go and a Docker environment for reproducible validation.
 ```bash
 docker compose run --rm dev go test ./...
 docker compose run --rm dev go run ./cmd/orq --help
-docker compose run --rm dev go run ./cmd/orq config --config examples/config.example.toml
+docker compose run --rm dev go run ./cmd/orq config --config examples/config.example.toml --check-adapters
+```
+
+## Local CLI installation
+
+To use `orq` in future Pi sessions or after `/reload`, install the binary into `~/.local/bin`:
+
+```bash
+docker compose run --rm dev make build
+mkdir -p ~/.local/bin
+install -m 0755 bin/orq ~/.local/bin/orq
+orq --help
+```
+
+If you are developing without a container:
+
+```bash
+make install
 ```
 
 ## Project languages
