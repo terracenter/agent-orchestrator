@@ -23,6 +23,8 @@ MVP inicial: **ledger + modo asesor**.
 
 Guía de uso: [docs/uso.md](docs/uso.md).
 
+Inspiración técnica Orca: [docs/orca-inspiracion.md](docs/orca-inspiracion.md).
+
 Comandos previstos/actuales:
 
 ```bash
