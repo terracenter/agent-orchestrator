@@ -38,6 +38,8 @@ orq guard-collision --path /home/freddy/Workspace/Obsidian
 orq config --config examples/config.example.toml --check-adapters --format json
 orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
 orq delegate "ordenar información del vault relacionada con GLPI"
+orq task create "ordenar vault GLPI"
+orq task list
 ```
 
 ## Instalación de desarrollo

@@ -13,6 +13,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/route"
+	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
 )
 
@@ -44,6 +45,8 @@ func main() {
 		err = cmdVaultOrder(os.Args[2:])
 	case "delegate":
 		err = cmdDelegate(os.Args[2:])
+	case "task":
+		err = cmdTask(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -70,6 +73,9 @@ Usage:
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
   orq delegate <task> [--format json]
+  orq task create <title> [--tasks path] [--format json]
+  orq task list [--tasks path] [--format json]
+  orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
 `)
 }
 
@@ -186,6 +192,86 @@ func cmdGuard(args []string) error {
 	if !guard.Passed(results) {
 		return fmt.Errorf("guard failed")
 	}
+	return nil
+}
+
+func cmdTask(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("task subcommand is required")
+	}
+	format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+	if err != nil {
+		return err
+	}
+	path, remaining, err := extractStringFlag(remaining, "--tasks", task.DefaultPath())
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "create":
+		title := strings.TrimSpace(strings.Join(remaining, " "))
+		if title == "" {
+			return fmt.Errorf("task title is required")
+		}
+		item, err := task.Create(path, title)
+		if err != nil {
+			return err
+		}
+		return printTask(item, format)
+	case "list":
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		items, err := task.List(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(items)
+		}
+		for _, item := range items {
+			fmt.Printf("%s %s agent=%s model=%s host=%s title=%s\n", item.ID, item.State, item.Agent, item.Model, item.Host, item.Title)
+		}
+		return nil
+	case "update":
+		state, rem, err := extractStringFlag(remaining, "--state", "")
+		if err != nil {
+			return err
+		}
+		agent, rem, err := extractStringFlag(rem, "--agent", "")
+		if err != nil {
+			return err
+		}
+		model, rem, err := extractStringFlag(rem, "--model", "")
+		if err != nil {
+			return err
+		}
+		host, rem, err := extractStringFlag(rem, "--host", "")
+		if err != nil {
+			return err
+		}
+		evidence, rem, err := extractStringFlag(rem, "--evidence", "")
+		if err != nil {
+			return err
+		}
+		if len(rem) != 1 {
+			return fmt.Errorf("task id is required")
+		}
+		item, err := task.Update(path, rem[0], task.State(state), agent, model, host, evidence)
+		if err != nil {
+			return err
+		}
+		return printTask(item, format)
+	default:
+		return fmt.Errorf("unknown task subcommand %q", args[0])
+	}
+}
+
+func printTask(item task.Item, format string) error {
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(item)
+	}
+	fmt.Printf("%s %s agent=%s model=%s host=%s title=%s\n", item.ID, item.State, item.Agent, item.Model, item.Host, item.Title)
 	return nil
 }
 
