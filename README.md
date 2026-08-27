@@ -33,6 +33,7 @@ orq status
 orq run "auditar proyecto" --dry-run
 orq guard --vault /ruta/al/vault --format json
 orq config --config examples/config.example.toml --check-adapters --format json
+orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
 ```
 
 ## Instalación de desarrollo
