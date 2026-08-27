@@ -21,6 +21,8 @@ Principles:
 
 Initial MVP: **ledger + advisory mode**.
 
+Usage guide: [docs/usage.md](docs/usage.md).
+
 Current/planned commands:
 
 ```bash

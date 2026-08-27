@@ -21,6 +21,8 @@ Principios:
 
 MVP inicial: **ledger + modo asesor**.
 
+Guía de uso: [docs/uso.md](docs/uso.md).
+
 Comandos previstos/actuales:
 
 ```bash
