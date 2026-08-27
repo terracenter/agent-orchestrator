@@ -97,10 +97,12 @@ La política actual es:
 
 - Toda asignación debe usar par exacto `agente/modelo`.
 - No se asigna un modelo marcado como `verified=false` hasta probarlo en una tarea real pequeña.
+- AGY/open-model `gpt-oss-120b-medium` queda validado para prompts baratos, resúmenes y tareas mecánicas.
+- AGY/Google `gemini-3.5-flash-low` queda validado para tareas mecánicas, clasificación y validaciones baratas.
 - Pi/OpenAI `cheap-or-fast` para tareas mecánicas/documentales cuando esté disponible.
-- Pi/OpenAI `gpt-5.5` para orquestación principal y síntesis.
+- Pi/OpenAI `gpt-5.5` para orquestación principal y síntesis, pero se debe ahorrar cuando sea posible.
 - Pi/NVIDIA o AGY/NVIDIA quedan registrados como candidatos baratos, pero deben validarse antes de usarse.
-- AGY/Gemini Flash para código y análisis técnico medio.
+- AGY/Gemini Flash High para código y análisis técnico medio cuando se valide el modelo exacto disponible.
 - AGY/Gemini Pro para análisis más fuerte si se valida disponibilidad.
 - Claude/Sonnet como revisión crítica, seguridad o bloqueo.
 - Claude/Opus solo para arquitectura compleja o decisión mayor.

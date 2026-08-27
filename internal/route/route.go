@@ -48,23 +48,23 @@ func Decide(task string) Decision {
 		decision.Reason = "seguridad sobrescribe costo"
 	case "documentacion":
 		decision.RecommendedLevel = 1
-		decision.RecommendedAgent = "pi"
-		decision.RecommendedModel = "cheap-or-fast"
-		decision.AllowedAgents = []string{"pi", "haiku", "agy-low"}
+		decision.RecommendedAgent = "agy"
+		decision.RecommendedModel = "gpt-oss-120b-medium"
+		decision.AllowedAgents = []string{"agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "haiku/haiku"}
 		decision.AvoidAgents = []string{"claude-opus", "claude-sonnet"}
 		decision.Reason = "documentacion/vault: descubrir con vg/rtk y ejecutar con agente barato; escalar solo si hay conflicto o riesgo"
 	case "codigo":
 		decision.RecommendedLevel = 2
 		decision.RecommendedAgent = "agy"
-		decision.RecommendedModel = "gemini-flash-high"
-		decision.AllowedAgents = []string{"agy", "pi"}
+		decision.RecommendedModel = "gemini-3.7-flash-high"
+		decision.AllowedAgents = []string{"agy/gemini-3.7-flash-high", "agy/gemini-3.5-flash-low", "pi/gpt-5.5"}
 		decision.AvoidAgents = []string{"claude-opus"}
 		decision.Reason = "codigo entra por agente de implementacion antes de escalar"
 	default:
 		decision.RecommendedLevel = 1
 		decision.RecommendedAgent = "local-or-cheap"
 		decision.RecommendedModel = "lowest-sufficient"
-		decision.AllowedAgents = []string{"pi", "haiku", "local"}
+		decision.AllowedAgents = []string{"agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "haiku/haiku", "local"}
 		decision.AvoidAgents = []string{"claude-opus", "claude-sonnet"}
 		decision.Reason = "tarea mecanica: usar escalon mas barato suficiente"
 	}
