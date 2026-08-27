@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -35,6 +36,8 @@ func main() {
 		err = cmdRun(os.Args[2:])
 	case "guard":
 		err = cmdGuard(os.Args[2:])
+	case "guard-collision":
+		err = cmdGuardCollision(os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
 	case "vault-order":
@@ -63,6 +66,7 @@ Usage:
   orq status [--ledger path]
   orq run <task> [--dry-run] [--format json]
   orq guard --vault <path> [--format json]
+  orq guard-collision --path <repo> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
   orq delegate <task> [--format json]
@@ -124,6 +128,32 @@ func cmdStatus(args []string) error {
 		return err
 	}
 	fmt.Printf("events=%d ledger=%s\n", len(events), *path)
+	return nil
+}
+
+func cmdGuardCollision(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	path, remaining, err := extractStringFlag(remaining, "--path", "")
+	if err != nil {
+		return err
+	}
+	if path == "" {
+		return fmt.Errorf("--path is required")
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	status := guard.GitCollision(context.Background(), path)
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(status)
+	}
+	fmt.Printf("path=%s branch=%s dirty=%t stop=%t reason=%s\n", status.Path, status.Branch, status.Dirty, status.ShouldStop, status.Reason)
+	if status.ShouldStop {
+		return fmt.Errorf("collision guard failed")
+	}
 	return nil
 }
 
