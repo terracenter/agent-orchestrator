@@ -217,7 +217,7 @@ func cmdAgents(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(agentpkg.DefaultProfiles)
 	}
 	for _, profile := range agentpkg.DefaultProfiles {
-		fmt.Printf("agent=%s model=%s cost=%d review_only=%t use_for=%s\n", profile.Agent, profile.Model, profile.CostLevel, profile.ReviewOnly, profile.UseFor)
+		fmt.Printf("agent=%s provider=%s model=%s cost=%d verified=%t review_only=%t use_for=%s\n", profile.Agent, profile.Provider, profile.Model, profile.CostLevel, profile.Verified, profile.ReviewOnly, profile.UseFor)
 	}
 	return nil
 }
@@ -342,6 +342,9 @@ func cmdTask(args []string) error {
 		profile, err := agentpkg.Find(agent, model)
 		if err != nil {
 			return err
+		}
+		if !profile.Verified {
+			return fmt.Errorf("agent/model pair %s/%s is registered but not verified; run real validation before assigning", agent, model)
 		}
 		item, err := task.Assign(path, rem[0], agent, model, host, profile.CostLevel, profile.UseFor)
 		if err != nil {

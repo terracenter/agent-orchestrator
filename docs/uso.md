@@ -95,8 +95,13 @@ orq agents --format json
 
 La política actual es:
 
-- Pi/gpt-5.5 o Pi/cheap-or-fast para tareas mecánicas/documentales.
-- AGY/gemini-flash-high para código y análisis técnico medio.
+- Toda asignación debe usar par exacto `agente/modelo`.
+- No se asigna un modelo marcado como `verified=false` hasta probarlo en una tarea real pequeña.
+- Pi/OpenAI `cheap-or-fast` para tareas mecánicas/documentales cuando esté disponible.
+- Pi/OpenAI `gpt-5.5` para orquestación principal y síntesis.
+- Pi/NVIDIA o AGY/NVIDIA quedan registrados como candidatos baratos, pero deben validarse antes de usarse.
+- AGY/Gemini Flash para código y análisis técnico medio.
+- AGY/Gemini Pro para análisis más fuerte si se valida disponibilidad.
 - Claude/Sonnet como revisión crítica, seguridad o bloqueo.
 - Claude/Opus solo para arquitectura compleja o decisión mayor.
 

@@ -7,8 +7,8 @@ func TestFindKnownProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
-	if profile.CostLevel != 1 {
-		t.Fatalf("CostLevel = %d, want 1", profile.CostLevel)
+	if profile.CostLevel != 2 || !profile.Verified || profile.Provider != "openai" {
+		t.Fatalf("profile = %+v", profile)
 	}
 }
 
