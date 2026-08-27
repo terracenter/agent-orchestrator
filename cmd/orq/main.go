@@ -1,0 +1,172 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/terracenter/agent-orchestrator/internal/ledger"
+	"github.com/terracenter/agent-orchestrator/internal/route"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+
+	var err error
+	switch os.Args[1] {
+	case "classify":
+		err = cmdClassify(os.Args[2:])
+	case "route":
+		err = cmdRoute(os.Args[2:])
+	case "record":
+		err = cmdRecord(os.Args[2:])
+	case "status":
+		err = cmdStatus(os.Args[2:])
+	case "run":
+		err = cmdRun(os.Args[2:])
+	case "help", "--help", "-h":
+		usage()
+		return
+	default:
+		err = fmt.Errorf("unknown command %q", os.Args[1])
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+}
+
+func usage() {
+	fmt.Print(`orq — local-first agent/model orchestrator
+
+Usage:
+  orq classify <task>
+  orq route <task> [--format json]
+  orq record --task <task> --agent <agent> --model <model> --status <status> [--ledger path]
+  orq status [--ledger path]
+  orq run <task> [--dry-run] [--format json]
+`)
+}
+
+func cmdClassify(args []string) error {
+	task := strings.TrimSpace(strings.Join(args, " "))
+	if task == "" {
+		return fmt.Errorf("task is required")
+	}
+	fmt.Println(route.Classify(task))
+	return nil
+}
+
+func cmdRoute(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	task := strings.TrimSpace(strings.Join(remaining, " "))
+	if task == "" {
+		return fmt.Errorf("task is required")
+	}
+	decision := route.Decide(task)
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(decision)
+	}
+	fmt.Printf("agent=%s model=%s level=%d category=%s reason=%s\n", decision.RecommendedAgent, decision.RecommendedModel, decision.RecommendedLevel, decision.Category, decision.Reason)
+	return nil
+}
+
+func cmdRecord(args []string) error {
+	fs := flag.NewFlagSet("record", flag.ContinueOnError)
+	path := fs.String("ledger", ledger.DefaultPath(), "ledger path")
+	task := fs.String("task", "", "task")
+	agent := fs.String("agent", "", "agent")
+	model := fs.String("model", "", "model")
+	status := fs.String("status", "", "status")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	event := ledger.Event{Task: *task, Agent: *agent, Model: *model, Status: *status}
+	if err := ledger.Append(*path, event); err != nil {
+		return err
+	}
+	fmt.Println(*path)
+	return nil
+}
+
+func cmdStatus(args []string) error {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	path := fs.String("ledger", ledger.DefaultPath(), "ledger path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	events, err := ledger.ReadAll(*path)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("events=%d ledger=%s\n", len(events), *path)
+	return nil
+}
+
+func cmdRun(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	dryRun, remaining := extractBoolFlag(remaining, "--dry-run", true)
+	task := strings.TrimSpace(strings.Join(remaining, " "))
+	if task == "" {
+		return fmt.Errorf("task is required")
+	}
+	decision := route.Decide(task)
+	result := struct {
+		Task     string         `json:"task"`
+		Executed bool           `json:"executed"`
+		DryRun   bool           `json:"dry_run"`
+		Decision route.Decision `json:"decision"`
+	}{Task: task, Executed: false, DryRun: dryRun, Decision: decision}
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}
+	fmt.Printf("dry-run=%t executed=false agent=%s model=%s\n", dryRun, decision.RecommendedAgent, decision.RecommendedModel)
+	return nil
+}
+
+func extractStringFlag(args []string, name, defaultValue string) (string, []string, error) {
+	value := defaultValue
+	remaining := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == name {
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf("%s requires a value", name)
+			}
+			value = args[i+1]
+			i++
+			continue
+		}
+		prefix := name + "="
+		if strings.HasPrefix(arg, prefix) {
+			value = strings.TrimPrefix(arg, prefix)
+			continue
+		}
+		remaining = append(remaining, arg)
+	}
+	return value, remaining, nil
+}
+
+func extractBoolFlag(args []string, name string, defaultValue bool) (bool, []string) {
+	value := defaultValue
+	remaining := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == name {
+			value = true
+			continue
+		}
+		remaining = append(remaining, arg)
+	}
+	return value, remaining
+}

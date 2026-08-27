@@ -1,6 +1,6 @@
 .state/
 /bin/
 /dist/
-orq
+/orq
 *.test
 coverage.out
