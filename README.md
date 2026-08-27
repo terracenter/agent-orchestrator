@@ -47,6 +47,12 @@ docker compose run --rm dev go run ./cmd/orq --help
 - Documentación secundaria: Inglés americano.
 - Los términos técnicos estándar se mantienen en inglés cuando corresponde.
 
+## Seguridad del repositorio
+
+`main` está protegido con un ruleset de GitHub: Pull Request obligatorio, bloqueo de force push/borrado y check `go-test` requerido.
+
+Ver [SECURITY.md](SECURITY.md).
+
 ## Licencia
 
 AGPLv3. El objetivo es que mejoras y derivados ofrecidos como servicio vuelvan a la comunidad.
