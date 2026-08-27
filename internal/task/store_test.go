@@ -35,3 +35,30 @@ func TestUpdateMissingTask(t *testing.T) {
 		t.Fatalf("Update() error = %v, want ErrNotExist", err)
 	}
 }
+
+func TestCreateIDsAreUnique(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	if _, err := Create(path, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(path, "b"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := List(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID == items[1].ID {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
+func TestListReportsCorruptLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	if err := os.WriteFile(path, []byte("not-json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := List(path); err == nil {
+		t.Fatal("List() error = nil, want corrupt line error")
+	}
+}

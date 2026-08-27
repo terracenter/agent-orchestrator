@@ -89,7 +89,8 @@ orq status
 ```bash
 orq task create "ordenar vault GLPI"
 orq task list
-orq task update <id> --state assigned --agent pi --model cheap-or-fast --host minipc
+orq task assign <id> --agent pi --model cheap-or-fast --host minipc
+orq handoff draft --task-id <id>
 orq task update <id> --state running
 orq task update <id> --state done --evidence "PR o commit validado"
 ```

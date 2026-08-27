@@ -6,11 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
+	"github.com/terracenter/agent-orchestrator/internal/handoff"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/task"
@@ -47,6 +49,8 @@ func main() {
 		err = cmdDelegate(os.Args[2:])
 	case "task":
 		err = cmdTask(os.Args[2:])
+	case "handoff":
+		err = cmdHandoff(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -76,6 +80,8 @@ Usage:
   orq task create <title> [--tasks path] [--format json]
   orq task list [--tasks path] [--format json]
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
+  orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
+  orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
 `)
 }
 
@@ -195,6 +201,66 @@ func cmdGuard(args []string) error {
 	return nil
 }
 
+func cmdHandoff(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("handoff subcommand is required")
+	}
+	format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+	if err != nil {
+		return err
+	}
+	path, remaining, err := extractStringFlag(remaining, "--tasks", task.DefaultPath())
+	if err != nil {
+		return err
+	}
+	output, remaining, err := extractStringFlag(remaining, "--output", "")
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "draft":
+		id, remaining, err := extractStringFlag(remaining, "--task-id", "")
+		if err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("--task-id is required")
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		item, err := task.Get(path, id)
+		if err != nil {
+			return err
+		}
+		draft := handoff.Draft(item)
+		if output != "" {
+			if _, err := os.Stat(output); err == nil {
+				return fmt.Errorf("output already exists: %s", output)
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(output, []byte(draft), 0o644); err != nil {
+				return err
+			}
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				TaskID string `json:"task_id"`
+				Output string `json:"output,omitempty"`
+				Draft  string `json:"draft"`
+			}{TaskID: id, Output: output, Draft: draft})
+		}
+		fmt.Print(draft)
+		return nil
+	default:
+		return fmt.Errorf("unknown handoff subcommand %q", args[0])
+	}
+}
+
 func cmdTask(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("task subcommand is required")
@@ -233,6 +299,30 @@ func cmdTask(args []string) error {
 			fmt.Printf("%s %s agent=%s model=%s host=%s title=%s\n", item.ID, item.State, item.Agent, item.Model, item.Host, item.Title)
 		}
 		return nil
+	case "assign":
+		agent, rem, err := extractStringFlag(remaining, "--agent", "")
+		if err != nil {
+			return err
+		}
+		model, rem, err := extractStringFlag(rem, "--model", "")
+		if err != nil {
+			return err
+		}
+		host, rem, err := extractStringFlag(rem, "--host", "")
+		if err != nil {
+			return err
+		}
+		if agent == "" {
+			return fmt.Errorf("--agent is required")
+		}
+		if len(rem) != 1 {
+			return fmt.Errorf("task id is required")
+		}
+		item, err := task.Assign(path, rem[0], agent, model, host)
+		if err != nil {
+			return err
+		}
+		return printTask(item, format)
 	case "update":
 		state, rem, err := extractStringFlag(remaining, "--state", "")
 		if err != nil {
