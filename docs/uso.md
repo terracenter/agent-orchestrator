@@ -84,6 +84,24 @@ Por defecto escribe en:
 orq status
 ```
 
+### Registrar tareas para futuro dashboard móvil
+
+```bash
+orq task create "ordenar vault GLPI"
+orq task list
+orq task update <id> --state assigned --agent pi --model cheap-or-fast --host minipc
+orq task update <id> --state running
+orq task update <id> --state done --evidence "PR o commit validado"
+```
+
+Por defecto las tareas se guardan en:
+
+```txt
+~/.local/state/orq/tasks.jsonl
+```
+
+Estos estados alimentarán el futuro dashboard/PWA por WireGuard.
+
 ### Planificar ordenamiento documental del vault
 
 Este comando **no mueve archivos**. Solo propone acciones para crear índices y detectar documentos sin prefijo numérico.
@@ -120,6 +138,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - clasifica tareas;
 - recomienda agente/modelo;
 - registra eventos;
+- registra tareas con estado verificable;
 - valida guardias básicas;
 - carga configuración y adapters;
 - genera planes de ordenamiento documental con `vault-order`;

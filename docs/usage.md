@@ -32,6 +32,24 @@ orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 ```
 
+## Task tracking for future mobile dashboard
+
+```bash
+orq task create "organize GLPI vault"
+orq task list
+orq task update <id> --state assigned --agent pi --model cheap-or-fast --host minipc
+orq task update <id> --state running
+orq task update <id> --state done --evidence "validated commit or PR"
+```
+
+By default tasks are stored at:
+
+```txt
+~/.local/state/orq/tasks.jsonl
+```
+
+These states will feed the future WireGuard-only dashboard/PWA.
+
 ## Vault order planning
 
 This command **does not move files**. It only proposes actions to create indexes and detect documents without numeric prefixes.
@@ -68,6 +86,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - classifies tasks;
 - recommends agent/model routing;
 - records events;
+- records tasks with verifiable state;
 - validates basic guards;
 - loads config and adapters;
 - generates documentation-order plans with `vault-order`;
