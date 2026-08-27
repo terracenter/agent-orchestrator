@@ -2,6 +2,8 @@
 
 > Orquestador local-first de agentes/modelos: clasifica tareas, recomienda el modelo/agente más barato y seguro, y registra evidencia verificable antes de automatizar ejecución.
 
+**Idioma:** Español de Venezuela principal. [English version](README.en.md).
+
 ## Filosofía
 
 Este proyecto no busca reinventar la rueda. Reutiliza ideas y patrones buenos del ecosistema AI coding —especialmente Engram, Gentle-AI, Gentleman Guardian Angel y sistemas de skills— cuando encajan con el objetivo del proyecto.
@@ -27,6 +29,7 @@ orq route "rotar token de producción"
 orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq run "auditar proyecto" --dry-run
+orq guard --vault /ruta/al/vault --format json
 ```
 
 ## Instalación de desarrollo
@@ -37,6 +40,18 @@ Este repo usa Go y un entorno Docker para validar de forma reproducible.
 docker compose run --rm dev go test ./...
 docker compose run --rm dev go run ./cmd/orq --help
 ```
+
+## Idiomas del proyecto
+
+- Documentación principal: Español de Venezuela.
+- Documentación secundaria: Inglés americano.
+- Los términos técnicos estándar se mantienen en inglés cuando corresponde.
+
+## Seguridad del repositorio
+
+`main` está protegido con un ruleset de GitHub: Pull Request obligatorio, bloqueo de force push/borrado y check `go-test` requerido.
+
+Ver [SECURITY.md](SECURITY.md).
 
 ## Licencia
 

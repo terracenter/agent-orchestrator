@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 )
@@ -29,6 +30,8 @@ func main() {
 		err = cmdStatus(os.Args[2:])
 	case "run":
 		err = cmdRun(os.Args[2:])
+	case "guard":
+		err = cmdGuard(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -50,6 +53,7 @@ Usage:
   orq record --task <task> --agent <agent> --model <model> --status <status> [--ledger path]
   orq status [--ledger path]
   orq run <task> [--dry-run] [--format json]
+  orq guard --vault <path> [--format json]
 `)
 }
 
@@ -108,6 +112,38 @@ func cmdStatus(args []string) error {
 		return err
 	}
 	fmt.Printf("events=%d ledger=%s\n", len(events), *path)
+	return nil
+}
+
+func cmdGuard(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	vault, remaining, err := extractStringFlag(remaining, "--vault", "")
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	results := guard.AntiSplitBrain(vault)
+	if format == "json" {
+		if err := json.NewEncoder(os.Stdout).Encode(results); err != nil {
+			return err
+		}
+	} else {
+		for _, result := range results {
+			status := "FAIL"
+			if result.Passed {
+				status = "OK"
+			}
+			fmt.Printf("%s %s %s\n", status, result.Name, result.Reason)
+		}
+	}
+	if !guard.Passed(results) {
+		return fmt.Errorf("guard failed")
+	}
 	return nil
 }
 
