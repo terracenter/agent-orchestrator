@@ -32,6 +32,20 @@ orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 ```
 
+## Vault order planning
+
+This command **does not move files**. It only proposes actions to create indexes and detect documents without numeric prefixes.
+
+```bash
+orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi
+```
+
+For machine-readable output:
+
+```bash
+orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
+```
+
 ## Config validation
 
 From inside the repo:
@@ -56,4 +70,5 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - records events;
 - validates basic guards;
 - loads config and adapters;
+- generates documentation-order plans with `vault-order`;
 - **does not automatically execute agents yet**.

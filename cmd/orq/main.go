@@ -11,6 +11,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/route"
+	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
 )
 
 func main() {
@@ -35,6 +36,8 @@ func main() {
 		err = cmdGuard(os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
+	case "vault-order":
+		err = cmdVaultOrder(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -58,6 +61,7 @@ Usage:
   orq run <task> [--dry-run] [--format json]
   orq guard --vault <path> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
+  orq vault-order --vault <path> --query <term> [--format json]
 `)
 }
 
@@ -147,6 +151,42 @@ func cmdGuard(args []string) error {
 	}
 	if !guard.Passed(results) {
 		return fmt.Errorf("guard failed")
+	}
+	return nil
+}
+
+func cmdVaultOrder(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	vault, remaining, err := extractStringFlag(remaining, "--vault", "")
+	if err != nil {
+		return err
+	}
+	query, remaining, err := extractStringFlag(remaining, "--query", "")
+	if err != nil {
+		return err
+	}
+	if vault == "" {
+		return fmt.Errorf("--vault is required")
+	}
+	if query == "" {
+		return fmt.Errorf("--query is required")
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	plan, err := vaultorder.Build(vault, query)
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(plan)
+	}
+	fmt.Printf("matches=%d directories=%d actions=%d\n", len(plan.Matches), len(plan.Directories), len(plan.Actions))
+	for _, action := range plan.Actions {
+		fmt.Printf("%s %s — %s\n", action.Type, action.Path, action.Reason)
 	}
 	return nil
 }

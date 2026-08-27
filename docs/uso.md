@@ -84,6 +84,20 @@ Por defecto escribe en:
 orq status
 ```
 
+### Planificar ordenamiento documental del vault
+
+Este comando **no mueve archivos**. Solo propone acciones para crear índices y detectar documentos sin prefijo numérico.
+
+```bash
+orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi
+```
+
+Para salida procesable por otra herramienta o agente:
+
+```bash
+orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
+```
+
 ### Validar configuración
 
 Si estás parado dentro del repo:
@@ -108,6 +122,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - registra eventos;
 - valida guardias básicas;
 - carga configuración y adapters;
+- genera planes de ordenamiento documental con `vault-order`;
 - **no ejecuta agentes automáticamente todavía**.
 
 Eso es intencional: primero se acumula evidencia verificable antes de automatizar ejecución real.
