@@ -30,6 +30,7 @@ orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq run "audit project" --dry-run
 orq guard --vault /path/to/vault --format json
+orq config --config examples/config.example.toml --format json
 ```
 
 ## Development setup
@@ -39,6 +40,7 @@ This repo uses Go and a Docker environment for reproducible validation.
 ```bash
 docker compose run --rm dev go test ./...
 docker compose run --rm dev go run ./cmd/orq --help
+docker compose run --rm dev go run ./cmd/orq config --config examples/config.example.toml
 ```
 
 ## Project languages

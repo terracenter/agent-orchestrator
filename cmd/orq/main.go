@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/route"
@@ -32,6 +33,8 @@ func main() {
 		err = cmdRun(os.Args[2:])
 	case "guard":
 		err = cmdGuard(os.Args[2:])
+	case "config":
+		err = cmdConfig(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -54,6 +57,7 @@ Usage:
   orq status [--ledger path]
   orq run <task> [--dry-run] [--format json]
   orq guard --vault <path> [--format json]
+  orq config [--config path] [--format json]
 `)
 }
 
@@ -144,6 +148,33 @@ func cmdGuard(args []string) error {
 	if !guard.Passed(results) {
 		return fmt.Errorf("guard failed")
 	}
+	return nil
+}
+
+func cmdConfig(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	path, remaining, err := extractStringFlag(remaining, "--config", "")
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	cfg := config.Default()
+	if path != "" {
+		loaded, err := config.Load(path)
+		if err != nil {
+			return err
+		}
+		cfg = loaded
+	}
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(cfg)
+	}
+	fmt.Printf("project=%s ssot=%s graph=%s memory=%s shell=%s mode=%s\n", cfg.Project.Name, cfg.SSoT.Type, cfg.Graph.Type, cfg.Memory.Type, cfg.Shell.Type, cfg.Policy.DefaultMode)
 	return nil
 }
 
