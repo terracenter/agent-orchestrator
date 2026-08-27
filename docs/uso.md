@@ -84,6 +84,22 @@ Por defecto escribe en:
 orq status
 ```
 
+### Ver agentes/modelos permitidos
+
+Cada asignación debe indicar **agente y modelo**. No basta decir “usa Claude” o “usa AGY”.
+
+```bash
+orq agents
+orq agents --format json
+```
+
+La política actual es:
+
+- Pi/gpt-5.5 o Pi/cheap-or-fast para tareas mecánicas/documentales.
+- AGY/gemini-flash-high para código y análisis técnico medio.
+- Claude/Sonnet como revisión crítica, seguridad o bloqueo.
+- Claude/Opus solo para arquitectura compleja o decisión mayor.
+
 ### Registrar tareas para futuro dashboard móvil
 
 ```bash

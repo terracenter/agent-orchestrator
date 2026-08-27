@@ -40,6 +40,7 @@ orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format js
 orq delegate "ordenar información del vault relacionada con GLPI"
 orq task create "ordenar vault GLPI"
 orq task list
+orq agents --format json
 ```
 
 ## Instalación de desarrollo
