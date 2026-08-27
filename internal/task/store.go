@@ -22,6 +22,8 @@ type Item struct {
 	Model     string    `json:"model,omitempty"`
 	Host      string    `json:"host,omitempty"`
 	Evidence  string    `json:"evidence,omitempty"`
+	CostLevel int       `json:"cost_level,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -65,8 +67,14 @@ func Get(path string, id string) (Item, error) {
 	return Item{}, os.ErrNotExist
 }
 
-func Assign(path string, id string, agent string, model string, host string) (Item, error) {
-	return Update(path, id, Assigned, agent, model, host, "")
+func Assign(path string, id string, agent string, model string, host string, costLevel int, reason string) (Item, error) {
+	item, err := Update(path, id, Assigned, agent, model, host, "")
+	if err != nil {
+		return Item{}, err
+	}
+	item.CostLevel = costLevel
+	item.Reason = reason
+	return appendAssigned(path, item)
 }
 
 func Update(path string, id string, next State, agent string, model string, host string, evidence string) (Item, error) {
@@ -152,6 +160,16 @@ func readEvents(r io.Reader) ([]Item, error) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, nil
+}
+
+func appendAssigned(path string, item Item) (Item, error) {
+	unlock, err := lockStore(path)
+	if err != nil {
+		return Item{}, err
+	}
+	defer unlock()
+	item.UpdatedAt = time.Now().UTC()
+	return item, appendEventUnlocked(path, item)
 }
 
 func appendEvent(path string, item Item) error {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
@@ -51,6 +52,8 @@ func main() {
 		err = cmdTask(os.Args[2:])
 	case "handoff":
 		err = cmdHandoff(os.Args[2:])
+	case "agents":
+		err = cmdAgents(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -82,6 +85,7 @@ Usage:
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
+  orq agents [--format json]
 `)
 }
 
@@ -197,6 +201,23 @@ func cmdGuard(args []string) error {
 	}
 	if !guard.Passed(results) {
 		return fmt.Errorf("guard failed")
+	}
+	return nil
+}
+
+func cmdAgents(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(agentpkg.DefaultProfiles)
+	}
+	for _, profile := range agentpkg.DefaultProfiles {
+		fmt.Printf("agent=%s model=%s cost=%d review_only=%t use_for=%s\n", profile.Agent, profile.Model, profile.CostLevel, profile.ReviewOnly, profile.UseFor)
 	}
 	return nil
 }
@@ -318,7 +339,11 @@ func cmdTask(args []string) error {
 		if len(rem) != 1 {
 			return fmt.Errorf("task id is required")
 		}
-		item, err := task.Assign(path, rem[0], agent, model, host)
+		profile, err := agentpkg.Find(agent, model)
+		if err != nil {
+			return err
+		}
+		item, err := task.Assign(path, rem[0], agent, model, host, profile.CostLevel, profile.UseFor)
 		if err != nil {
 			return err
 		}

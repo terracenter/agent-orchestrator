@@ -13,11 +13,11 @@ func TestCreateUpdateList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	updated, err := Update(path, item.ID, Assigned, "pi", "cheap", "minipc", "")
+	updated, err := Assign(path, item.ID, "pi", "gpt-5.5", "minipc", 1, "tarea mecanica")
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if updated.State != Assigned || updated.Agent != "pi" {
+	if updated.State != Assigned || updated.Agent != "pi" || updated.CostLevel != 1 {
 		t.Fatalf("updated = %+v", updated)
 	}
 	items, err := List(path)
