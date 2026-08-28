@@ -108,6 +108,24 @@ La política actual es:
 - Claude/Sonnet como revisión crítica, seguridad o bloqueo.
 - Claude/Opus solo para arquitectura compleja o decisión mayor.
 
+### Revisar presupuesto de contexto/cuota
+
+Cuando Pi muestre porcentajes altos en el footer, usa esos números para pedir una recomendación mecánica:
+
+```bash
+orq budget --context-percent 70 --codex-5h-percent 20 --weekly-percent 16
+```
+
+Acciones posibles:
+
+- `continuar`: seguir, pero priorizando modelos baratos.
+- `compactar_pronto`: preparar compactación.
+- `compactar`: ejecutar `/compact` antes de seguir.
+- `delegar_barato`: evitar Pi/OpenAI y usar NVIDIA/AGY.
+- `pausar`: esperar reset del límite corto Codex.
+
+Si la acción incluye compactación, `orq` imprime un prompt `/compact` listo para copiar.
+
 ### Enviar prueba de telemetría a SGE Observer LLM
 
 `orq` puede enviar un evento sintético al Observer usando el endpoint existente `POST /api/events/ingest`.
