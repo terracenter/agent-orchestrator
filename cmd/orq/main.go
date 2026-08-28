@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
 	"github.com/terracenter/agent-orchestrator/internal/budget"
@@ -138,8 +139,23 @@ func cmdRecord(args []string) error {
 	if err := ledger.Append(*path, event); err != nil {
 		return err
 	}
+	emitObserverRecord(event)
 	fmt.Println(*path)
 	return nil
+}
+
+func emitObserverRecord(event ledger.Event) {
+	client, ok, err := observer.FromEnv()
+	if err != nil || !ok {
+		return
+	}
+	raw, _ := json.Marshal(map[string]string{"task": event.Task, "status": event.Status})
+	obsEvent := observer.NewEvent("agent-orchestrator", event.Agent, event.Model, "orq-ledger", "orq_record", 0, 0, "orq record", string(raw))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := client.Ingest(ctx, []observer.Event{obsEvent}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: observer ingest failed: %v\n", err)
+	}
 }
 
 func cmdStatus(args []string) error {

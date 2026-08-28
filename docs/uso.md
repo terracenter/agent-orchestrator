@@ -126,9 +126,9 @@ Acciones posibles:
 
 Si la acción incluye compactación, `orq` imprime un prompt `/compact` listo para copiar.
 
-### Enviar prueba de telemetría a SGE Observer LLM
+### Telemetría hacia SGE Observer LLM
 
-`orq` puede enviar un evento sintético al Observer usando el endpoint existente `POST /api/events/ingest`.
+`orq` puede enviar eventos al Observer usando el endpoint existente `POST /api/events/ingest`.
 
 Configuración local segura:
 
@@ -137,13 +137,21 @@ export ORQ_OBSERVER_URL="http://127.0.0.1:4000"
 export ORQ_OBSERVER_HOST_TOKEN_FILE="$HOME/.config/sge-observer/agent-orchestrator.host-token"
 ```
 
-Prueba:
+Prueba sintética:
 
 ```bash
 orq observer send-test --project agent-orchestrator --agent nvidia-api --model openai/gpt-oss-20b
 ```
 
-El token no se guarda en git. Si no está configurado, `orq` debe fallar de forma clara y continuar permitiendo el resto del flujo.
+Registro automático desde el ledger:
+
+```bash
+orq record --task "validar Observer" --agent nvidia-api --model openai/gpt-oss-20b --status done
+```
+
+Si el token está configurado, `orq record` guarda el ledger local y además envía un evento `orq_record` no bloqueante al Observer. Si Observer no está disponible o no hay token, el ledger local sigue funcionando.
+
+El token no se guarda en git. `orq observer send-test` falla de forma clara si no hay token; `orq record` no falla por problemas de Observer.
 
 ### Registrar tareas para futuro dashboard móvil
 
