@@ -26,19 +26,20 @@ func InitRepo(root string, data TemplateData) (InitResult, error) {
 	}
 	result := InitResult{Root: root}
 	files := map[string]string{
-		"README.md":                         readme(data.ProjectName),
-		"README.en.md":                      readmeEN(data.ProjectName),
-		"SECURITY.md":                       securityDoc(),
-		"CONTRIBUTING.md":                   contributingDoc(),
-		"RELEASES.md":                       releasesDoc(),
-		"LICENSE":                           "Definir licencia antes de publicar.\n",
-		".env.example":                      "# Variables locales sin secretos reales\n",
-		".gitignore":                        ".env\n*.log\nbin/\n",
-		".github/pull_request_template.md":  prTemplate(),
-		".github/ISSUE_TEMPLATE/feature.md": featureTemplate(),
-		".github/workflows/ci.yml":          ciWorkflow(),
-		"docs/diagramas/README.md":          "# Diagramas\n\nUsar diagram-design. No Mermaid/draw.io como formato objetivo.\n",
-		"Makefile":                          makefile(),
+		"README.md":                          readme(data.ProjectName),
+		"README.en.md":                       readmeEN(data.ProjectName),
+		"SECURITY.md":                        securityDoc(),
+		"CONTRIBUTING.md":                    contributingDoc(),
+		"RELEASES.md":                        releasesDoc(),
+		"LICENSE":                            "Definir licencia antes de publicar.\n",
+		".env.example":                       "# Variables locales sin secretos reales\n",
+		".gitignore":                         ".env\n*.log\nbin/\n",
+		".github/pull_request_template.md":   prTemplate(),
+		".github/ISSUE_TEMPLATE/feature.md":  featureTemplate(),
+		".github/workflows/ci.yml":           ciWorkflow(),
+		"docs/diagramas/README.md":           "# Diagramas\n\nUsar diagram-design. No Mermaid/draw.io como formato objetivo.\n",
+		"docs/politica-branch-protection.md": branchProtectionDoc(),
+		"Makefile":                           makefile(),
 	}
 	for path, content := range files {
 		full := filepath.Join(root, path)
@@ -103,7 +104,34 @@ func securityDoc() string {
 	return "# Seguridad\n\nLa seguridad tiene prioridad sobre features, rendimiento y visual.\n"
 }
 func contributingDoc() string {
-	return "# Contribución\n\nUsar Español Venezuela en documentación principal y checklist 4R en PRs.\n"
+	return "# Contribución\n\nUsar Español Venezuela en documentación principal y checklist 4R en PRs.\n\n## Política de merge single-maintainer\n\nSi no hay segundo maintainer real, mantener PR obligatorio con Required approvals = 0 y checks automáticos fuertes. No usar autoaprobaciones falsas. Ver docs/politica-branch-protection.md.\n"
+}
+func branchProtectionDoc() string {
+	return `# Política de protección de ramas
+
+## Modo single-maintainer seguro
+
+Cuando no existe segundo maintainer real:
+
+| Regla | Valor |
+|---|---|
+| Require a pull request before merging | Activado |
+| Required approvals | 0 |
+| Require status checks to pass | Activado |
+| Require conversation resolution | Activado |
+| Block force pushes | Activado |
+| Block deletions | Activado |
+
+## Prohibido
+
+- Desactivar protecciones temporalmente para mergear rápido.
+- Usar cuentas sello sin revisión real.
+- Autoaprobar PRs creados por la misma identidad.
+
+## Alto riesgo
+
+Auth, secretos, deploy, firewall, migraciones SQL y dependencias críticas requieren confirmación explícita del maintainer.
+`
 }
 func releasesDoc() string {
 	return "# Historial de Cambios\n\n## 0.1.0 — YYYY-MM-DD\n\n### Agregado\n### Cambiado\n### Corregido\n### Seguridad\n### Operación\n### Compatibilidad\n### Rollback\n"

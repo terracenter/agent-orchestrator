@@ -17,7 +17,7 @@ func TestCheckRepoFailsMissingRequiredFiles(t *testing.T) {
 func TestCheckRepoPassesWithRequiredFiles(t *testing.T) {
 	dir := t.TempDir()
 	files := []string{
-		"README.md", "SECURITY.md", "CONTRIBUTING.md", "LICENSE", ".env.example", ".gitignore", ".github/pull_request_template.md", "Makefile",
+		"README.md", "SECURITY.md", "CONTRIBUTING.md", "LICENSE", ".env.example", ".gitignore", ".github/pull_request_template.md", "docs/politica-branch-protection.md", "Makefile",
 	}
 	for _, file := range files {
 		write(t, filepath.Join(dir, file))
