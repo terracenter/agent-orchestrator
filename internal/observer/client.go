@@ -69,9 +69,13 @@ func FromEnv() (Client, bool, error) {
 }
 
 func SyntheticEvent(project, agent, model string, tokensIn, tokensOut int64) Event {
+	return NewEvent(project, agent, model, "orq-manual", "orq_synthetic_usage", tokensIn, tokensOut, "orq observer send-test", "{}")
+}
+
+func NewEvent(project, agent, model, sessionID, eventType string, tokensIn, tokensOut int64, sourcePath, raw string) Event {
 	now := time.Now().UTC()
 	host, _ := os.Hostname()
-	seed := fmt.Sprintf("%s|%s|%s|%d", project, agent, model, now.UnixNano())
+	seed := fmt.Sprintf("%s|%s|%s|%s|%d", project, agent, model, eventType, now.UnixNano())
 	sum := sha256.Sum256([]byte(seed))
 	return Event{
 		EventID:    "orq-" + hex.EncodeToString(sum[:])[:24],
@@ -79,13 +83,13 @@ func SyntheticEvent(project, agent, model string, tokensIn, tokensOut int64) Eve
 		Agent:      agent,
 		Model:      model,
 		Project:    project,
-		SessionID:  "orq-manual",
-		EventType:  "orq_synthetic_usage",
+		SessionID:  sessionID,
+		EventType:  eventType,
 		TokensIn:   tokensIn,
 		TokensOut:  tokensOut,
 		CreatedAt:  now,
-		SourcePath: "orq observer send-test",
-		Raw:        "{}",
+		SourcePath: sourcePath,
+		Raw:        raw,
 	}
 }
 
