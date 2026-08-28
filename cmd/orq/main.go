@@ -99,6 +99,7 @@ Usage:
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
+  orq repo init-template --path repo [--name project] [--format json]
 `)
 }
 
@@ -107,6 +108,34 @@ func cmdRepo(args []string) error {
 		return fmt.Errorf("repo subcommand is required")
 	}
 	switch args[0] {
+	case "init-template":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", "")
+		if err != nil {
+			return err
+		}
+		name, remaining, err := extractStringFlag(remaining, "--name", "")
+		if err != nil {
+			return err
+		}
+		if path == "" {
+			return fmt.Errorf("--path is required")
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		result, err := repostandard.InitRepo(path, repostandard.TemplateData{ProjectName: name})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		fmt.Printf("repo=%s created=%d skipped=%d\n", result.Root, len(result.Created), len(result.Skipped))
+		return nil
 	case "check":
 		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
 		if err != nil {

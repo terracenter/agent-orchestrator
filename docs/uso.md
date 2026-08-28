@@ -152,6 +152,12 @@ orq repo check --path /ruta/al/repo
 orq repo check --path /ruta/al/repo --format json
 ```
 
+Crear archivos base faltantes en un repo nuevo o incompleto:
+
+```bash
+orq repo init-template --path /ruta/al/repo --name nombre-proyecto
+```
+
 El comando revisa presencia de archivos base del estándar: README, SECURITY, CONTRIBUTING, LICENSE, CI, docs, diagramas, Makefile y plantillas. Si falta algo obligatorio, devuelve error.
 
 ### Registrar tareas para futuro dashboard móvil
