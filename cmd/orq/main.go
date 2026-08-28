@@ -22,6 +22,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/repostandard"
 	"github.com/terracenter/agent-orchestrator/internal/review4r"
 	"github.com/terracenter/agent-orchestrator/internal/route"
+	"github.com/terracenter/agent-orchestrator/internal/safety"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
 )
@@ -68,6 +69,8 @@ func main() {
 		err = cmdBudget(os.Args[2:])
 	case "repo":
 		err = cmdRepo(os.Args[2:])
+	case "safety":
+		err = cmdSafety(os.Args[2:])
 	case "review":
 		err = cmdReview(os.Args[2:])
 	case "help", "--help", "-h":
@@ -107,8 +110,61 @@ Usage:
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
+  orq safety check [--path repo] [--command text] [--format json]
   orq review 4r [--path repo] [--format json]
 `)
+}
+
+func cmdSafety(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("safety subcommand is required")
+	}
+	switch args[0] {
+	case "check":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		command, remaining, err := extractStringFlag(remaining, "--command", "")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := safety.CheckRepo(path)
+		if command != "" {
+			if bad, reason := safety.UnsafeCommand(command); bad {
+				report.Passed = false
+				report.Risk = "alto"
+				report.Findings = append(report.Findings, safety.Finding{Level: "alto", Reason: reason})
+			}
+		}
+		if format == "json" {
+			if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+				return err
+			}
+		} else {
+			status := "OK"
+			if !report.Passed {
+				status = "BLOCKED"
+			}
+			fmt.Printf("%s repo=%s risk=%s findings=%d\n", status, report.Root, report.Risk, len(report.Findings))
+			for _, finding := range report.Findings {
+				fmt.Printf("%s path=%s reason=%s\n", finding.Level, finding.Path, finding.Reason)
+			}
+		}
+		if !report.Passed {
+			return fmt.Errorf("safety check failed")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown safety subcommand %q", args[0])
+	}
 }
 
 func cmdAudit(args []string) error {

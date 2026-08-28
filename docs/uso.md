@@ -171,6 +171,16 @@ orq audit prs --path /ruta/al/repo --format json
 
 Reporta checks, estado mergeable y bloqueos como review requerida por una identidad distinta con permisos.
 
+### Validar seguridad Tiger Style
+
+```bash
+orq safety check --path /ruta/al/repo
+orq safety check --path /ruta/al/repo --command "go test ./..."
+orq safety check --path /ruta/al/repo --format json
+```
+
+El comando es read-only. Detecta paths inseguros, comandos con tokens peligrosos y cambios sensibles como dependencias, migraciones SQL, secretos, auth o deploy.
+
 ### Generar revisión 4R
 
 ```bash
