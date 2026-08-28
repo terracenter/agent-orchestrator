@@ -153,6 +153,51 @@ Si el token está configurado, `orq record` guarda el ledger local y además env
 
 El token no se guarda en git. `orq observer send-test` falla de forma clara si no hay token; `orq record` no falla por problemas de Observer.
 
+### Validar estándar operativo de repos
+
+```bash
+orq repo check --path /ruta/al/repo
+orq repo check --path /ruta/al/repo --format json
+```
+
+Crear archivos base faltantes en un repo nuevo o incompleto:
+
+```bash
+orq repo init-template --path /ruta/al/repo --name nombre-proyecto
+```
+
+El comando revisa presencia de archivos base del estándar: README, SECURITY, CONTRIBUTING, LICENSE, CI, docs, diagramas, Makefile y plantillas. Si falta algo obligatorio, devuelve error.
+
+### Auditar PRs abiertos
+
+Auditoría read-only de PRs abiertos. No aprueba, no mergea y no modifica el repo.
+
+```bash
+orq audit prs --path /ruta/al/repo
+orq audit prs --path /ruta/al/repo --format json
+```
+
+Reporta checks, estado mergeable y bloqueos como review requerida por una identidad distinta con permisos.
+
+### Validar seguridad Tiger Style
+
+```bash
+orq safety check --path /ruta/al/repo
+orq safety check --path /ruta/al/repo --command "go test ./..."
+orq safety check --path /ruta/al/repo --format json
+```
+
+El comando es read-only. Detecta paths inseguros, comandos con tokens peligrosos y cambios sensibles como dependencias, migraciones SQL, secretos, auth o deploy.
+
+### Generar revisión 4R
+
+```bash
+orq review 4r --path /ruta/al/repo
+orq review 4r --path /ruta/al/repo --format json
+```
+
+El comando prepara preguntas de Legibilidad, Robustez, Riesgo y Seguridad usando los archivos cambiados como foco inicial.
+
 ### Registrar tareas para futuro dashboard móvil
 
 ```bash
@@ -209,6 +254,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - recomienda agente/modelo;
 - registra eventos;
 - registra tareas con estado verificable;
+- valida estructura mínima de repos con `repo check`;
 - envía pruebas de telemetría a SGE Observer LLM;
 - valida guardias básicas;
 - carga configuración y adapters;

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
+	"github.com/terracenter/agent-orchestrator/internal/audit"
 	"github.com/terracenter/agent-orchestrator/internal/budget"
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
@@ -19,7 +20,10 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/observer"
+	"github.com/terracenter/agent-orchestrator/internal/repostandard"
+	"github.com/terracenter/agent-orchestrator/internal/review4r"
 	"github.com/terracenter/agent-orchestrator/internal/route"
+	"github.com/terracenter/agent-orchestrator/internal/safety"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
 )
@@ -58,10 +62,18 @@ func main() {
 		err = cmdHandoff(os.Args[2:])
 	case "agents":
 		err = cmdAgents(os.Args[2:])
+	case "audit":
+		err = cmdAudit(os.Args[2:])
 	case "observer":
 		err = cmdObserver(os.Args[2:])
 	case "budget":
 		err = cmdBudget(os.Args[2:])
+	case "repo":
+		err = cmdRepo(os.Args[2:])
+	case "safety":
+		err = cmdSafety(os.Args[2:])
+	case "review":
+		err = cmdReview(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -94,9 +106,215 @@ Usage:
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
   orq agents [--format json]
+  orq audit prs [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
+  orq repo check [--path repo] [--format json]
+  orq repo init-template --path repo [--name project] [--format json]
+  orq safety check [--path repo] [--command text] [--format json]
+  orq review 4r [--path repo] [--format json]
 `)
+}
+
+func cmdSafety(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("safety subcommand is required")
+	}
+	switch args[0] {
+	case "check":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		command, remaining, err := extractStringFlag(remaining, "--command", "")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := safety.CheckRepo(path)
+		if command != "" {
+			if bad, reason := safety.UnsafeCommand(command); bad {
+				report.Passed = false
+				report.Risk = "alto"
+				report.Findings = append(report.Findings, safety.Finding{Level: "alto", Reason: reason})
+			}
+		}
+		if format == "json" {
+			if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+				return err
+			}
+		} else {
+			status := "OK"
+			if !report.Passed {
+				status = "BLOCKED"
+			}
+			fmt.Printf("%s repo=%s risk=%s findings=%d\n", status, report.Root, report.Risk, len(report.Findings))
+			for _, finding := range report.Findings {
+				fmt.Printf("%s path=%s reason=%s\n", finding.Level, finding.Path, finding.Reason)
+			}
+		}
+		if !report.Passed {
+			return fmt.Errorf("safety check failed")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown safety subcommand %q", args[0])
+	}
+}
+
+func cmdAudit(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("audit subcommand is required")
+	}
+	switch args[0] {
+	case "prs":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := audit.AuditPullRequests(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("repo=%s open_prs=%d\n", report.Repository, len(report.Pulls))
+		for _, pr := range report.Pulls {
+			state := "OK"
+			if pr.Blocked {
+				state = "BLOCKED"
+			}
+			fmt.Printf("%s #%d %s mergeable=%s review=%s checks=%d\n", state, pr.Number, pr.Title, pr.Mergeable, pr.ReviewDecision, len(pr.Checks))
+			for _, blocker := range pr.Blockers {
+				fmt.Printf("  blocker=%s\n", blocker)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown audit subcommand %q", args[0])
+	}
+}
+
+func cmdReview(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("review subcommand is required")
+	}
+	switch args[0] {
+	case "4r":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := review4r.Build(path)
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("repo=%s changed_files=%d\n", report.Root, len(report.ChangedFiles))
+		for _, item := range report.Items {
+			fmt.Printf("- %s: %s\n", item.Area, item.Question)
+			if len(item.Focus) > 0 {
+				fmt.Printf("  foco=%s\n", strings.Join(item.Focus, ","))
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown review subcommand %q", args[0])
+	}
+}
+
+func cmdRepo(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("repo subcommand is required")
+	}
+	switch args[0] {
+	case "init-template":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", "")
+		if err != nil {
+			return err
+		}
+		name, remaining, err := extractStringFlag(remaining, "--name", "")
+		if err != nil {
+			return err
+		}
+		if path == "" {
+			return fmt.Errorf("--path is required")
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		result, err := repostandard.InitRepo(path, repostandard.TemplateData{ProjectName: name})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		fmt.Printf("repo=%s created=%d skipped=%d\n", result.Root, len(result.Created), len(result.Skipped))
+		return nil
+	case "check":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := repostandard.CheckRepo(path)
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		status := "OK"
+		if !report.Passed {
+			status = "FAIL"
+		}
+		fmt.Printf("%s repo=%s\n", status, report.Root)
+		for _, check := range report.Checks {
+			mark := "OK"
+			if !check.Passed {
+				if check.Required {
+					mark = "FAIL"
+				} else {
+					mark = "WARN"
+				}
+			}
+			fmt.Printf("%s %s path=%s reason=%s\n", mark, check.Name, check.Path, check.Reason)
+		}
+		if !report.Passed {
+			return fmt.Errorf("repo standard check failed")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown repo subcommand %q", args[0])
+	}
 }
 
 func cmdClassify(args []string) error {
