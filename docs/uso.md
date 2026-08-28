@@ -160,6 +160,17 @@ orq repo init-template --path /ruta/al/repo --name nombre-proyecto
 
 El comando revisa presencia de archivos base del estándar: README, SECURITY, CONTRIBUTING, LICENSE, CI, docs, diagramas, Makefile y plantillas. Si falta algo obligatorio, devuelve error.
 
+### Auditar PRs abiertos
+
+Auditoría read-only de PRs abiertos. No aprueba, no mergea y no modifica el repo.
+
+```bash
+orq audit prs --path /ruta/al/repo
+orq audit prs --path /ruta/al/repo --format json
+```
+
+Reporta checks, estado mergeable y bloqueos como review requerida por una identidad distinta con permisos.
+
 ### Generar revisión 4R
 
 ```bash

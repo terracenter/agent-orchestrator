@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
+	"github.com/terracenter/agent-orchestrator/internal/audit"
 	"github.com/terracenter/agent-orchestrator/internal/budget"
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
@@ -59,6 +60,8 @@ func main() {
 		err = cmdHandoff(os.Args[2:])
 	case "agents":
 		err = cmdAgents(os.Args[2:])
+	case "audit":
+		err = cmdAudit(os.Args[2:])
 	case "observer":
 		err = cmdObserver(os.Args[2:])
 	case "budget":
@@ -99,12 +102,54 @@ Usage:
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
   orq agents [--format json]
+  orq audit prs [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
   orq review 4r [--path repo] [--format json]
 `)
+}
+
+func cmdAudit(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("audit subcommand is required")
+	}
+	switch args[0] {
+	case "prs":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := audit.AuditPullRequests(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("repo=%s open_prs=%d\n", report.Repository, len(report.Pulls))
+		for _, pr := range report.Pulls {
+			state := "OK"
+			if pr.Blocked {
+				state = "BLOCKED"
+			}
+			fmt.Printf("%s #%d %s mergeable=%s review=%s checks=%d\n", state, pr.Number, pr.Title, pr.Mergeable, pr.ReviewDecision, len(pr.Checks))
+			for _, blocker := range pr.Blockers {
+				fmt.Printf("  blocker=%s\n", blocker)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown audit subcommand %q", args[0])
+	}
 }
 
 func cmdReview(args []string) error {
