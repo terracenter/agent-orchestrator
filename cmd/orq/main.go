@@ -18,6 +18,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/observer"
+	"github.com/terracenter/agent-orchestrator/internal/repostandard"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
@@ -61,6 +62,8 @@ func main() {
 		err = cmdObserver(os.Args[2:])
 	case "budget":
 		err = cmdBudget(os.Args[2:])
+	case "repo":
+		err = cmdRepo(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -95,7 +98,54 @@ Usage:
   orq agents [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
+  orq repo check [--path repo] [--format json]
 `)
+}
+
+func cmdRepo(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("repo subcommand is required")
+	}
+	switch args[0] {
+	case "check":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := repostandard.CheckRepo(path)
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		status := "OK"
+		if !report.Passed {
+			status = "FAIL"
+		}
+		fmt.Printf("%s repo=%s\n", status, report.Root)
+		for _, check := range report.Checks {
+			mark := "OK"
+			if !check.Passed {
+				if check.Required {
+					mark = "FAIL"
+				} else {
+					mark = "WARN"
+				}
+			}
+			fmt.Printf("%s %s path=%s reason=%s\n", mark, check.Name, check.Path, check.Reason)
+		}
+		if !report.Passed {
+			return fmt.Errorf("repo standard check failed")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown repo subcommand %q", args[0])
+	}
 }
 
 func cmdClassify(args []string) error {

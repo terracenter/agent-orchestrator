@@ -11,6 +11,7 @@ import (
 func TestGitCollisionDetectsDirtyRepo(t *testing.T) {
 	repo := t.TempDir()
 	run(t, repo, "git", "init")
+	run(t, repo, "git", "config", "core.hooksPath", "/dev/null")
 	run(t, repo, "git", "config", "user.email", "test@example.com")
 	run(t, repo, "git", "config", "user.name", "Test")
 	writeFile(t, filepath.Join(repo, "README.md"), "ok")

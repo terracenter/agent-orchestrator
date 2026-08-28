@@ -145,6 +145,15 @@ orq observer send-test --project agent-orchestrator --agent nvidia-api --model o
 
 El token no se guarda en git. Si no está configurado, `orq` debe fallar de forma clara y continuar permitiendo el resto del flujo.
 
+### Validar estándar operativo de repos
+
+```bash
+orq repo check --path /ruta/al/repo
+orq repo check --path /ruta/al/repo --format json
+```
+
+El comando revisa presencia de archivos base del estándar: README, SECURITY, CONTRIBUTING, LICENSE, CI, docs, diagramas, Makefile y plantillas. Si falta algo obligatorio, devuelve error.
+
 ### Registrar tareas para futuro dashboard móvil
 
 ```bash
@@ -201,6 +210,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - recomienda agente/modelo;
 - registra eventos;
 - registra tareas con estado verificable;
+- valida estructura mínima de repos con `repo check`;
 - envía pruebas de telemetría a SGE Observer LLM;
 - valida guardias básicas;
 - carga configuración y adapters;
