@@ -47,6 +47,19 @@ Pendiente de extracción detallada desde NotebookLM. Ideas ya incorporadas como 
 - usar revisión 4R: Legibilidad, Robustez, Riesgo y Seguridad;
 - result-driven development: abstraer complejidad para que el usuario llegue al resultado sin aprender detalles internos innecesarios.
 
+## Autoridad de entrega
+
+De Gentle Pi se adopta un principio clave: la revisión del harness es evidencia informativa; la entrega final sigue la política ordinaria del repositorio.
+
+En este workspace eso significa:
+
+- el agente no aprueba su propio PR;
+- no se desactiva protección para mergear rápido;
+- si GitHub exige review, debe venir de una identidad distinta con permisos reales;
+- si un repo es single-maintainer, la protección debe diseñarse explícitamente para CI + 4R + evidencia, no para approvals ficticios.
+
+Ver: [Política de aprobación de PRs](politica-aprobacion-pr.md).
+
 ## Regla de síntesis
 
 `agent-orchestrator` no debe copiar un harness existente. Debe ser:
