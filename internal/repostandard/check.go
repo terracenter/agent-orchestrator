@@ -37,6 +37,7 @@ var baseRules = []rule{
 	{name: "CI", path: ".github/workflows", required: true},
 	{name: "docs", path: "docs", required: true},
 	{name: "diagramas", path: "docs/diagramas", required: true},
+	{name: "politica branch protection", path: "docs/politica-branch-protection.md", required: true},
 	{name: "Makefile", path: "Makefile", required: true},
 	{name: "releases/changelog", path: "RELEASES.md", required: false},
 }

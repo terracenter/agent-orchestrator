@@ -23,6 +23,18 @@ make security
 make build
 ```
 
+## Política de merge single-maintainer
+
+Si el repo tiene un solo maintainer real:
+
+- mantener PR obligatorio;
+- usar `Required approvals = 0`;
+- exigir checks automáticos verdes;
+- no autoaprobar ni usar cuentas sello;
+- pausar cambios de alto riesgo hasta confirmación explícita del maintainer.
+
+Ver: [Política de protección de ramas](docs/politica-branch-protection.md).
+
 ## Revisión 4R
 
 Todo PR debe cubrir:

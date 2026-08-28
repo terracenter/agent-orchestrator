@@ -81,6 +81,7 @@ curl -fsS http://127.0.0.1:PUERTO/api/health
 - [Contribución](CONTRIBUTING.md)
 - [Historial](RELEASES.md)
 - [Diagramas](docs/diagramas/)
+- [Política de protección de ramas](docs/politica-branch-protection.md)
 
 ## Licencia
 

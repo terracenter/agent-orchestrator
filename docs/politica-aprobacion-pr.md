@@ -45,10 +45,23 @@ GitHub no permite que el autor de un Pull Request apruebe su propio PR cuando la
 ### Repos personales/single-maintainer
 
 1. El agente crea PR o rama de trabajo.
-2. CI fuerte obligatorio.
-3. Revisión 4R obligatoria como evidencia.
-4. Merge permitido sin approval externo solo si la protección del repo fue diseñada así de forma explícita.
-5. Cambios de seguridad/deploy/secrets siguen requiriendo pausa y confirmación humana.
+2. `Require a pull request before merging` permanece activo.
+3. `Required approvals` debe ser `0` si no existe segundo maintainer real.
+4. CI fuerte obligatorio.
+5. Revisión 4R obligatoria como evidencia.
+6. Merge permitido sin approval externo solo si la protección del repo fue diseñada así de forma explícita y permanente.
+7. Cambios de seguridad/deploy/secrets siguen requiriendo pausa y confirmación humana.
+
+Configuración mínima recomendada:
+
+| Regla | Valor |
+|---|---|
+| Require a pull request before merging | Activado |
+| Required approvals | `0` en modo single-maintainer |
+| Require status checks to pass | Activado |
+| Require conversation resolution | Activado |
+| Block force pushes | Activado |
+| Block deletions | Activado |
 
 ## Principio tomado de harnesses existentes
 
