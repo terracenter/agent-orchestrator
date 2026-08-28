@@ -19,6 +19,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/observer"
 	"github.com/terracenter/agent-orchestrator/internal/repostandard"
+	"github.com/terracenter/agent-orchestrator/internal/review4r"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
@@ -64,6 +65,8 @@ func main() {
 		err = cmdBudget(os.Args[2:])
 	case "repo":
 		err = cmdRepo(os.Args[2:])
+	case "review":
+		err = cmdReview(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -100,7 +103,42 @@ Usage:
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
+  orq review 4r [--path repo] [--format json]
 `)
+}
+
+func cmdReview(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("review subcommand is required")
+	}
+	switch args[0] {
+	case "4r":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := review4r.Build(path)
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("repo=%s changed_files=%d\n", report.Root, len(report.ChangedFiles))
+		for _, item := range report.Items {
+			fmt.Printf("- %s: %s\n", item.Area, item.Question)
+			if len(item.Focus) > 0 {
+				fmt.Printf("  foco=%s\n", strings.Join(item.Focus, ","))
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown review subcommand %q", args[0])
+	}
 }
 
 func cmdRepo(args []string) error {

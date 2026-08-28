@@ -160,6 +160,15 @@ orq repo init-template --path /ruta/al/repo --name nombre-proyecto
 
 El comando revisa presencia de archivos base del estándar: README, SECURITY, CONTRIBUTING, LICENSE, CI, docs, diagramas, Makefile y plantillas. Si falta algo obligatorio, devuelve error.
 
+### Generar revisión 4R
+
+```bash
+orq review 4r --path /ruta/al/repo
+orq review 4r --path /ruta/al/repo --format json
+```
+
+El comando prepara preguntas de Legibilidad, Robustez, Riesgo y Seguridad usando los archivos cambiados como foco inicial.
+
 ### Registrar tareas para futuro dashboard móvil
 
 ```bash
