@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
+	"github.com/terracenter/agent-orchestrator/internal/budget"
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
@@ -58,6 +59,8 @@ func main() {
 		err = cmdAgents(os.Args[2:])
 	case "observer":
 		err = cmdObserver(os.Args[2:])
+	case "budget":
+		err = cmdBudget(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -91,6 +94,7 @@ Usage:
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
   orq agents [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
+  orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
 `)
 }
 
@@ -224,6 +228,58 @@ func cmdAgents(args []string) error {
 	for _, profile := range agentpkg.DefaultProfiles {
 		fmt.Printf("agent=%s provider=%s model=%s cost=%d verified=%t review_only=%t use_for=%s\n", profile.Agent, profile.Provider, profile.Model, profile.CostLevel, profile.Verified, profile.ReviewOnly, profile.UseFor)
 	}
+	return nil
+}
+
+func cmdBudget(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	contextText, remaining, err := extractStringFlag(remaining, "--context-percent", "")
+	if err != nil {
+		return err
+	}
+	codexText, remaining, err := extractStringFlag(remaining, "--codex-5h-percent", "")
+	if err != nil {
+		return err
+	}
+	weeklyText, remaining, err := extractStringFlag(remaining, "--weekly-percent", "0")
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	if contextText == "" || codexText == "" {
+		return fmt.Errorf("--context-percent and --codex-5h-percent are required")
+	}
+	contextPercent, err := parseFloatFlag("--context-percent", contextText)
+	if err != nil {
+		return err
+	}
+	codexPercent, err := parseFloatFlag("--codex-5h-percent", codexText)
+	if err != nil {
+		return err
+	}
+	weeklyPercent, err := parseFloatFlag("--weekly-percent", weeklyText)
+	if err != nil {
+		return err
+	}
+	for name, value := range map[string]float64{"--context-percent": contextPercent, "--codex-5h-percent": codexPercent, "--weekly-percent": weeklyPercent} {
+		if err := budget.ValidatePercent(name, value); err != nil {
+			return err
+		}
+	}
+	advice := budget.Decide(contextPercent, codexPercent, weeklyPercent)
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(advice)
+	}
+	fmt.Printf("action=%s reason=%s\n", advice.Action, advice.Reason)
+	if advice.CompactPrompt != "" {
+		fmt.Println(advice.CompactPrompt)
+	}
+	fmt.Printf("use=%s avoid=%s\n", strings.Join(advice.UseAgents, ","), strings.Join(advice.AvoidAgents, ","))
 	return nil
 }
 
@@ -592,6 +648,14 @@ func parseInt64Flag(name, value string) (int64, error) {
 	}
 	if parsed < 0 {
 		return 0, fmt.Errorf("%s must be >= 0", name)
+	}
+	return parsed, nil
+}
+
+func parseFloatFlag(name, value string) (float64, error) {
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", name)
 	}
 	return parsed, nil
 }
