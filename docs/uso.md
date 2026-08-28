@@ -108,6 +108,25 @@ La política actual es:
 - Claude/Sonnet como revisión crítica, seguridad o bloqueo.
 - Claude/Opus solo para arquitectura compleja o decisión mayor.
 
+### Enviar prueba de telemetría a SGE Observer LLM
+
+`orq` puede enviar un evento sintético al Observer usando el endpoint existente `POST /api/events/ingest`.
+
+Configuración local segura:
+
+```bash
+export ORQ_OBSERVER_URL="http://127.0.0.1:4000"
+export ORQ_OBSERVER_HOST_TOKEN_FILE="$HOME/.config/sge-observer/agent-orchestrator.host-token"
+```
+
+Prueba:
+
+```bash
+orq observer send-test --project agent-orchestrator --agent nvidia-api --model openai/gpt-oss-20b
+```
+
+El token no se guarda en git. Si no está configurado, `orq` debe fallar de forma clara y continuar permitiendo el resto del flujo.
+
 ### Registrar tareas para futuro dashboard móvil
 
 ```bash
@@ -164,6 +183,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 - recomienda agente/modelo;
 - registra eventos;
 - registra tareas con estado verificable;
+- envía pruebas de telemetría a SGE Observer LLM;
 - valida guardias básicas;
 - carga configuración y adapters;
 - genera planes de ordenamiento documental con `vault-order`;

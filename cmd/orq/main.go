@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
@@ -15,6 +16,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
+	"github.com/terracenter/agent-orchestrator/internal/observer"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
@@ -54,6 +56,8 @@ func main() {
 		err = cmdHandoff(os.Args[2:])
 	case "agents":
 		err = cmdAgents(os.Args[2:])
+	case "observer":
+		err = cmdObserver(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -86,6 +90,7 @@ Usage:
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
   orq agents [--format json]
+  orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
 `)
 }
 
@@ -220,6 +225,72 @@ func cmdAgents(args []string) error {
 		fmt.Printf("agent=%s provider=%s model=%s cost=%d verified=%t review_only=%t use_for=%s\n", profile.Agent, profile.Provider, profile.Model, profile.CostLevel, profile.Verified, profile.ReviewOnly, profile.UseFor)
 	}
 	return nil
+}
+
+func cmdObserver(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("observer subcommand is required")
+	}
+	format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "send-test":
+		project, remaining, err := extractStringFlag(remaining, "--project", "agent-orchestrator")
+		if err != nil {
+			return err
+		}
+		agent, remaining, err := extractStringFlag(remaining, "--agent", "nvidia-api")
+		if err != nil {
+			return err
+		}
+		model, remaining, err := extractStringFlag(remaining, "--model", "openai/gpt-oss-20b")
+		if err != nil {
+			return err
+		}
+		tokensInText, remaining, err := extractStringFlag(remaining, "--tokens-in", "100")
+		if err != nil {
+			return err
+		}
+		tokensOutText, remaining, err := extractStringFlag(remaining, "--tokens-out", "20")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		tokensIn, err := parseInt64Flag("--tokens-in", tokensInText)
+		if err != nil {
+			return err
+		}
+		tokensOut, err := parseInt64Flag("--tokens-out", tokensOutText)
+		if err != nil {
+			return err
+		}
+		client, ok, err := observer.FromEnv()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("observer token not configured; set ORQ_OBSERVER_HOST_TOKEN or ORQ_OBSERVER_HOST_TOKEN_FILE")
+		}
+		event := observer.SyntheticEvent(project, agent, model, tokensIn, tokensOut)
+		result, err := client.Ingest(context.Background(), []observer.Event{event})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				Event  observer.Event        `json:"event"`
+				Result observer.IngestResult `json:"result"`
+			}{Event: event, Result: result})
+		}
+		fmt.Printf("observer=ok inserted=%d event_id=%s project=%s agent=%s model=%s\n", result.Inserted, event.EventID, event.Project, event.Agent, event.Model)
+		return nil
+	default:
+		return fmt.Errorf("unknown observer subcommand %q", args[0])
+	}
 }
 
 func cmdHandoff(args []string) error {
@@ -512,6 +583,17 @@ func cmdRun(args []string) error {
 	}
 	fmt.Printf("dry-run=%t executed=false agent=%s model=%s\n", dryRun, decision.RecommendedAgent, decision.RecommendedModel)
 	return nil
+}
+
+func parseInt64Flag(name, value string) (int64, error) {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", name)
+	}
+	return parsed, nil
 }
 
 func extractStringFlag(args []string, name, defaultValue string) (string, []string, error) {
