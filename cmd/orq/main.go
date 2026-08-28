@@ -18,6 +18,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
+	"github.com/terracenter/agent-orchestrator/internal/inbox"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/observer"
 	"github.com/terracenter/agent-orchestrator/internal/repostandard"
@@ -60,6 +61,8 @@ func main() {
 		err = cmdTask(os.Args[2:])
 	case "handoff":
 		err = cmdHandoff(os.Args[2:])
+	case "inbox":
+		err = cmdInbox(os.Args[2:])
 	case "agents":
 		err = cmdAgents(os.Args[2:])
 	case "audit":
@@ -105,6 +108,7 @@ Usage:
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
+  orq inbox feedbacks [--path dir] [--format json]
   orq agents [--format json]
   orq audit prs [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
@@ -580,6 +584,50 @@ func cmdObserver(args []string) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown observer subcommand %q", args[0])
+	}
+}
+
+func cmdInbox(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("inbox subcommand is required")
+	}
+	format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+	if err != nil {
+		return err
+	}
+	path, remaining, err := extractStringFlag(remaining, "--path", "/home/freddy/Workspace/.agents/handoffs/hermes-orq")
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	switch args[0] {
+	case "feedbacks":
+		items, err := inbox.ScanFeedbacks(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(items)
+		}
+		fmt.Printf("feedbacks=%d path=%s\n", len(items), path)
+		for _, item := range items {
+			flags := []string{}
+			if item.NeedsHuman {
+				flags = append(flags, "human")
+			}
+			if item.NextForPi {
+				flags = append(flags, "pi")
+			}
+			if len(flags) == 0 {
+				flags = append(flags, "info")
+			}
+			fmt.Printf("%s task=%s result=%s file=%s\n", strings.Join(flags, ","), item.TaskID, item.Result, item.Path)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown inbox subcommand %q", args[0])
 	}
 }
 
