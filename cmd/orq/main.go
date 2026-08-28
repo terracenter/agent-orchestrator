@@ -109,6 +109,7 @@ Usage:
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
   orq inbox feedbacks [--path dir] [--format json]
+  orq inbox next [--path dir] [--format json]
   orq agents [--format json]
   orq audit prs [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
@@ -603,10 +604,25 @@ func cmdInbox(args []string) error {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}
 	switch args[0] {
-	case "feedbacks":
+	case "feedbacks", "next":
 		items, err := inbox.ScanFeedbacks(path)
 		if err != nil {
 			return err
+		}
+		if args[0] == "next" {
+			item, ok := inbox.NextFeedback(items)
+			if format == "json" {
+				return json.NewEncoder(os.Stdout).Encode(struct {
+					Found bool                 `json:"found"`
+					Item  inbox.FeedbackResume `json:"item,omitempty"`
+				}{Found: ok, Item: item})
+			}
+			if !ok {
+				fmt.Printf("next=none path=%s\n", path)
+				return nil
+			}
+			fmt.Printf("next task=%s result=%s file=%s human=%t pi=%t\n", item.TaskID, item.Result, item.Path, item.NeedsHuman, item.NextForPi)
+			return nil
 		}
 		if format == "json" {
 			return json.NewEncoder(os.Stdout).Encode(items)

@@ -42,6 +42,14 @@ Nada.
 	}
 }
 
+func TestNextFeedbackReturnsActionableItem(t *testing.T) {
+	items := []FeedbackResume{{File: "info.md"}, {File: "pi.md", NextForPi: true}}
+	item, ok := NextFeedback(items)
+	if !ok || item.File != "pi.md" {
+		t.Fatalf("unexpected next item: ok=%t item=%+v", ok, item)
+	}
+}
+
 func TestScanFeedbacksMarksHumanBlockers(t *testing.T) {
 	dir := t.TempDir()
 	content := `- Task ID: x
