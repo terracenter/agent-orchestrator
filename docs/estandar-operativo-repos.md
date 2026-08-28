@@ -156,6 +156,20 @@ Si aparecen muchos issues o PRs relacionados:
 
 Regla: si no sabemos, preguntamos. No hay ego.
 
+## Plantillas base incluidas
+
+Este repo incluye plantillas iniciales en `docs/templates/repo-base/`:
+
+| Archivo | Uso |
+|---|---|
+| `README.md` | README principal visual en Español Venezuela |
+| `README.en.md` | README secundario en Inglés Americano |
+| `SECURITY.md` | Política base de seguridad |
+| `CONTRIBUTING.md` | Flujo de contribución y 4R |
+| `RELEASES.md` | Changelog/release notes estilo Asterisk |
+| `Makefile` | Quality gate local para Go |
+| `ci.yml` | Workflow base de CI |
+
 ## Integración futura con `orq`
 
 Comandos objetivo:
