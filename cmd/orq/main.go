@@ -127,7 +127,7 @@ Usage:
   orq audit prs [--path repo] [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
-  orq receipt create --task text --command text --evidence text --rollback text [--command-result passed|failed|skipped|recorded] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
+  orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq session validate --guard-collision text --repo-check text --safety-check text --tests text --receipt text [--handoff text] [--touches-dangerous] [--human-approval] [--format json]
@@ -658,16 +658,21 @@ func cmdReceipt(args []string) error {
 		if err != nil {
 			return err
 		}
-		command, remaining, err := extractStringFlag(remaining, "--command", "")
+		commands, remaining, err := extractStringFlags(remaining, "--command")
 		if err != nil {
 			return err
 		}
-		commandResult, remaining, err := extractStringFlag(remaining, "--command-result", "recorded")
+		commandResults, remaining, err := extractStringFlags(remaining, "--command-result")
 		if err != nil {
 			return err
 		}
-		if !receipt.ValidCommandResult(commandResult) {
-			return fmt.Errorf("invalid --command-result %q: use passed, failed, skipped or recorded", commandResult)
+		if len(commandResults) == 0 {
+			commandResults = []string{"recorded"}
+		}
+		for _, commandResult := range commandResults {
+			if !receipt.ValidCommandResult(commandResult) {
+				return fmt.Errorf("invalid --command-result %q: use passed, failed, skipped or recorded", commandResult)
+			}
 		}
 		evidence, remaining, err := extractStringFlag(remaining, "--evidence", "")
 		if err != nil {
@@ -711,9 +716,11 @@ func cmdReceipt(args []string) error {
 		}
 		r := receipt.New(task, agent, provider, model, risk, pr)
 		r.FilesChanged = splitCSV(files)
-		if command != "" {
-			r.Commands = []receipt.Command{{Cmd: command, Result: commandResult}}
+		builtCommands, err := buildReceiptCommands(commands, commandResults)
+		if err != nil {
+			return err
 		}
+		r.Commands = builtCommands
 		r.Evidence = splitCSV(evidence)
 		r.SecurityNotes = splitCSV(securityNotes)
 		r.HumanEditsRequired = humanEditsRequired
@@ -1430,6 +1437,24 @@ func parseFloatFlag(name, value string) (float64, error) {
 	return parsed, nil
 }
 
+func buildReceiptCommands(commands []string, commandResults []string) ([]receipt.Command, error) {
+	if len(commands) == 0 {
+		return nil, nil
+	}
+	if len(commandResults) != 1 && len(commandResults) != len(commands) {
+		return nil, fmt.Errorf("--command-result count must be 1 or match --command count")
+	}
+	built := make([]receipt.Command, 0, len(commands))
+	for i, command := range commands {
+		result := commandResults[0]
+		if len(commandResults) == len(commands) {
+			result = commandResults[i]
+		}
+		built = append(built, receipt.Command{Cmd: command, Result: result})
+	}
+	return built, nil
+}
+
 func extractStringFlag(args []string, name, defaultValue string) (string, []string, error) {
 	value := defaultValue
 	remaining := make([]string, 0, len(args))
@@ -1451,6 +1476,29 @@ func extractStringFlag(args []string, name, defaultValue string) (string, []stri
 		remaining = append(remaining, arg)
 	}
 	return value, remaining, nil
+}
+
+func extractStringFlags(args []string, name string) ([]string, []string, error) {
+	values := []string{}
+	remaining := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == name {
+			if i+1 >= len(args) {
+				return nil, nil, fmt.Errorf("%s requires a value", name)
+			}
+			values = append(values, args[i+1])
+			i++
+			continue
+		}
+		prefix := name + "="
+		if strings.HasPrefix(arg, prefix) {
+			values = append(values, strings.TrimPrefix(arg, prefix))
+			continue
+		}
+		remaining = append(remaining, arg)
+	}
+	return values, remaining, nil
 }
 
 func extractBoolFlag(args []string, name string, defaultValue bool) (bool, []string) {

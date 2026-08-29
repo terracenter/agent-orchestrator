@@ -15,6 +15,16 @@ func TestVerifyValidReceipt(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsMultipleCommandResults(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}, {Cmd: "go vet ./...", Result: "skipped"}}
+	r.Evidence = []string{"logs"}
+	r.Rollback = "revert PR #12"
+	if findings := Verify(r); len(findings) != 0 {
+		t.Fatalf("expected multiple commands to be valid, got %+v", findings)
+	}
+}
+
 func TestVerifyAcceptsFailedCommandResult(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
 	r.Commands = []Command{{Cmd: "go test ./...", Result: "failed"}}
