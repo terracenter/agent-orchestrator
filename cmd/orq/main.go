@@ -1623,7 +1623,10 @@ func cmdDelegate(args []string) error {
 		WriteReceipt: writeReceipt,
 		Force:        force,
 	}
-	res := delegate.PlanWithOptions(opts)
+	res, err := delegate.PlanWithOptions(opts)
+	if err != nil {
+		return err
+	}
 	if err := delegate.WriteDelegationFiles(opts, &res); err != nil {
 		return err
 	}
