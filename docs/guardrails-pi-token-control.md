@@ -59,3 +59,16 @@ Durante la organización del vault, `orq delegate` devolvió instrucciones/promp
 ### Criterio de aceptación adicional
 
 - Dado un uso de `orq delegate` sin `--dry-run`, cuando Orq no ejecute realmente un agente externo o barato, entonces debe devolver estado explícito `not_executed` y un siguiente paso obligatorio para ejecutar la delegación real antes de continuar con Pi.
+## Feedback adicional — costos Pi/Observer mal interpretados
+
+Freddy reportó que Pi muestra métricas como `↑5.2M ↓550k R109M CH96.8% $97.152 (sub) 17.0%/272k (auto) openai-codex gpt-5.5 minimal`, pero su costo real es plan mensual de aproximadamente USD 20, con cobro cercano a USD 21 por PayPal. El Observer no debe interpretar ese `$97.152` como costo facturado real si corresponde a métrica interna/subscription/estimación.
+
+### Bug adicional
+
+- Observer/Orq necesita separar costo estimado por tokens, costo cubierto por suscripción y costo real facturado del usuario.
+- Debe permitir configurar plan real (`monthly_plan_usd`) y recargo/pasarela (`payment_fee_usd` o porcentaje).
+- Las alertas de presupuesto deben mostrar claramente `estimado`, `cubierto por suscripción` y `facturado real esperado`.
+
+### Criterio de aceptación adicional
+
+- Dado un usuario con plan mensual USD 20 y cobro real aproximado USD 21, cuando Pi reporte una métrica interna `$97.152 (sub)`, entonces Observer debe registrar esa cifra como estimación/subscription y no como cobro real, mostrando el costo real configurado por el usuario.
