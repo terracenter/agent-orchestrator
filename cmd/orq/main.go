@@ -28,6 +28,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/review4r"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/safety"
+	"github.com/terracenter/agent-orchestrator/internal/session"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
 )
@@ -76,6 +77,8 @@ func main() {
 		err = cmdObserver(os.Args[2:])
 	case "receipt":
 		err = cmdReceipt(os.Args[2:])
+	case "session":
+		err = cmdSession(os.Args[2:])
 	case "budget":
 		err = cmdBudget(os.Args[2:])
 	case "repo":
@@ -127,12 +130,70 @@ Usage:
   orq receipt create --task text --command text --evidence text --rollback text [--command-result passed|failed|skipped|recorded] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
+  orq session validate --guard-collision text --repo-check text --safety-check text --tests text --receipt text [--handoff text] [--touches-dangerous] [--human-approval] [--format json]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
   orq safety check [--path repo] [--command text] [--format json]
   orq review 4r [--path repo] [--format json]
 `)
+}
+
+func cmdSession(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("session subcommand is required")
+	}
+	format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "validate":
+		guardCollision, remaining, err := extractStringFlag(remaining, "--guard-collision", "")
+		if err != nil {
+			return err
+		}
+		repoCheck, remaining, err := extractStringFlag(remaining, "--repo-check", "")
+		if err != nil {
+			return err
+		}
+		safetyCheck, remaining, err := extractStringFlag(remaining, "--safety-check", "")
+		if err != nil {
+			return err
+		}
+		tests, remaining, err := extractStringFlag(remaining, "--tests", "")
+		if err != nil {
+			return err
+		}
+		receiptText, remaining, err := extractStringFlag(remaining, "--receipt", "")
+		if err != nil {
+			return err
+		}
+		handoffText, remaining, err := extractStringFlag(remaining, "--handoff", "")
+		if err != nil {
+			return err
+		}
+		touchesDangerous, remaining := extractBoolFlag(remaining, "--touches-dangerous", false)
+		humanApproval, remaining := extractBoolFlag(remaining, "--human-approval", false)
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := session.Validate(session.Input{RepoCheck: repoCheck, SafetyCheck: safetyCheck, GuardCollision: guardCollision, Tests: tests, Receipt: receiptText, Handoff: handoffText, TouchesDangerous: touchesDangerous, HumanApproval: humanApproval})
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		status := "OK"
+		if !report.Valid {
+			status = "BLOCKED"
+		}
+		fmt.Printf("%s checks=%d findings=%d\n", status, len(report.Checks), len(report.Findings))
+		for _, finding := range report.Findings {
+			fmt.Printf("finding severity=%s message=%q\n", finding.Severity, finding.Message)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
 }
 
 func cmdSafety(args []string) error {
