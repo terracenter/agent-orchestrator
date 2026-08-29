@@ -30,9 +30,37 @@ type Command struct {
 	Result string `json:"result"`
 }
 
+// PRInfo stores the small subset of pull request metadata needed for RDD.
+type PRInfo struct {
+	Number      int
+	Title       string
+	URL         string
+	HeadRef     string
+	BaseRef     string
+	MergeCommit string
+	Files       []string
+	Checks      []string
+}
+
 // New builds a receipt with safe defaults.
 func New(task, agent, provider, model, risk string, pr int) Receipt {
 	return Receipt{Task: task, Agent: agent, Provider: provider, Model: model, PR: pr, Risk: risk, CreatedAt: time.Now().UTC()}
+}
+
+// FromPR builds a receipt from pull request metadata.
+func FromPR(info PRInfo, agent, provider, model, risk string) Receipt {
+	r := New(info.Title, agent, provider, model, risk, info.Number)
+	r.FilesChanged = append([]string(nil), info.Files...)
+	r.Commands = []Command{{Cmd: "gh pr checks", Result: strings.Join(info.Checks, ", ")}}
+	r.Rollback = fmt.Sprintf("revert PR #%d", info.Number)
+	r.Evidence = []string{fmt.Sprintf("PR #%d", info.Number)}
+	if info.URL != "" {
+		r.Evidence = append(r.Evidence, info.URL)
+	}
+	if info.MergeCommit != "" {
+		r.Evidence = append(r.Evidence, "merge commit "+info.MergeCommit)
+	}
+	return r
 }
 
 // Save writes the receipt as indented JSON.
