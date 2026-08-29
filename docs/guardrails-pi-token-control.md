@@ -52,3 +52,10 @@ Freddy reportó nuevamente que Pi siguió consumiendo tokens rápido en tareas q
 ### Criterio de aceptación adicional
 
 - Dado que `orq budget` recomienda evitar `pi/openai/gpt-5.5`, cuando se ejecuten más de N acciones delegables desde Pi en la misma tarea, entonces Orq debe responder con `degradación obligatoria` y pedir delegar a agente barato antes de seguir.
+## Feedback adicional — delegate debe ser delegación real
+
+Durante la organización del vault, `orq delegate` devolvió instrucciones/prompts pero no evidenció ejecución real por otro agente ni entrega de resultado verificable. Si el operador necesita reducir consumo de Pi, Orq debe distinguir claramente entre `prompt generado`, `dry-run` y `delegación ejecutada con recibo`.
+
+### Criterio de aceptación adicional
+
+- Dado un uso de `orq delegate` sin `--dry-run`, cuando Orq no ejecute realmente un agente externo o barato, entonces debe devolver estado explícito `not_executed` y un siguiente paso obligatorio para ejecutar la delegación real antes de continuar con Pi.
