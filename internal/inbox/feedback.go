@@ -51,6 +51,16 @@ func ScanFeedbacks(dir string) ([]FeedbackResume, error) {
 	return items, nil
 }
 
+// NextFeedback returns the newest feedback that needs Pi/Claude or human attention.
+func NextFeedback(items []FeedbackResume) (FeedbackResume, bool) {
+	for _, item := range items {
+		if item.NeedsHuman || item.NextForPi {
+			return item, true
+		}
+	}
+	return FeedbackResume{}, false
+}
+
 func parseFeedback(path, file, content string, mod time.Time) FeedbackResume {
 	item := FeedbackResume{Path: path, File: file, ModifiedTime: mod}
 	for _, line := range strings.Split(content, "\n") {
