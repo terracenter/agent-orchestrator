@@ -25,6 +25,7 @@ type Receipt struct {
 	HumanEditsNotes               []string  `json:"human_edits_notes,omitempty"`
 	Rollback                      string    `json:"rollback"`
 	Evidence                      []string  `json:"evidence"`
+	RtkViolations                 []string  `json:"rtk_violations,omitempty"`
 	CreatedAt                     time.Time `json:"created_at"`
 }
 
@@ -166,5 +167,30 @@ func Verify(r Receipt) []string {
 	if len(r.HumanEditsNotes) > 0 && (!r.HumanEditsRequired || !r.CorreccionesHumanasRequeridas) {
 		findings = append(findings, "human_edits_notes requiere human_edits_required")
 	}
+
+	for i, cmd := range r.Commands {
+		trimmed := strings.TrimSpace(cmd.Cmd)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "gh ") || strings.HasPrefix(trimmed, "cd ") {
+			continue
+		}
+		parts := strings.Fields(trimmed)
+		if len(parts) > 0 && parts[0] != "rtk" {
+			// Es un comando que no usa rtk. Debe estar declarado en RtkViolations.
+			found := false
+			for _, v := range r.RtkViolations {
+				if v == cmd.Cmd {
+					found = true
+					break
+				}
+			}
+			if !found {
+				findings = append(findings, fmt.Sprintf("commands[%d] viola rtk_required (debe usar rtk y no esta declarado en rtk_violations): %q", i, cmd.Cmd))
+			}
+		}
+	}
+
 	return findings
 }

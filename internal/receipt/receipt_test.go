@@ -7,7 +7,7 @@ import (
 
 func TestVerifyValidReceipt(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
 	r.Evidence = []string{"PR #12"}
 	r.Rollback = "revert PR #12"
 	if findings := Verify(r); len(findings) != 0 {
@@ -17,7 +17,7 @@ func TestVerifyValidReceipt(t *testing.T) {
 
 func TestVerifyAcceptsMultipleCommandResults(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}, {Cmd: "go vet ./...", Result: "skipped"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}, {Cmd: "rtk go vet ./...", Result: "skipped"}}
 	r.Evidence = []string{"logs"}
 	r.Rollback = "revert PR #12"
 	if findings := Verify(r); len(findings) != 0 {
@@ -27,7 +27,7 @@ func TestVerifyAcceptsMultipleCommandResults(t *testing.T) {
 
 func TestVerifyAcceptsFailedCommandResult(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "failed"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "failed"}}
 	r.Evidence = []string{"log de fallo preservado"}
 	r.Rollback = "revert PR #12"
 	if findings := Verify(r); len(findings) != 0 {
@@ -37,7 +37,7 @@ func TestVerifyAcceptsFailedCommandResult(t *testing.T) {
 
 func TestVerifyRejectsUnknownCommandResult(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "maybe"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "maybe"}}
 	r.Evidence = []string{"log"}
 	r.Rollback = "revert"
 	if findings := Verify(r); len(findings) == 0 {
@@ -47,7 +47,7 @@ func TestVerifyRejectsUnknownCommandResult(t *testing.T) {
 
 func TestVerifyAcceptsHumanEditsRequiredWithNotes(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
 	r.Evidence = []string{"log"}
 	r.Rollback = "revert"
 	r.HumanEditsRequired = true
@@ -60,7 +60,7 @@ func TestVerifyAcceptsHumanEditsRequiredWithNotes(t *testing.T) {
 
 func TestVerifyRejectsHumanEditsRequiredWithoutNotes(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
 	r.Evidence = []string{"log"}
 	r.Rollback = "revert"
 	r.HumanEditsRequired = true
@@ -73,7 +73,7 @@ func TestVerifyRejectsHumanEditsRequiredWithoutNotes(t *testing.T) {
 func TestVerifyAcceptsHumanEditsRequiredValueUnknownOrInteger(t *testing.T) {
 	for _, value := range []string{"unknown", "0", "3"} {
 		r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-		r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+		r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
 		r.Evidence = []string{"log"}
 		r.Rollback = "revert"
 		r.HumanEditsRequiredValue = value
@@ -85,7 +85,7 @@ func TestVerifyAcceptsHumanEditsRequiredValueUnknownOrInteger(t *testing.T) {
 
 func TestVerifyRejectsInvalidHumanEditsRequiredValue(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
-	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
 	r.Evidence = []string{"log"}
 	r.Rollback = "revert"
 	r.HumanEditsRequiredValue = "true"
@@ -118,7 +118,7 @@ func TestFromPRBuildsVerifiableReceipt(t *testing.T) {
 func TestSaveLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 1)
-	r.Commands = []Command{{Cmd: "test", Result: "passed"}}
+	r.Commands = []Command{{Cmd: "rtk test", Result: "passed"}}
 	r.Evidence = []string{"commit abc"}
 	r.Rollback = "revert"
 	if err := Save(path, r); err != nil {
@@ -130,5 +130,26 @@ func TestSaveLoad(t *testing.T) {
 	}
 	if loaded.Task != r.Task || loaded.PR != r.PR {
 		t.Fatalf("unexpected loaded receipt: %+v", loaded)
+	}
+}
+
+func TestVerifyDetectsRtkViolations(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{
+		{Cmd: "rtk go test ./...", Result: "passed"},
+		{Cmd: "go vet ./...", Result: "skipped"},
+	}
+	r.Evidence = []string{"logs"}
+	r.Rollback = "revert PR #12"
+
+	findings := Verify(r)
+	if len(findings) == 0 {
+		t.Fatal("esperaba encontrar hallazgos de violacion de rtk")
+	}
+
+	r.RtkViolations = []string{"go vet ./..."}
+	findingsAfter := Verify(r)
+	if len(findingsAfter) != 0 {
+		t.Fatalf("esperaba que el recibo fuera valido despues de declarar la violacion, hallazgos: %+v", findingsAfter)
 	}
 }

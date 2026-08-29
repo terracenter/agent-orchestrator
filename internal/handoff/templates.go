@@ -67,7 +67,8 @@ Errores actuales: completar solo si existen.
 
 Formato de salida requerido:
 - Resumen breve.
-- Comandos ejecutados y resultado real.
+- Comandos ejecutados y resultado real (deben ir con prefijo rtk).
+- Violaciones de RTK (declarar explícitamente si se corrieron comandos sin rtk).
 - Evidencia verificable.
 - Riesgos/bloqueos.
 - Rollback propuesto.
