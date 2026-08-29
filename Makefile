@@ -12,9 +12,12 @@ build:
 test:
 	$(GO) test ./...
 
-install: build
-	mkdir -p $(BINDIR)
-	install -m 0755 bin/$(BIN) $(BINDIR)/$(BIN)
+install:
+	@tmpdir=$$(mktemp -d 2>/dev/null || mktemp -d -t 'orq-install'); \
+	trap 'rm -rf "$$tmpdir"' EXIT INT TERM; \
+	$(GO) build -buildvcs=false -o "$$tmpdir/$(BIN)" ./cmd/orq && \
+	mkdir -p $(BINDIR) && \
+	install -m 0755 "$$tmpdir/$(BIN)" $(BINDIR)/$(BIN)
 
 clean:
 	rm -rf bin
