@@ -155,13 +155,19 @@ Si la acción incluye compactación, `orq` imprime un prompt `/compact` listo pa
 
 ### Delegación autónoma hacia AGY CLI (`orq delegate`)
 
-Genera un plan de delegación y el comando CLI autónomo listo para ejecutar en AGY (Antigravity CLI), evitando prompts interactivos innecesarios y garantizando aislamiento de contexto:
+Genera un plan de delegación y el comando CLI autónomo listo para ejecutar en AGY (Antigravity CLI), evitando prompts interactivos innecesarios y garantizando aislamiento de contexto. Además permite materializar el handoff y un receipt inicial en archivos:
 
 ```bash
 orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/tarea.md
 orq delegate "implementar nuevo endpoint" --agent agy
+orq delegate "implementar nuevo endpoint" --agent agy --write-handoff /home/freddy/Workspace/.agents/handoffs/tarea.md --write-receipt /tmp/receipt.json
 orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/tarea.md --format json
 ```
+
+Opciones de escritura de archivos:
+- `--write-handoff <path>`: Genera y escribe el archivo Markdown de handoff listo para el agente ejecutor, incluyendo objetivo, protocolo operativo (RTK, sin sudo, sin secretos, sin push a main), instrucción de contexto limpio (`Olvida el historial anterior`) y criterios de validación.
+- `--write-receipt <path>`: Genera y escribe un archivo JSON de receipt/plan de ejecución inicial compatible con `orq receipt`.
+- `--force`: Permite sobrescribir archivos existentes en las rutas indicadas (por defecto, `orq delegate` rechaza sobrescribir si el archivo ya existe).
 
 Propiedades del comando generado para AGY:
 - **Aislamiento de contexto:** Incluye `"Olvida el historial anterior. Lee y ejecuta <handoff>"` para evitar arrastre de contexto o bloqueos de turnos previos.

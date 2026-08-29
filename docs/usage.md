@@ -38,6 +38,7 @@ orq classify "fix a broken reference"
 orq route "rotate production token"
 orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/task.md
 orq delegate "implement feature" --agent agy
+orq delegate "implement feature" --agent agy --write-handoff /home/freddy/Workspace/.agents/handoffs/task.md --write-receipt /tmp/receipt.json
 orq run "audit project" --dry-run
 orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status

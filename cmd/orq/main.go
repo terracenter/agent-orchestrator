@@ -118,7 +118,7 @@ Usage:
   orq guard-collision --path <repo> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
-  orq delegate <task> [--agent pi|claude|codex|hermes|agy] [--model <model>] [--handoff <path>] [--repo <path>] [--agents-dir <path>] [--workspace <path>] [--executed] [--format json]
+  orq delegate <task> [--agent pi|claude|codex|hermes|agy] [--model <model>] [--handoff <path>] [--write-handoff <path>] [--write-receipt <path>] [--force] [--repo <path>] [--agents-dir <path>] [--workspace <path>] [--executed] [--format json]
   orq docs usage|orchestration
   orq task create <title> [--tasks path] [--format json]
   orq task list [--tasks path] [--format json]
@@ -1575,6 +1575,15 @@ func cmdDelegate(args []string) error {
 	if err != nil {
 		return err
 	}
+	writeHandoff, remaining, err := extractStringFlag(remaining, "--write-handoff", "")
+	if err != nil {
+		return err
+	}
+	writeReceipt, remaining, err := extractStringFlag(remaining, "--write-receipt", "")
+	if err != nil {
+		return err
+	}
+	force, remaining := extractBoolFlag(remaining, "--force", false)
 	repoPath, remaining, err := extractStringFlag(remaining, "--repo", "")
 	if err != nil {
 		return err
@@ -1589,27 +1598,50 @@ func cmdDelegate(args []string) error {
 	}
 	executed, remaining := extractBoolFlag(remaining, "--executed", false)
 	task := strings.TrimSpace(strings.Join(remaining, " "))
-	if task == "" && handoffPath == "" {
-		return fmt.Errorf("task or --handoff is required")
+	if task == "" && handoffPath == "" && writeHandoff == "" {
+		return fmt.Errorf("task or --handoff or --write-handoff is required")
 	}
 	if task == "" && handoffPath != "" {
 		task = fmt.Sprintf("ejecutar handoff %s", filepath.Base(handoffPath))
 	}
 
+	effectiveHandoff := handoffPath
+	if effectiveHandoff == "" && writeHandoff != "" {
+		effectiveHandoff = writeHandoff
+	}
+
 	opts := delegate.PlanOptions{
-		Task:        task,
-		Agent:       agentName,
-		Executed:    executed,
-		HandoffPath: handoffPath,
-		RepoPath:    repoPath,
-		AgentsDir:   agentsDir,
-		Workspace:   workspace,
-		Model:       model,
+		Task:         task,
+		Agent:        agentName,
+		Executed:     executed,
+		HandoffPath:  effectiveHandoff,
+		RepoPath:     repoPath,
+		AgentsDir:    agentsDir,
+		Workspace:    workspace,
+		Model:        model,
+		WriteHandoff: writeHandoff,
+		WriteReceipt: writeReceipt,
+		Force:        force,
 	}
 	res := delegate.PlanWithOptions(opts)
+	if err := delegate.WriteDelegationFiles(opts, &res); err != nil {
+		return err
+	}
+
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(res)
 	}
+
+	if res.WrittenHandoff != "" {
+		fmt.Printf("Handoff escrito en: %s\n", res.WrittenHandoff)
+	}
+	if res.WrittenReceipt != "" {
+		fmt.Printf("Receipt inicial escrito en: %s\n", res.WrittenReceipt)
+	}
+	if res.WrittenHandoff != "" || res.WrittenReceipt != "" {
+		fmt.Println()
+	}
+
 	fmt.Printf("status=%s must_stop_for_delegation=%t supervisor_only=%t execution_agent_allowed=%t\nnext_step=%s\n\n", res.Status, res.MustStopForDelegation, res.SupervisorOnly, res.ExecutionAgentAllowed, res.NextStep)
 	if res.AutonomousCommand != "" {
 		fmt.Printf("Comando sugerido:\n%s\n\n", res.AutonomousCommand)
