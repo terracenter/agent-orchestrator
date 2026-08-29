@@ -19,6 +19,13 @@ func TestMechanicalUsesLowLevel(t *testing.T) {
 	}
 }
 
+func TestRouteAlwaysRequiresRTK(t *testing.T) {
+	decision := Decide("cualquier tarea con comandos")
+	if !decision.RtkRequired {
+		t.Fatal("RtkRequired = false, want true")
+	}
+}
+
 func TestVaultDocumentationUsesCheapAgents(t *testing.T) {
 	decision := Decide("ordenar informacion del vault relacionada con GLPI")
 	if decision.Category != "documentacion" {

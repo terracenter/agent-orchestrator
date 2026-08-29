@@ -12,6 +12,7 @@ type Decision struct {
 	AvoidAgents          []string `json:"avoid_agents,omitempty"`
 	RequiresConfirmation bool     `json:"requires_confirmation"`
 	SecurityOverride     bool     `json:"security_override"`
+	RtkRequired          bool     `json:"rtk_required"`
 	Reason               string   `json:"reason"`
 }
 
@@ -37,7 +38,7 @@ func Classify(task string) string {
 
 func Decide(task string) Decision {
 	category := Classify(task)
-	decision := Decision{Task: task, Category: category}
+	decision := Decision{Task: task, Category: category, RtkRequired: true}
 	switch category {
 	case "seguridad":
 		decision.RecommendedLevel = 3
