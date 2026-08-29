@@ -62,14 +62,14 @@
 ## Fase 6 — Installer y doctor para usuarios básicos
 
 - [ ] Crear instalador simple estilo `curl | bash`, con modo interactivo y dry-run.
-- [ ] Implementar `orq doctor` para detectar `rtk`, `git`, `gh`, `vg`, `openclaw`, `agy`, `hermes`, `codex` y runners futuros.
+- [x] Implementar `orq doctor` para detectar `rtk`, `git`, `gh`, `vg`, `openclaw`, `agy`, `hermes`, `claude`.
 - [ ] Si falta `rtk`, ofrecer instalación automática o instrucciones manuales.
-- [ ] Si falta una herramienta opcional, marcar estado `missing`, `degraded` o `blocked` según impacto.
+- [x] Si falta una herramienta opcional, marcar estado `missing`, `degraded` o `blocked` según impacto.
 - [ ] Crear backups antes de tocar configuración de agentes.
 
 ## Fase 7 — Configuración multi-agente
 
-- [ ] Implementar `orq agents detect`.
+- [x] Implementar `orq agents detect` para inspección segura de presencia/rutas de runners.
 - [ ] Implementar `orq agents configure <agent|all>`.
 - [ ] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.
 - [ ] Documentar OpenClaw, AGY, Hermes y Codex como runners independientes.

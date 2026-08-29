@@ -17,6 +17,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/budget"
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
+	"github.com/terracenter/agent-orchestrator/internal/doctor"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/guides"
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
@@ -90,6 +91,8 @@ func main() {
 		err = cmdSafety(os.Args[2:])
 	case "review":
 		err = cmdReview(os.Args[2:])
+	case "doctor":
+		err = cmdDoctor(os.Args[2:])
 	case "help", "--help", "-h":
 		usage()
 		return
@@ -129,6 +132,8 @@ Usage:
   orq inbox next [--path dir] [--seen-file path] [--format json]
   orq inbox ack --file path [--seen-file path]
   orq agents [--format json]
+  orq agents detect [--format json]
+  orq doctor [--format json]
   orq audit prs [--path repo] [--format json]
   orq audit issues [--path repo] [--format json]
   orq audit models [--format json]
@@ -647,6 +652,23 @@ func cmdAgents(args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(remaining) > 0 && remaining[0] == "detect" {
+		if len(remaining) > 1 {
+			return fmt.Errorf("unexpected arguments after detect: %s", strings.Join(remaining[1:], " "))
+		}
+		detections := agentpkg.DetectAgents()
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(detections)
+		}
+		for _, d := range detections {
+			fmt.Printf("agent=%s installed=%t binary=%s config=%s cost=%d verified=%t review_only=%t role=%s\n",
+				d.Agent, d.Installed, d.BinaryPath, d.ConfigPath, d.CostLevel, d.Verified, d.ReviewOnly, d.Role)
+			if d.Notes != "" {
+				fmt.Printf("  notes=%s\n", d.Notes)
+			}
+		}
+		return nil
+	}
 	if len(remaining) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}
@@ -655,6 +677,69 @@ func cmdAgents(args []string) error {
 	}
 	for _, profile := range agentpkg.DefaultProfiles {
 		fmt.Printf("agent=%s provider=%s model=%s cost=%d verified=%t review_only=%t use_for=%s\n", profile.Agent, profile.Provider, profile.Model, profile.CostLevel, profile.Verified, profile.ReviewOnly, profile.UseFor)
+	}
+	return nil
+}
+
+func cmdDoctor(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+	}
+	report := doctor.Run(context.Background(), doctor.Options{})
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(report)
+	}
+
+	fmt.Printf("doctor status=%s total=%d ok=%d missing=%d degraded=%d\n",
+		report.Status, report.Summary.Total, report.Summary.OK, report.Summary.Missing, report.Summary.Degraded)
+
+	var currentCat doctor.Category = ""
+	for _, check := range report.Tools {
+		if check.Category != currentCat {
+			currentCat = check.Category
+			fmt.Printf("\n[%s]\n", currentCat)
+		}
+		statusTag := string(check.Status)
+		if check.Required {
+			statusTag += " (required)"
+		}
+		details := ""
+		if check.Path != "" {
+			details = check.Path
+		}
+		if check.ConfigPath != "" {
+			if details != "" {
+				details += ", config: " + check.ConfigPath
+			} else {
+				details = "config: " + check.ConfigPath
+			}
+		}
+		if check.Version != "" {
+			if details != "" {
+				details += ", " + check.Version
+			} else {
+				details = check.Version
+			}
+		}
+		if check.Note != "" {
+			if details != "" {
+				details += " (" + check.Note + ")"
+			} else {
+				details = check.Note
+			}
+		}
+		if details != "" {
+			fmt.Printf("  %-10s : %s [%s]\n", check.Name, statusTag, details)
+		} else {
+			fmt.Printf("  %-10s : %s\n", check.Name, statusTag)
+		}
+		if check.Recommendation != "" && check.Status != doctor.StatusOK {
+			fmt.Printf("    recommendation: %s\n", check.Recommendation)
+		}
 	}
 	return nil
 }
