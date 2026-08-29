@@ -50,3 +50,47 @@ func TestValidatePercent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestDecideForPiUnderTightBudgetRequiresDelegationStop(t *testing.T) {
+	advice := DecideForAgentWithCompactApplied(20, 85, 10, "pi", false)
+	if !advice.MustStopForDelegation {
+		t.Fatal("MustStopForDelegation = false, want true")
+	}
+	if !advice.SupervisorOnly {
+		t.Fatal("SupervisorOnly = false, want true")
+	}
+	if advice.ExecutionAgentAllowed {
+		t.Fatal("ExecutionAgentAllowed = true, want false")
+	}
+
+	// When compact is already applied, Pi action is delegar_barato and must still stop
+	adviceApplied := DecideForAgentWithCompactApplied(20, 85, 10, "pi", true)
+	if adviceApplied.Action != "delegar_barato" {
+		t.Fatalf("Action = %q, want delegar_barato", adviceApplied.Action)
+	}
+	if !adviceApplied.MustStopForDelegation {
+		t.Fatal("MustStopForDelegation = false, want true when delegating")
+	}
+	if !adviceApplied.SupervisorOnly {
+		t.Fatal("SupervisorOnly = false, want true")
+	}
+	if adviceApplied.ExecutionAgentAllowed {
+		t.Fatal("ExecutionAgentAllowed = true, want false")
+	}
+}
+
+func TestDecideForNonPiAllowsExecutionAgent(t *testing.T) {
+	advice := DecideForAgentWithCompactApplied(20, 85, 10, "agy", true)
+	if advice.Action != "delegar_barato" {
+		t.Fatalf("Action = %q, want delegar_barato", advice.Action)
+	}
+	if advice.MustStopForDelegation {
+		t.Fatal("MustStopForDelegation = true, want false for agy")
+	}
+	if advice.SupervisorOnly {
+		t.Fatal("SupervisorOnly = true, want false for agy")
+	}
+	if !advice.ExecutionAgentAllowed {
+		t.Fatal("ExecutionAgentAllowed = false, want true for agy")
+	}
+}

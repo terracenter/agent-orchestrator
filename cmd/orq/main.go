@@ -115,7 +115,7 @@ Usage:
   orq guard-collision --path <repo> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
-  orq delegate <task> [--format json]
+  orq delegate <task> [--agent pi|claude|codex|hermes|agy] [--executed] [--format json]
   orq docs usage|orchestration
   orq task create <title> [--tasks path] [--format json]
   orq task list [--tasks path] [--format json]
@@ -708,7 +708,7 @@ func cmdBudget(args []string) error {
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(advice)
 	}
-	fmt.Printf("action=%s preflight_compact_required=%t manual_compact_stop=%t compact_applied=%t reason=%s\n", advice.Action, advice.PreflightCompactRequired, advice.ManualCompactStop, advice.CompactApplied, advice.Reason)
+	fmt.Printf("action=%s preflight_compact_required=%t manual_compact_stop=%t compact_applied=%t must_stop_for_delegation=%t supervisor_only=%t execution_agent_allowed=%t reason=%s\n", advice.Action, advice.PreflightCompactRequired, advice.ManualCompactStop, advice.CompactApplied, advice.MustStopForDelegation, advice.SupervisorOnly, advice.ExecutionAgentAllowed, advice.Reason)
 	if advice.CompactPrompt != "" {
 		fmt.Println(advice.CompactPrompt)
 	}
@@ -1478,29 +1478,21 @@ func cmdDelegate(args []string) error {
 	if err != nil {
 		return err
 	}
+	agentName, remaining, err := extractStringFlag(remaining, "--agent", "pi")
+	if err != nil {
+		return err
+	}
 	executed, remaining := extractBoolFlag(remaining, "--executed", false)
 	task := strings.TrimSpace(strings.Join(remaining, " "))
 	if task == "" {
 		return fmt.Errorf("task is required")
 	}
-	decision := route.Decide(task)
-	prompt := delegate.Prompt(task, decision)
-	status := "not_executed"
-	nextStep := "ejecutar este prompt en el agente/modelo recomendado y volver con recibo verificable antes de continuar desde Pi"
-	if executed {
-		status = "executed_unverified"
-		nextStep = "adjuntar recibo verificable del agente externo antes de cerrar la tarea"
-	}
+	res := delegate.Plan(task, agentName, executed)
 	if format == "json" {
-		return json.NewEncoder(os.Stdout).Encode(struct {
-			Status   string         `json:"status"`
-			Decision route.Decision `json:"decision"`
-			Prompt   string         `json:"prompt"`
-			NextStep string         `json:"next_step"`
-		}{Status: status, Decision: decision, Prompt: prompt, NextStep: nextStep})
+		return json.NewEncoder(os.Stdout).Encode(res)
 	}
-	fmt.Printf("status=%s\nnext_step=%s\n\n", status, nextStep)
-	fmt.Println(prompt)
+	fmt.Printf("status=%s must_stop_for_delegation=%t supervisor_only=%t execution_agent_allowed=%t\nnext_step=%s\n\n", res.Status, res.MustStopForDelegation, res.SupervisorOnly, res.ExecutionAgentAllowed, res.NextStep)
+	fmt.Println(res.Prompt)
 	return nil
 }
 
