@@ -51,9 +51,60 @@ func ScanFeedbacks(dir string) ([]FeedbackResume, error) {
 	return items, nil
 }
 
+// SeenSet stores feedback paths that were already acknowledged.
+type SeenSet map[string]bool
+
+// LoadSeen reads a newline-delimited seen file. Missing files mean empty state.
+func LoadSeen(path string) (SeenSet, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return SeenSet{}, nil
+		}
+		return nil, err
+	}
+	seen := SeenSet{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			seen[line] = true
+		}
+	}
+	return seen, nil
+}
+
+// MarkSeen appends a feedback path to the seen file if it is not already present.
+func MarkSeen(seenFile, feedbackPath string) error {
+	seen, err := LoadSeen(seenFile)
+	if err != nil {
+		return err
+	}
+	if seen[feedbackPath] {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(seenFile), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(seenFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.WriteString(feedbackPath + "\n")
+	return err
+}
+
 // NextFeedback returns the newest feedback that needs Pi/Claude or human attention.
 func NextFeedback(items []FeedbackResume) (FeedbackResume, bool) {
+	return NextUnseenFeedback(items, SeenSet{})
+}
+
+// NextUnseenFeedback returns the newest actionable feedback that has not been acknowledged.
+func NextUnseenFeedback(items []FeedbackResume, seen SeenSet) (FeedbackResume, bool) {
 	for _, item := range items {
+		if seen[item.Path] {
+			continue
+		}
 		if item.NeedsHuman || item.NextForPi {
 			return item, true
 		}

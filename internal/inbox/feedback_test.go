@@ -50,6 +50,31 @@ func TestNextFeedbackReturnsActionableItem(t *testing.T) {
 	}
 }
 
+func TestNextUnseenFeedbackSkipsAcknowledgedItems(t *testing.T) {
+	items := []FeedbackResume{{Path: "/new.md", NextForPi: true}, {Path: "/old.md", NeedsHuman: true}}
+	item, ok := NextUnseenFeedback(items, SeenSet{"/new.md": true})
+	if !ok || item.Path != "/old.md" {
+		t.Fatalf("unexpected next unseen item: ok=%t item=%+v", ok, item)
+	}
+}
+
+func TestMarkSeenIsIdempotent(t *testing.T) {
+	seenFile := filepath.Join(t.TempDir(), "seen.txt")
+	if err := MarkSeen(seenFile, "/tmp/feedback.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkSeen(seenFile, "/tmp/feedback.md"); err != nil {
+		t.Fatal(err)
+	}
+	seen, err := LoadSeen(seenFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !seen["/tmp/feedback.md"] || len(seen) != 1 {
+		t.Fatalf("unexpected seen set: %+v", seen)
+	}
+}
+
 func TestScanFeedbacksMarksHumanBlockers(t *testing.T) {
 	dir := t.TempDir()
 	content := `- Task ID: x
