@@ -29,6 +29,48 @@ func TestCreateUpdateList(t *testing.T) {
 	}
 }
 
+func TestNextReturnsHighestPriorityOpenTask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	planned, err := Create(path, "planned task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := Create(path, "blocked task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(path, blocked.ID, Blocked, "", "", "", "needs human input"); err != nil {
+		t.Fatal(err)
+	}
+	item, ok, err := Next(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || item.ID != blocked.ID || item.ID == planned.ID {
+		t.Fatalf("Next() = %+v ok=%v", item, ok)
+	}
+}
+
+func TestNextSkipsMergedTasks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	item, err := Create(path, "closed task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []State{Assigned, Running, Done, Verified, Merged} {
+		if _, err := Update(path, item.ID, state, "", "", "", "evidence"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, ok, err := Next(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("Next() ok = true, want false")
+	}
+}
+
 func TestUpdateMissingTask(t *testing.T) {
 	_, err := Update(filepath.Join(t.TempDir(), "tasks.jsonl"), "missing", Assigned, "", "", "", "")
 	if !errors.Is(err, os.ErrNotExist) {

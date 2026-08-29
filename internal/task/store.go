@@ -107,6 +107,21 @@ func Update(path string, id string, next State, agent string, model string, host
 	return found, appendEventUnlocked(path, found)
 }
 
+func Next(path string) (Item, bool, error) {
+	items, err := List(path)
+	if err != nil {
+		return Item{}, false, err
+	}
+	for _, state := range []State{Blocked, Running, Assigned, Planned, Done, Verified} {
+		for _, item := range items {
+			if item.State == state {
+				return item, true, nil
+			}
+		}
+	}
+	return Item{}, false, nil
+}
+
 func List(path string) ([]Item, error) {
 	file, err := os.Open(path)
 	if err != nil {

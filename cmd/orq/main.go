@@ -1183,6 +1183,25 @@ func cmdTask(args []string) error {
 			return err
 		}
 		return printTask(item, format)
+	case "next":
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		item, ok, err := task.Next(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				Found bool      `json:"found"`
+				Item  task.Item `json:"item,omitempty"`
+			}{Found: ok, Item: item})
+		}
+		if !ok {
+			fmt.Println("no_next_task")
+			return nil
+		}
+		return printTask(item, format)
 	case "list":
 		if len(remaining) > 0 {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
