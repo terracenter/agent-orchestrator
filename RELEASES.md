@@ -7,6 +7,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 ### Agregado
 
 - Documento de guardrails para que Orq detecte uso prolongado de Pi, delegación omitida y loops caros: `docs/guardrails-pi-token-control.md`.
+- `orq budget` ahora bloquea la continuación con `action=compactar_manual` y `manual_compact_stop=true` cuando el agente actual no puede compactar automáticamente.
 - `orq budget` ahora acepta `--agent` y distingue capacidad de compactación por agente/sesión; si no puede compactar automáticamente, instruye al usuario a ejecutar `/compact`.
 - `orq budget` ahora emite `preflight_compact_required=true` y prompt `/compact` en todas las decisiones.
 - `orq route` expone `rtk_required=true` y `orq delegate` marca el prefijo `rtk` como obligatorio para comandos.

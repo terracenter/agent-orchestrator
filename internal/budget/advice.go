@@ -13,11 +13,12 @@ type Advice struct {
 	PreflightCompactRequired bool              `json:"preflight_compact_required"`
 	CompactCapability        CompactCapability `json:"compact_capability"`
 	CompactInstruction       string            `json:"compact_instruction"`
+	ManualCompactStop        bool              `json:"manual_compact_stop"`
 	Reason                   string            `json:"reason"`
 }
 
 func Decide(contextPercent, codex5hPercent, weeklyPercent float64) Advice {
-	return DecideForAgent(contextPercent, codex5hPercent, weeklyPercent, "unknown")
+	return DecideForAgent(contextPercent, codex5hPercent, weeklyPercent, "orq")
 }
 
 func DecideForAgent(contextPercent, codex5hPercent, weeklyPercent float64, agent string) Advice {
@@ -37,6 +38,7 @@ func DecideForAgent(contextPercent, codex5hPercent, weeklyPercent float64, agent
 		PreflightCompactRequired: true,
 		CompactCapability:        capability,
 		CompactInstruction:       capability.Instruction,
+		ManualCompactStop:        !capability.CanAuto,
 	}
 
 	switch {
@@ -57,6 +59,10 @@ func DecideForAgent(contextPercent, codex5hPercent, weeklyPercent float64, agent
 	default:
 		advice.Action = "continuar"
 		advice.Reason = "presupuesto aceptable; continuar priorizando modelos baratos"
+	}
+	if advice.ManualCompactStop && advice.Action != "pausar" {
+		advice.Action = "compactar_manual"
+		advice.Reason = "compactacion preflight obligatoria; este agente no puede compactar automaticamente"
 	}
 	return advice
 }

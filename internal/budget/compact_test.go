@@ -23,4 +23,10 @@ func TestDecideForAgentIncludesCompactInstruction(t *testing.T) {
 	if advice.CompactInstruction == "" {
 		t.Fatal("CompactInstruction empty")
 	}
+	if !advice.ManualCompactStop {
+		t.Fatal("ManualCompactStop = false, want true")
+	}
+	if advice.Action != "compactar_manual" {
+		t.Fatalf("Action = %q, want compactar_manual", advice.Action)
+	}
 }
