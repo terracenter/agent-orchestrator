@@ -17,6 +17,9 @@ func TestDecideAlwaysRequiresPreflightCompact(t *testing.T) {
 	if advice.CompactPrompt == "" {
 		t.Fatal("CompactPrompt empty")
 	}
+	if advice.CompactInstruction == "" {
+		t.Fatal("CompactInstruction empty")
+	}
 }
 
 func TestDecideCompactsWhenContextIsHigh(t *testing.T) {
