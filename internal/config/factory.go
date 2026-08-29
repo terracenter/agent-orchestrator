@@ -22,6 +22,9 @@ func GraphAdapter(cfg Config, shell adapters.Shell) (adapters.Graph, error) {
 	case "", "noop":
 		return adapters.NoopGraph{}, nil
 	case "vg":
+		if _, ok := shell.(adapters.RTKShell); !ok {
+			return nil, fmt.Errorf("graph adapter %q requires shell.type=rtk (got %T): bare vg calls are forbidden (BUG-RTK-VG-001)", "vg", shell)
+		}
 		return adapters.VGGraph{Shell: shell}, nil
 	default:
 		return nil, fmt.Errorf("unsupported graph adapter %q", cfg.Graph.Type)

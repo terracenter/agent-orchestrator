@@ -24,20 +24,26 @@ func TestShellAdapterFactory(t *testing.T) {
 }
 
 func TestGraphAdapterFactory(t *testing.T) {
-	shell := adapters.StandardShell{}
-	noop, err := GraphAdapter(Config{Graph: Adapter{Type: "noop"}}, shell)
+	standardShell := adapters.StandardShell{}
+	noop, err := GraphAdapter(Config{Graph: Adapter{Type: "noop"}}, standardShell)
 	if err != nil {
 		t.Fatalf("GraphAdapter(noop) error = %v", err)
 	}
 	if _, ok := noop.(adapters.NoopGraph); !ok {
 		t.Fatalf("noop graph type = %T", noop)
 	}
-	vg, err := GraphAdapter(Config{Graph: Adapter{Type: "vg"}}, shell)
+	vg, err := GraphAdapter(Config{Graph: Adapter{Type: "vg"}}, adapters.RTKShell{})
 	if err != nil {
 		t.Fatalf("GraphAdapter(vg) error = %v", err)
 	}
 	if _, ok := vg.(adapters.VGGraph); !ok {
 		t.Fatalf("vg graph type = %T", vg)
+	}
+}
+
+func TestGraphAdapterFactoryRejectsVGWithoutRTKShell(t *testing.T) {
+	if _, err := GraphAdapter(Config{Graph: Adapter{Type: "vg"}}, adapters.StandardShell{}); err == nil {
+		t.Fatal("GraphAdapter(vg) with StandardShell error = nil, want error (BUG-RTK-VG-001 regression)")
 	}
 }
 

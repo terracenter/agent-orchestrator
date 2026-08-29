@@ -242,7 +242,7 @@ func Plan(task string, currentAgent string, executed bool) (Result, error) {
 func Prompt(task string, decision route.Decision) string {
 	lines := []string{
 		"OBLIGATORIO: Usa rtk; todo comando de terminal/git/filesystem debe ir prefijado con rtk. Si un comando no usa rtk, reportalo como BUG de orq y no lo ocultes.",
-		"Usa vg para consultar el vault cuando aplique.",
+		"Usa `rtk vg` para consultar el vault cuando aplique — nunca `vg` pelado. Si `rtk vg` falla por PATH, reportalo como BUG-RTK-VG-001 y no lo ocultes.",
 		fmt.Sprintf("Tarea: %s", task),
 		fmt.Sprintf("Routing orq: categoria=%s nivel=%d agente=%s modelo=%s", decision.Category, decision.RecommendedLevel, decision.RecommendedAgent, decision.RecommendedModel),
 	}
