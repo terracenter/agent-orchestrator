@@ -179,6 +179,28 @@ orq audit prs --path /ruta/al/repo --format json
 
 Reporta checks, estado mergeable y bloqueos como review requerida por una identidad distinta con permisos.
 
+### Auditar issues abiertos
+
+Auditoría read-only de issues abiertos. No cierra, no etiqueta y no modifica el repo.
+
+```bash
+orq audit issues --path /ruta/al/repo
+orq audit issues --path /ruta/al/repo --format json
+```
+
+Reporta acumulaciones que sugieren una auditoría arquitectónica.
+
+### Auditar modelos disponibles
+
+Reporte read-only para revisión manual/mensual de modelos, costo relativo y asignabilidad.
+
+```bash
+orq audit models
+orq audit models --format json
+```
+
+Los modelos no verificados o `review_only` quedan marcados como `not_assignable`.
+
 ### Validar seguridad Tiger Style
 
 ```bash
@@ -211,6 +233,8 @@ docker compose run --rm dev go test ./...
 orq heartbeat run --workspace .
 orq audit worktrees --path .
 orq audit prs --path .
+orq audit issues --path .
+orq audit models
 orq session validate --guard-collision OK --repo-check OK --safety-check OK --tests PASS --receipt OK --handoff OK
 ```
 
