@@ -126,6 +126,8 @@ Usage:
   orq inbox ack --file path [--seen-file path]
   orq agents [--format json]
   orq audit prs [--path repo] [--format json]
+  orq audit issues [--path repo] [--format json]
+  orq audit models [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
@@ -287,6 +289,51 @@ func cmdAudit(args []string) error {
 		}
 		for _, finding := range report.Findings {
 			fmt.Printf("finding=%s\n", finding)
+		}
+		return nil
+	case "issues":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := audit.AuditIssues(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("repo=%s open_issues=%d findings=%d\n", report.Repository, len(report.Issues), len(report.Findings))
+		for _, finding := range report.Findings {
+			fmt.Printf("finding=%s\n", finding)
+		}
+		return nil
+	case "models":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report := audit.AuditModels()
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("models=%d findings=%d\n", len(report.Models), len(report.Findings))
+		for _, model := range report.Models {
+			assignable := "assignable"
+			if !model.Assignable {
+				assignable = "not_assignable"
+			}
+			fmt.Printf("%s agent=%s provider=%s model=%s verified=%t cost=%d reason=%q\n", assignable, model.Agent, model.Provider, model.Model, model.Verified, model.CostLevel, model.Reason)
 		}
 		return nil
 	case "prs":
