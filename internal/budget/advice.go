@@ -1,6 +1,9 @@
 package budget
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Advice struct {
 	ContextPercent           float64           `json:"context_percent"`
@@ -15,7 +18,15 @@ type Advice struct {
 	CompactInstruction       string            `json:"compact_instruction"`
 	ManualCompactStop        bool              `json:"manual_compact_stop"`
 	CompactApplied           bool              `json:"compact_applied"`
+	MustStopForDelegation    bool              `json:"must_stop_for_delegation"`
+	SupervisorOnly           bool              `json:"supervisor_only"`
+	ExecutionAgentAllowed    bool              `json:"execution_agent_allowed"`
 	Reason                   string            `json:"reason"`
+}
+
+func isPiAgent(agent string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(agent))
+	return normalized == "pi" || normalized == "pi-api" || strings.HasPrefix(normalized, "pi/")
 }
 
 func Decide(contextPercent, codex5hPercent, weeklyPercent float64) Advice {
@@ -45,11 +56,13 @@ func DecideForAgentWithCompactApplied(contextPercent, codex5hPercent, weeklyPerc
 		CompactInstruction:       capability.Instruction,
 		ManualCompactStop:        !capability.CanAuto && !compactApplied,
 		CompactApplied:           compactApplied,
+		ExecutionAgentAllowed:    true,
 	}
 
 	switch {
 	case codex5hPercent >= 95:
 		advice.Action = "pausar"
+		advice.ExecutionAgentAllowed = false
 		advice.Reason = "limite corto Codex casi agotado; esperar reset antes de consumir Pi/OpenAI"
 	case contextPercent >= 65:
 		advice.Action = "compactar"
@@ -68,9 +81,20 @@ func DecideForAgentWithCompactApplied(contextPercent, codex5hPercent, weeklyPerc
 	}
 	if advice.ManualCompactStop && advice.Action != "pausar" {
 		advice.Action = "compactar_manual"
+		advice.ExecutionAgentAllowed = false
 		advice.Reason = "compactacion preflight obligatoria; este agente no puede compactar automaticamente"
 	} else if compactApplied && !capability.CanAuto && advice.Action == "continuar" {
 		advice.Reason = "compactacion manual declarada por el usuario; continuar con bloque pequeno y verificar presupuesto al terminar"
+	}
+	if isPiAgent(agent) {
+		if advice.Action == "delegar_barato" || codex5hPercent >= 80 || weeklyPercent >= 75 {
+			advice.MustStopForDelegation = true
+			advice.SupervisorOnly = true
+			advice.ExecutionAgentAllowed = false
+		} else if advice.Action == "pausar" {
+			advice.SupervisorOnly = true
+			advice.ExecutionAgentAllowed = false
+		}
 	}
 	return advice
 }
