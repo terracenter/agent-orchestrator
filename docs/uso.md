@@ -153,6 +153,23 @@ Acciones posibles:
 
 Si la acción incluye compactación, `orq` imprime un prompt `/compact` listo para copiar.
 
+### Delegación autónoma hacia AGY CLI (`orq delegate`)
+
+Genera un plan de delegación y el comando CLI autónomo listo para ejecutar en AGY (Antigravity CLI), evitando prompts interactivos innecesarios y garantizando aislamiento de contexto:
+
+```bash
+orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/tarea.md
+orq delegate "implementar nuevo endpoint" --agent agy
+orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/tarea.md --format json
+```
+
+Propiedades del comando generado para AGY:
+- **Aislamiento de contexto:** Incluye `"Olvida el historial anterior. Lee y ejecuta <handoff>"` para evitar arrastre de contexto o bloqueos de turnos previos.
+- **Permisos no interactivos por sesión:** Emite `--dangerously-skip-permissions` a nivel de invocación CLI para comandos seguros autorizados por el handoff, sin persistir permisos globales en `settings.json`.
+- **Rutas acotadas:** Limita `--add-dir` al repositorio de trabajo y al directorio `.agents`.
+- **Compatibilidad de modelos:** No emite `--effort` por defecto para evitar conflictos con modelos fijos como `gemini-3.7-flash-high` o `gpt-oss-120b-medium`.
+- **Ejecución obligatoria con wrapper:** Prefija la invocación con `rtk` (`rtk agy`).
+
 ### Telemetría hacia SGE Observer LLM
 
 `orq` puede enviar eventos al Observer usando el endpoint existente `POST /api/events/ingest`.

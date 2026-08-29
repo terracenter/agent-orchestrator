@@ -118,7 +118,7 @@ Usage:
   orq guard-collision --path <repo> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
-  orq delegate <task> [--agent pi|claude|codex|hermes|agy] [--executed] [--format json]
+  orq delegate <task> [--agent pi|claude|codex|hermes|agy] [--model <model>] [--handoff <path>] [--repo <path>] [--agents-dir <path>] [--workspace <path>] [--executed] [--format json]
   orq docs usage|orchestration
   orq task create <title> [--tasks path] [--format json]
   orq task list [--tasks path] [--format json]
@@ -1567,16 +1567,53 @@ func cmdDelegate(args []string) error {
 	if err != nil {
 		return err
 	}
+	model, remaining, err := extractStringFlag(remaining, "--model", "")
+	if err != nil {
+		return err
+	}
+	handoffPath, remaining, err := extractStringFlag(remaining, "--handoff", "")
+	if err != nil {
+		return err
+	}
+	repoPath, remaining, err := extractStringFlag(remaining, "--repo", "")
+	if err != nil {
+		return err
+	}
+	agentsDir, remaining, err := extractStringFlag(remaining, "--agents-dir", "")
+	if err != nil {
+		return err
+	}
+	workspace, remaining, err := extractStringFlag(remaining, "--workspace", "")
+	if err != nil {
+		return err
+	}
 	executed, remaining := extractBoolFlag(remaining, "--executed", false)
 	task := strings.TrimSpace(strings.Join(remaining, " "))
-	if task == "" {
-		return fmt.Errorf("task is required")
+	if task == "" && handoffPath == "" {
+		return fmt.Errorf("task or --handoff is required")
 	}
-	res := delegate.Plan(task, agentName, executed)
+	if task == "" && handoffPath != "" {
+		task = fmt.Sprintf("ejecutar handoff %s", filepath.Base(handoffPath))
+	}
+
+	opts := delegate.PlanOptions{
+		Task:        task,
+		Agent:       agentName,
+		Executed:    executed,
+		HandoffPath: handoffPath,
+		RepoPath:    repoPath,
+		AgentsDir:   agentsDir,
+		Workspace:   workspace,
+		Model:       model,
+	}
+	res := delegate.PlanWithOptions(opts)
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(res)
 	}
 	fmt.Printf("status=%s must_stop_for_delegation=%t supervisor_only=%t execution_agent_allowed=%t\nnext_step=%s\n\n", res.Status, res.MustStopForDelegation, res.SupervisorOnly, res.ExecutionAgentAllowed, res.NextStep)
+	if res.AutonomousCommand != "" {
+		fmt.Printf("Comando sugerido:\n%s\n\n", res.AutonomousCommand)
+	}
 	fmt.Println(res.Prompt)
 	return nil
 }
