@@ -35,6 +35,31 @@ func TestVerifyRejectsUnknownCommandResult(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsHumanEditsRequiredWithNotes(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Evidence = []string{"log"}
+	r.Rollback = "revert"
+	r.HumanEditsRequired = true
+	r.CorreccionesHumanasRequeridas = true
+	r.HumanEditsNotes = []string{"Freddy ajusto copy final"}
+	if findings := Verify(r); len(findings) != 0 {
+		t.Fatalf("expected valid receipt, got %+v", findings)
+	}
+}
+
+func TestVerifyRejectsHumanEditsRequiredWithoutNotes(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Evidence = []string{"log"}
+	r.Rollback = "revert"
+	r.HumanEditsRequired = true
+	r.CorreccionesHumanasRequeridas = true
+	if findings := Verify(r); len(findings) == 0 {
+		t.Fatal("expected human edits notes finding")
+	}
+}
+
 func TestVerifyRequiresEvidence(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 0)
 	findings := Verify(r)

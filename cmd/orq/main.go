@@ -127,7 +127,7 @@ Usage:
   orq audit prs [--path repo] [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
-  orq receipt create --task text --command text --evidence text --rollback text [--command-result passed|failed|skipped|recorded] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
+  orq receipt create --task text --command text --evidence text --rollback text [--command-result passed|failed|skipped|recorded] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq session validate --guard-collision text --repo-check text --safety-check text --tests text --receipt text [--handoff text] [--touches-dangerous] [--human-approval] [--format json]
@@ -689,6 +689,15 @@ func cmdReceipt(args []string) error {
 		if err != nil {
 			return err
 		}
+		humanEditsNotes, remaining, err := extractStringFlag(remaining, "--human-edits-notes", "")
+		if err != nil {
+			return err
+		}
+		humanEditsRequired, remaining := extractBoolFlag(remaining, "--human-edits-required", false)
+		correccionesHumanasRequeridas, remaining := extractBoolFlag(remaining, "--correcciones-humanas-requeridas", false)
+		if humanEditsRequired != correccionesHumanasRequeridas {
+			return fmt.Errorf("--human-edits-required and --correcciones-humanas-requeridas must be used together")
+		}
 		prText, remaining, err := extractStringFlag(remaining, "--pr", "0")
 		if err != nil {
 			return err
@@ -707,6 +716,9 @@ func cmdReceipt(args []string) error {
 		}
 		r.Evidence = splitCSV(evidence)
 		r.SecurityNotes = splitCSV(securityNotes)
+		r.HumanEditsRequired = humanEditsRequired
+		r.CorreccionesHumanasRequeridas = correccionesHumanasRequeridas
+		r.HumanEditsNotes = splitCSV(humanEditsNotes)
 		r.Rollback = rollback
 		if findings := receipt.Verify(r); len(findings) > 0 {
 			return fmt.Errorf("invalid receipt: %s", strings.Join(findings, "; "))
@@ -714,7 +726,7 @@ func cmdReceipt(args []string) error {
 		if err := receipt.Save(output, r); err != nil {
 			return err
 		}
-		fmt.Printf("receipt path=%s task=%s risk=%s evidence=%d\n", output, r.Task, r.Risk, len(r.Evidence))
+		fmt.Printf("receipt path=%s task=%s risk=%s evidence=%d human_edits_required=%t\n", output, r.Task, r.Risk, len(r.Evidence), r.HumanEditsRequired)
 		return nil
 	case "from-pr":
 		output, remaining, err := extractStringFlag(args[1:], "--output", "receipt.json")
