@@ -21,6 +21,10 @@ func CompactCapabilityFor(agent string) CompactCapability {
 		Instruction: "El orquestador no puede compactar automaticamente esta sesion/agente. Pide al usuario ejecutar /compact antes de continuar.",
 	}
 	switch normalized {
+	case "orq":
+		capability.Mode = "orchestrator_only"
+		capability.CanAuto = true
+		capability.Instruction = "Orq solo calcula la politica de compactacion; especifica --agent para una sesion real."
 	case "pi", "pi-api", "claude", "claude-code", "codex", "hermes", "openclaw", "agy":
 		capability.Instruction = "Ejecuta /compact en este agente antes de continuar; orq solo puede indicarlo, no compactar la sesion por ti."
 	}
