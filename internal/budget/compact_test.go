@@ -30,3 +30,16 @@ func TestDecideForAgentIncludesCompactInstruction(t *testing.T) {
 		t.Fatalf("Action = %q, want compactar_manual", advice.Action)
 	}
 }
+
+func TestDecideForAgentWithCompactAppliedAllowsSmallBlock(t *testing.T) {
+	advice := DecideForAgentWithCompactApplied(10, 10, 0, "pi", true)
+	if !advice.CompactApplied {
+		t.Fatal("CompactApplied = false, want true")
+	}
+	if advice.ManualCompactStop {
+		t.Fatal("ManualCompactStop = true, want false")
+	}
+	if advice.Action != "continuar" {
+		t.Fatalf("Action = %q, want continuar", advice.Action)
+	}
+}

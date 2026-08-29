@@ -139,7 +139,7 @@ Usage:
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq session validate --guard-collision text --repo-check text --safety-check text --tests text --receipt text [--handoff text] [--touches-dangerous] [--human-approval] [--format json]
-  orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--agent pi|claude|codex|hermes|agy] [--format json]
+  orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--agent pi|claude|codex|hermes|agy] [--compact-applied] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
   orq safety check [--path repo] [--command text] [--format json]
@@ -680,6 +680,7 @@ func cmdBudget(args []string) error {
 	if err != nil {
 		return err
 	}
+	compactApplied, remaining := extractBoolFlag(remaining, "--compact-applied", false)
 	if len(remaining) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}
@@ -703,11 +704,11 @@ func cmdBudget(args []string) error {
 			return err
 		}
 	}
-	advice := budget.DecideForAgent(contextPercent, codexPercent, weeklyPercent, agentName)
+	advice := budget.DecideForAgentWithCompactApplied(contextPercent, codexPercent, weeklyPercent, agentName, compactApplied)
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(advice)
 	}
-	fmt.Printf("action=%s preflight_compact_required=%t manual_compact_stop=%t reason=%s\n", advice.Action, advice.PreflightCompactRequired, advice.ManualCompactStop, advice.Reason)
+	fmt.Printf("action=%s preflight_compact_required=%t manual_compact_stop=%t compact_applied=%t reason=%s\n", advice.Action, advice.PreflightCompactRequired, advice.ManualCompactStop, advice.CompactApplied, advice.Reason)
 	if advice.CompactPrompt != "" {
 		fmt.Println(advice.CompactPrompt)
 	}
