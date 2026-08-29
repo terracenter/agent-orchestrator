@@ -15,6 +15,26 @@ func TestVerifyValidReceipt(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsFailedCommandResult(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "go test ./...", Result: "failed"}}
+	r.Evidence = []string{"log de fallo preservado"}
+	r.Rollback = "revert PR #12"
+	if findings := Verify(r); len(findings) != 0 {
+		t.Fatalf("expected failed result to remain verifiable, got %+v", findings)
+	}
+}
+
+func TestVerifyRejectsUnknownCommandResult(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "go test ./...", Result: "maybe"}}
+	r.Evidence = []string{"log"}
+	r.Rollback = "revert"
+	if findings := Verify(r); len(findings) == 0 {
+		t.Fatal("expected invalid command result finding")
+	}
+}
+
 func TestVerifyRequiresEvidence(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 0)
 	findings := Verify(r)
