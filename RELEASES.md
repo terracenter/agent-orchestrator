@@ -6,6 +6,10 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 
 ### Agregado
 
+- Documento de guardrails para que Orq detecte uso prolongado de Pi, delegación omitida y loops caros: `docs/guardrails-pi-token-control.md`.
+- `orq budget` ahora emite `preflight_compact_required=true` y prompt `/compact` en todas las decisiones.
+- `orq delegate` ahora declara `status=not_executed` si solo generó prompt y no existe recibo de ejecución externa.
+- `orq observer cost` separa costo estimado/subscription de costo real facturado configurado por el usuario.
 - Orquestación CLI `orq` para rutas de agentes, tareas, handoffs, recibos RDD y auditorías seguras.
 - Auditorías recurrentes read-only: PRs, issues, modelos y worktrees.
 - Plantillas cacheables para handoffs con validación de contexto volátil.

@@ -9,6 +9,16 @@ func TestDecidePausesWhenCodexLimitIsAlmostExhausted(t *testing.T) {
 	}
 }
 
+func TestDecideAlwaysRequiresPreflightCompact(t *testing.T) {
+	advice := Decide(10, 10, 10)
+	if !advice.PreflightCompactRequired {
+		t.Fatal("PreflightCompactRequired = false, want true")
+	}
+	if advice.CompactPrompt == "" {
+		t.Fatal("CompactPrompt empty")
+	}
+}
+
 func TestDecideCompactsWhenContextIsHigh(t *testing.T) {
 	advice := Decide(70, 10, 10)
 	if advice.Action != "compactar" {

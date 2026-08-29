@@ -3,14 +3,15 @@ package budget
 import "fmt"
 
 type Advice struct {
-	ContextPercent float64  `json:"context_percent"`
-	Codex5hPercent float64  `json:"codex_5h_percent"`
-	WeeklyPercent  float64  `json:"weekly_percent"`
-	Action         string   `json:"action"`
-	UseAgents      []string `json:"use_agents"`
-	AvoidAgents    []string `json:"avoid_agents"`
-	CompactPrompt  string   `json:"compact_prompt,omitempty"`
-	Reason         string   `json:"reason"`
+	ContextPercent           float64  `json:"context_percent"`
+	Codex5hPercent           float64  `json:"codex_5h_percent"`
+	WeeklyPercent            float64  `json:"weekly_percent"`
+	Action                   string   `json:"action"`
+	UseAgents                []string `json:"use_agents"`
+	AvoidAgents              []string `json:"avoid_agents"`
+	CompactPrompt            string   `json:"compact_prompt,omitempty"`
+	PreflightCompactRequired bool     `json:"preflight_compact_required"`
+	Reason                   string   `json:"reason"`
 }
 
 func Decide(contextPercent, codex5hPercent, weeklyPercent float64) Advice {
@@ -24,7 +25,9 @@ func Decide(contextPercent, codex5hPercent, weeklyPercent float64) Advice {
 			"agy/gpt-oss-120b-medium",
 			"agy/gemini-3.5-flash-low",
 		},
-		AvoidAgents: []string{"pi/openai/gpt-5.5", "claude-opus", "claude-sonnet"},
+		AvoidAgents:              []string{"pi/openai/gpt-5.5", "claude-opus", "claude-sonnet"},
+		CompactPrompt:            CompactPrompt(),
+		PreflightCompactRequired: true,
 	}
 
 	switch {

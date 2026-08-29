@@ -134,6 +134,7 @@ Usage:
   orq audit models [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
+  orq observer cost --reported-estimate-usd n --reported-label text --monthly-plan-usd n [--payment-fee-usd n] [--format json]
   orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required-value unknown|N] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
@@ -702,7 +703,7 @@ func cmdBudget(args []string) error {
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(advice)
 	}
-	fmt.Printf("action=%s reason=%s\n", advice.Action, advice.Reason)
+	fmt.Printf("action=%s preflight_compact_required=%t reason=%s\n", advice.Action, advice.PreflightCompactRequired, advice.Reason)
 	if advice.CompactPrompt != "" {
 		fmt.Println(advice.CompactPrompt)
 	}
@@ -1031,6 +1032,47 @@ func cmdObserver(args []string) error {
 			}{Event: event, Result: result})
 		}
 		fmt.Printf("observer=ok inserted=%d event_id=%s project=%s agent=%s model=%s\n", result.Inserted, event.EventID, event.Project, event.Agent, event.Model)
+		return nil
+	case "cost":
+		reportedText, remaining, err := extractStringFlag(remaining, "--reported-estimate-usd", "0")
+		if err != nil {
+			return err
+		}
+		label, remaining, err := extractStringFlag(remaining, "--reported-label", "")
+		if err != nil {
+			return err
+		}
+		planText, remaining, err := extractStringFlag(remaining, "--monthly-plan-usd", "0")
+		if err != nil {
+			return err
+		}
+		feeText, remaining, err := extractStringFlag(remaining, "--payment-fee-usd", "0")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		reported, err := parseFloatFlag("--reported-estimate-usd", reportedText)
+		if err != nil {
+			return err
+		}
+		plan, err := parseFloatFlag("--monthly-plan-usd", planText)
+		if err != nil {
+			return err
+		}
+		fee, err := parseFloatFlag("--payment-fee-usd", feeText)
+		if err != nil {
+			return err
+		}
+		report := observer.InterpretCost(reported, label, plan, fee)
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("reported_estimate_usd=%.3f label=%s expected_invoice_usd=%.2f billable_real_usd=%.2f\n", report.ReportedEstimateUSD, report.ReportedLabel, report.ExpectedInvoiceUSD, report.BillableRealUSD)
+		if report.Warning != "" {
+			fmt.Println("warning=" + report.Warning)
+		}
 		return nil
 	default:
 		return fmt.Errorf("unknown observer subcommand %q", args[0])
@@ -1428,18 +1470,28 @@ func cmdDelegate(args []string) error {
 	if err != nil {
 		return err
 	}
+	executed, remaining := extractBoolFlag(remaining, "--executed", false)
 	task := strings.TrimSpace(strings.Join(remaining, " "))
 	if task == "" {
 		return fmt.Errorf("task is required")
 	}
 	decision := route.Decide(task)
 	prompt := delegate.Prompt(task, decision)
+	status := "not_executed"
+	nextStep := "ejecutar este prompt en el agente/modelo recomendado y volver con recibo verificable antes de continuar desde Pi"
+	if executed {
+		status = "executed_unverified"
+		nextStep = "adjuntar recibo verificable del agente externo antes de cerrar la tarea"
+	}
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(struct {
+			Status   string         `json:"status"`
 			Decision route.Decision `json:"decision"`
 			Prompt   string         `json:"prompt"`
-		}{Decision: decision, Prompt: prompt})
+			NextStep string         `json:"next_step"`
+		}{Status: status, Decision: decision, Prompt: prompt, NextStep: nextStep})
 	}
+	fmt.Printf("status=%s\nnext_step=%s\n\n", status, nextStep)
 	fmt.Println(prompt)
 	return nil
 }
