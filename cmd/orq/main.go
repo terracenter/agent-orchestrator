@@ -109,7 +109,8 @@ Usage:
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
   orq inbox feedbacks [--path dir] [--format json]
-  orq inbox next [--path dir] [--format json]
+  orq inbox next [--path dir] [--seen-file path] [--format json]
+  orq inbox ack --file path [--seen-file path]
   orq agents [--format json]
   orq audit prs [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
@@ -588,6 +589,14 @@ func cmdObserver(args []string) error {
 	}
 }
 
+func defaultInboxSeenFile() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".orq-inbox-seen"
+	}
+	return filepath.Join(home, ".local", "share", "orq", "inbox-seen.txt")
+}
+
 func cmdInbox(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("inbox subcommand is required")
@@ -600,17 +609,38 @@ func cmdInbox(args []string) error {
 	if err != nil {
 		return err
 	}
+	seenFile, remaining, err := extractStringFlag(remaining, "--seen-file", defaultInboxSeenFile())
+	if err != nil {
+		return err
+	}
+	fileArg, remaining, err := extractStringFlag(remaining, "--file", "")
+	if err != nil {
+		return err
+	}
 	if len(remaining) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}
 	switch args[0] {
+	case "ack":
+		if fileArg == "" {
+			return fmt.Errorf("--file is required")
+		}
+		if err := inbox.MarkSeen(seenFile, fileArg); err != nil {
+			return err
+		}
+		fmt.Printf("ack file=%s seen_file=%s\n", fileArg, seenFile)
+		return nil
 	case "feedbacks", "next":
 		items, err := inbox.ScanFeedbacks(path)
 		if err != nil {
 			return err
 		}
 		if args[0] == "next" {
-			item, ok := inbox.NextFeedback(items)
+			seen, err := inbox.LoadSeen(seenFile)
+			if err != nil {
+				return err
+			}
+			item, ok := inbox.NextUnseenFeedback(items, seen)
 			if format == "json" {
 				return json.NewEncoder(os.Stdout).Encode(struct {
 					Found bool                 `json:"found"`
