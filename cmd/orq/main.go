@@ -121,6 +121,7 @@ Usage:
   orq inbox ack --file path [--seen-file path]
   orq agents [--format json]
   orq audit prs [--path repo] [--format json]
+  orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq receipt create --task text --command text --evidence text --rollback text [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
@@ -190,6 +191,41 @@ func cmdAudit(args []string) error {
 		return fmt.Errorf("audit subcommand is required")
 	}
 	switch args[0] {
+	case "worktrees":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", ".")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := audit.AuditWorktrees(path)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		status := "OK"
+		if len(report.Findings) > 0 {
+			status = "REVIEW"
+		}
+		fmt.Printf("%s root=%s worktrees=%d findings=%d\n", status, report.Root, len(report.Worktrees), len(report.Findings))
+		for _, wt := range report.Worktrees {
+			branch := wt.Branch
+			if branch == "" && wt.Detached {
+				branch = "detached"
+			}
+			fmt.Printf("worktree path=%s branch=%s prunable=%t\n", wt.Path, branch, wt.Prunable)
+		}
+		for _, finding := range report.Findings {
+			fmt.Printf("finding=%s\n", finding)
+		}
+		return nil
 	case "prs":
 		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
 		if err != nil {
