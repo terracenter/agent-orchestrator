@@ -39,6 +39,12 @@ orq task create "organize GLPI vault"
 orq task list
 orq task assign <id> --agent pi --model cheap-or-fast --host minipc
 orq handoff draft --task-id <id>
+orq handoff draft --task-id <id> --template reviewer-4r
+orq handoff draft --task-id <id> --template security-reviewer
+orq handoff draft --task-id <id> --template implementer
+orq handoff draft --task-id <id> --template documenter
+orq handoff draft --task-id <id> --template architect
+orq handoff validate-template --file handoff.md
 orq task update <id> --state running
 orq task update <id> --state done --evidence "validated commit or PR"
 ```
