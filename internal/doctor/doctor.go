@@ -130,10 +130,18 @@ func Run(ctx context.Context, opts Options) Report {
 	}
 }
 
+func isExecutable(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil || fi.IsDir() {
+		return false
+	}
+	return fi.Mode()&0o111 != 0
+}
+
 func findExecutable(name string, extraDirs []string) string {
 	for _, dir := range extraDirs {
 		candidate := filepath.Join(dir, name)
-		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+		if isExecutable(candidate) {
 			return candidate
 		}
 	}
@@ -259,26 +267,55 @@ func checkOrq(ctx context.Context, home string) ToolCheck {
 }
 
 func checkVG(ctx context.Context, home string) ToolCheck {
-	extraDirs := []string{
-		filepath.Join(home, ".local", "bin"),
-		filepath.Join(home, "Workspace", "Tooling", "vault-graph", "scripts"),
-	}
-	p := findExecutable("vg", extraDirs)
-	if p == "" {
-		return ToolCheck{
-			Name:           "vg",
-			Category:       CategoryTooling,
-			Status:         StatusMissing,
-			Required:       false,
-			Recommendation: "agregar Tooling/vault-graph/scripts al PATH para consultas de vault",
+	if envPath := strings.TrimSpace(os.Getenv("ORQ_VG_PATH")); envPath != "" {
+		if isExecutable(envPath) {
+			return ToolCheck{
+				Name:     "vg",
+				Category: CategoryTooling,
+				Status:   StatusOK,
+				Path:     envPath,
+				Required: false,
+				Note:     "detectado via ORQ_VG_PATH",
+			}
 		}
 	}
+
+	if p, err := exec.LookPath("vg"); err == nil && p != "" {
+		return ToolCheck{
+			Name:     "vg",
+			Category: CategoryTooling,
+			Status:   StatusOK,
+			Path:     p,
+			Required: false,
+		}
+	}
+
+	knownPaths := []string{
+		filepath.Join(home, "Workspace", "Obsidian", "10.Tooling", "vault-graph", "vg"),
+		filepath.Join(home, "Workspace", "Obsidian", "Tooling", "vault-graph", "scripts", "vg"),
+		filepath.Join(home, "Workspace", "Tooling", "vault-graph", "scripts", "vg"),
+		filepath.Join(home, ".local", "bin", "vg"),
+	}
+	for _, candidate := range knownPaths {
+		if isExecutable(candidate) {
+			return ToolCheck{
+				Name:           "vg",
+				Category:       CategoryTooling,
+				Status:         StatusOK,
+				Path:           candidate,
+				Required:       false,
+				Note:           "detectado en ruta conocida del workspace",
+				Recommendation: "agregar al PATH o configurar ORQ_VG_PATH para acceso directo",
+			}
+		}
+	}
+
 	return ToolCheck{
-		Name:     "vg",
-		Category: CategoryTooling,
-		Status:   StatusOK,
-		Path:     p,
-		Required: false,
+		Name:           "vg",
+		Category:       CategoryTooling,
+		Status:         StatusMissing,
+		Required:       false,
+		Recommendation: "agregar Tooling/vault-graph/scripts al PATH o configurar ORQ_VG_PATH para consultas de vault",
 	}
 }
 

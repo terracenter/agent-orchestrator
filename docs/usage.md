@@ -43,7 +43,7 @@ orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq agents
 orq agents detect
-orq doctor
+orq doctor  # checks key tools (rtk, git, gh, orq, vg via ORQ_VG_PATH/PATH/known workspace paths)
 ```
 
 ## Task tracking for future mobile dashboard
