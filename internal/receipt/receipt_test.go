@@ -23,6 +23,19 @@ func TestVerifyRequiresEvidence(t *testing.T) {
 	}
 }
 
+func TestFromPRBuildsVerifiableReceipt(t *testing.T) {
+	r := FromPR(PRInfo{Number: 36, Title: "feat: recibos", URL: "https://example.test/pr/36", MergeCommit: "abc123", Files: []string{"cmd/orq/main.go"}, Checks: []string{"go-test SUCCESS"}}, "Pi", "openai", "gpt", "bajo")
+	if r.PR != 36 || r.Task != "feat: recibos" {
+		t.Fatalf("unexpected receipt: %+v", r)
+	}
+	if len(r.FilesChanged) != 1 || len(r.Commands) != 1 || len(r.Evidence) != 3 {
+		t.Fatalf("missing PR evidence: %+v", r)
+	}
+	if findings := Verify(r); len(findings) != 0 {
+		t.Fatalf("expected verifiable receipt, got %+v", findings)
+	}
+}
+
 func TestSaveLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 1)

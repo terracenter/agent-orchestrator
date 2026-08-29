@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -123,6 +124,7 @@ Usage:
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq receipt create --task text --command text --evidence text --rollback text [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
+  orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
@@ -609,6 +611,54 @@ func cmdReceipt(args []string) error {
 		}
 		fmt.Printf("receipt path=%s task=%s risk=%s evidence=%d\n", output, r.Task, r.Risk, len(r.Evidence))
 		return nil
+	case "from-pr":
+		output, remaining, err := extractStringFlag(args[1:], "--output", "receipt.json")
+		if err != nil {
+			return err
+		}
+		agent, remaining, err := extractStringFlag(remaining, "--agent", "orq")
+		if err != nil {
+			return err
+		}
+		provider, remaining, err := extractStringFlag(remaining, "--provider", "manual")
+		if err != nil {
+			return err
+		}
+		model, remaining, err := extractStringFlag(remaining, "--model", "unknown")
+		if err != nil {
+			return err
+		}
+		risk, remaining, err := extractStringFlag(remaining, "--risk", "bajo")
+		if err != nil {
+			return err
+		}
+		prText, remaining, err := extractStringFlag(remaining, "--pr", "")
+		if err != nil {
+			return err
+		}
+		if prText == "" {
+			return fmt.Errorf("--pr is required")
+		}
+		pr, err := strconv.Atoi(prText)
+		if err != nil {
+			return fmt.Errorf("invalid --pr: %w", err)
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		info, err := loadPRInfo(pr)
+		if err != nil {
+			return err
+		}
+		r := receipt.FromPR(info, agent, provider, model, risk)
+		if findings := receipt.Verify(r); len(findings) > 0 {
+			return fmt.Errorf("invalid receipt from PR: %s", strings.Join(findings, "; "))
+		}
+		if err := receipt.Save(output, r); err != nil {
+			return err
+		}
+		fmt.Printf("receipt path=%s pr=%d files=%d evidence=%d\n", output, r.PR, len(r.FilesChanged), len(r.Evidence))
+		return nil
 	case "verify":
 		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
 		if err != nil {
@@ -644,6 +694,56 @@ func cmdReceipt(args []string) error {
 	default:
 		return fmt.Errorf("unknown receipt subcommand %q", args[0])
 	}
+}
+
+type ghPRView struct {
+	Number      int    `json:"number"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	HeadRefName string `json:"headRefName"`
+	BaseRefName string `json:"baseRefName"`
+	MergeCommit struct {
+		OID string `json:"oid"`
+	} `json:"mergeCommit"`
+	Files []struct {
+		Path string `json:"path"`
+	} `json:"files"`
+	StatusCheckRollup []struct {
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+	} `json:"statusCheckRollup"`
+}
+
+func loadPRInfo(pr int) (receipt.PRInfo, error) {
+	cmd := exec.Command("gh", "pr", "view", strconv.Itoa(pr), "--json", "number,title,url,headRefName,baseRefName,mergeCommit,files,statusCheckRollup")
+	data, err := cmd.Output()
+	if err != nil {
+		return receipt.PRInfo{}, fmt.Errorf("gh pr view failed: %w", err)
+	}
+	var view ghPRView
+	if err := json.Unmarshal(data, &view); err != nil {
+		return receipt.PRInfo{}, err
+	}
+	info := receipt.PRInfo{Number: view.Number, Title: view.Title, URL: view.URL, HeadRef: view.HeadRefName, BaseRef: view.BaseRefName, MergeCommit: view.MergeCommit.OID}
+	for _, file := range view.Files {
+		if strings.TrimSpace(file.Path) != "" {
+			info.Files = append(info.Files, file.Path)
+		}
+	}
+	for _, check := range view.StatusCheckRollup {
+		status := strings.TrimSpace(check.Conclusion)
+		if status == "" {
+			status = check.Status
+		}
+		if strings.TrimSpace(check.Name) != "" {
+			info.Checks = append(info.Checks, check.Name+" "+status)
+		}
+	}
+	if len(info.Checks) == 0 {
+		info.Checks = append(info.Checks, "sin checks reportados")
+	}
+	return info, nil
 }
 
 func splitCSV(value string) []string {
