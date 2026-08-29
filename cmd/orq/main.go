@@ -115,6 +115,7 @@ Usage:
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
+  orq handoff chain --from path --to path --task text --next-agent name [--format json]
   orq heartbeat run [--workspace path] [--format json]
   orq inbox feedbacks [--path dir] [--format json]
   orq inbox next [--path dir] [--seen-file path] [--format json]
@@ -1011,6 +1012,35 @@ func cmdHandoff(args []string) error {
 		return err
 	}
 	switch args[0] {
+	case "chain":
+		from, remaining, err := extractStringFlag(remaining, "--from", "")
+		if err != nil {
+			return err
+		}
+		to, remaining, err := extractStringFlag(remaining, "--to", output)
+		if err != nil {
+			return err
+		}
+		taskText, remaining, err := extractStringFlag(remaining, "--task", "")
+		if err != nil {
+			return err
+		}
+		nextAgent, remaining, err := extractStringFlag(remaining, "--next-agent", "")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		result, err := handoff.Chain(handoff.ChainRequest{From: from, To: to, Task: taskText, NextAgent: nextAgent})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		fmt.Printf("handoff_chain from=%s to=%s next_agent=%s bytes=%d\n", result.From, result.To, result.NextAgent, result.Bytes)
+		return nil
 	case "draft":
 		id, remaining, err := extractStringFlag(remaining, "--task-id", "")
 		if err != nil {
