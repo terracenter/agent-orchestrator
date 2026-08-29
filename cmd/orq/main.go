@@ -967,12 +967,15 @@ func cmdHeartbeat(args []string) error {
 		if format == "json" {
 			return json.NewEncoder(os.Stdout).Encode(report)
 		}
-		fmt.Printf("heartbeat workspace=%s projects=%d sources=%d actions=%d\n", report.Workspace, len(report.Projects), len(report.Sources), len(report.Actions))
+		fmt.Printf("heartbeat workspace=%s projects=%d sources=%d policies=%d actions=%d\n", report.Workspace, len(report.Projects), len(report.Sources), len(report.Policies), len(report.Actions))
 		for _, project := range report.Projects {
 			fmt.Printf("project=%s manifests=%s\n", project.Path, strings.Join(project.Manifests, ","))
 		}
+		for _, policy := range report.Policies {
+			fmt.Printf("policy=%s mode=%s requirement=%s\n", policy.Name, policy.Mode, policy.Requirement)
+		}
 		for _, action := range report.Actions {
-			fmt.Printf("%s %s\n", action.Priority, action.Text)
+			fmt.Printf("%s policy=%s %s\n", action.Priority, action.Policy, action.Text)
 		}
 		return nil
 	default:
