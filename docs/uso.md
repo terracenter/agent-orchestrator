@@ -113,7 +113,7 @@ orq agents detect --format json
 
 ### Diagnóstico del entorno (`orq doctor`)
 
-Verifica la disponibilidad de herramientas clave (`rtk`, `git`, `gh`, `orq`, `vg`) y agentes configurados en el host:
+Verifica la disponibilidad de herramientas clave (`rtk`, `git`, `gh`, `orq`, `vg`) y agentes configurados en el host. Para `vg`, la detección se realiza en orden: variable `ORQ_VG_PATH`, `$PATH` y rutas conocidas del workspace (ej. `Workspace/Obsidian/10.Tooling/vault-graph/vg` o `Workspace/Obsidian/Tooling/vault-graph/scripts/vg`):
 
 ```bash
 orq doctor
