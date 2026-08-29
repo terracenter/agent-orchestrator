@@ -130,7 +130,7 @@ Usage:
   orq audit models [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
-  orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
+  orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required-value unknown|N] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq session validate --guard-collision text --repo-check text --safety-check text --tests text --receipt text [--handoff text] [--touches-dangerous] [--human-approval] [--format json]
@@ -539,6 +539,20 @@ func emitObserverRecord(event ledger.Event) {
 	}
 }
 
+func emitReceiptObserver(r receipt.Receipt, sourcePath string) {
+	client, ok, err := observer.FromEnv()
+	if err != nil || !ok {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{"task": r.Task, "pr": r.PR, "human_edits_required": r.HumanEditsRequired, "human_edits_required_value": r.HumanEditsRequiredValue, "correcciones_humanas_requeridas": r.CorreccionesHumanasRequeridas})
+	obsEvent := observer.NewEvent("agent-orchestrator", r.Agent, r.Model, "orq-receipt", "orq_receipt", 0, 0, sourcePath, string(raw))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := client.Ingest(ctx, []observer.Event{obsEvent}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: observer ingest failed: %v\n", err)
+	}
+}
+
 func cmdStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	path := fs.String("ledger", ledger.DefaultPath(), "ledger path")
@@ -746,6 +760,13 @@ func cmdReceipt(args []string) error {
 		if err != nil {
 			return err
 		}
+		humanEditsRequiredValue, remaining, err := extractStringFlag(remaining, "--human-edits-required-value", "unknown")
+		if err != nil {
+			return err
+		}
+		if !receipt.ValidHumanEditsRequiredValue(humanEditsRequiredValue) {
+			return fmt.Errorf("invalid --human-edits-required-value: use unknown or non-negative integer")
+		}
 		humanEditsRequired, remaining := extractBoolFlag(remaining, "--human-edits-required", false)
 		correccionesHumanasRequeridas, remaining := extractBoolFlag(remaining, "--correcciones-humanas-requeridas", false)
 		if humanEditsRequired != correccionesHumanasRequeridas {
@@ -772,6 +793,7 @@ func cmdReceipt(args []string) error {
 		r.Evidence = splitCSV(evidence)
 		r.SecurityNotes = splitCSV(securityNotes)
 		r.HumanEditsRequired = humanEditsRequired
+		r.HumanEditsRequiredValue = humanEditsRequiredValue
 		r.CorreccionesHumanasRequeridas = correccionesHumanasRequeridas
 		r.HumanEditsNotes = splitCSV(humanEditsNotes)
 		r.Rollback = rollback
@@ -781,7 +803,8 @@ func cmdReceipt(args []string) error {
 		if err := receipt.Save(output, r); err != nil {
 			return err
 		}
-		fmt.Printf("receipt path=%s task=%s risk=%s evidence=%d human_edits_required=%t\n", output, r.Task, r.Risk, len(r.Evidence), r.HumanEditsRequired)
+		emitReceiptObserver(r, output)
+		fmt.Printf("receipt path=%s task=%s risk=%s evidence=%d human_edits_required=%t human_edits_required_value=%s\n", output, r.Task, r.Risk, len(r.Evidence), r.HumanEditsRequired, r.HumanEditsRequiredValue)
 		return nil
 	case "from-pr":
 		output, remaining, err := extractStringFlag(args[1:], "--output", "receipt.json")

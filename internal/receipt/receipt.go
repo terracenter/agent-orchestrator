@@ -20,6 +20,7 @@ type Receipt struct {
 	Commands                      []Command `json:"commands"`
 	SecurityNotes                 []string  `json:"security_notes"`
 	HumanEditsRequired            bool      `json:"human_edits_required"`
+	HumanEditsRequiredValue       string    `json:"human_edits_required_value,omitempty"`
 	CorreccionesHumanasRequeridas bool      `json:"correcciones_humanas_requeridas"`
 	HumanEditsNotes               []string  `json:"human_edits_notes,omitempty"`
 	Rollback                      string    `json:"rollback"`
@@ -41,6 +42,22 @@ func ValidCommandResult(result string) bool {
 	default:
 		return false
 	}
+}
+
+func ValidHumanEditsRequiredValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "unknown" {
+		return true
+	}
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // PRInfo stores the small subset of pull request metadata needed for RDD.
@@ -134,6 +151,9 @@ func Verify(r Receipt) []string {
 	}
 	if r.Risk == "alto" && len(r.SecurityNotes) == 0 {
 		findings = append(findings, "security_notes requerido para riesgo alto")
+	}
+	if strings.TrimSpace(r.HumanEditsRequiredValue) != "" && !ValidHumanEditsRequiredValue(r.HumanEditsRequiredValue) {
+		findings = append(findings, "human_edits_required_value debe ser entero no negativo o unknown")
 	}
 	if r.HumanEditsRequired || r.CorreccionesHumanasRequeridas {
 		if !r.HumanEditsRequired || !r.CorreccionesHumanasRequeridas {
