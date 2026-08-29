@@ -703,7 +703,7 @@ func cmdBudget(args []string) error {
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(advice)
 	}
-	fmt.Printf("action=%s reason=%s\n", advice.Action, advice.Reason)
+	fmt.Printf("action=%s preflight_compact_required=%t reason=%s\n", advice.Action, advice.PreflightCompactRequired, advice.Reason)
 	if advice.CompactPrompt != "" {
 		fmt.Println(advice.CompactPrompt)
 	}
