@@ -198,6 +198,24 @@ orq review 4r --path /ruta/al/repo --format json
 
 El comando prepara preguntas de Legibilidad, Robustez, Riesgo y Seguridad usando los archivos cambiados como foco inicial.
 
+### Ejecutar prueba integral local
+
+La guía completa vive en [prueba-integral-orq.md](prueba-integral-orq.md).
+
+```bash
+orq guard-collision --path .
+orq repo check --path .
+orq safety check --path .
+orq review 4r --path .
+docker compose run --rm dev go test ./...
+orq heartbeat run --workspace .
+orq audit worktrees --path .
+orq audit prs --path .
+orq session validate --guard-collision OK --repo-check OK --safety-check OK --tests PASS --receipt OK --handoff OK
+```
+
+No marques una sesión como válida si falta el recibo RDD o si una validación no fue ejecutada.
+
 ### Registrar tareas para futuro dashboard móvil
 
 ```bash
