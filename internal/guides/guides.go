@@ -8,6 +8,8 @@ var texts = map[string]string{
 Comandos base:
 
 - orq route <task> [--format json]
+- orq doctor [--format json]
+- orq agents detect [--format json]
 - orq task list [--format json]
 - orq handoff draft --task-id <id> --template reviewer-4r
 - orq receipt create --task text --command text --evidence text --rollback text

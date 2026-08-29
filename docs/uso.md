@@ -102,6 +102,24 @@ orq agents
 orq agents --format json
 ```
 
+### Detectar agentes instalados en el sistema
+
+Inspecciona de forma segura la presencia y rutas de runners locales (`openclaw`, `agy`, `hermes`, `claude`, etc.) sin leer ni exponer credenciales:
+
+```bash
+orq agents detect
+orq agents detect --format json
+```
+
+### Diagnóstico del entorno (`orq doctor`)
+
+Verifica la disponibilidad de herramientas clave (`rtk`, `git`, `gh`, `orq`, `vg`) y agentes configurados en el host:
+
+```bash
+orq doctor
+orq doctor --format json
+```
+
 La política actual es:
 
 - Toda asignación debe usar par exacto `agente/modelo`.
