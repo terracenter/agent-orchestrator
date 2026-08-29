@@ -10,18 +10,21 @@ import (
 
 // Receipt is a verifiable RDD record for one unit of work.
 type Receipt struct {
-	Task          string    `json:"task"`
-	Agent         string    `json:"agent"`
-	Provider      string    `json:"provider"`
-	Model         string    `json:"model"`
-	PR            int       `json:"pr,omitempty"`
-	Risk          string    `json:"risk"`
-	FilesChanged  []string  `json:"files_changed"`
-	Commands      []Command `json:"commands"`
-	SecurityNotes []string  `json:"security_notes"`
-	Rollback      string    `json:"rollback"`
-	Evidence      []string  `json:"evidence"`
-	CreatedAt     time.Time `json:"created_at"`
+	Task                          string    `json:"task"`
+	Agent                         string    `json:"agent"`
+	Provider                      string    `json:"provider"`
+	Model                         string    `json:"model"`
+	PR                            int       `json:"pr,omitempty"`
+	Risk                          string    `json:"risk"`
+	FilesChanged                  []string  `json:"files_changed"`
+	Commands                      []Command `json:"commands"`
+	SecurityNotes                 []string  `json:"security_notes"`
+	HumanEditsRequired            bool      `json:"human_edits_required"`
+	CorreccionesHumanasRequeridas bool      `json:"correcciones_humanas_requeridas"`
+	HumanEditsNotes               []string  `json:"human_edits_notes,omitempty"`
+	Rollback                      string    `json:"rollback"`
+	Evidence                      []string  `json:"evidence"`
+	CreatedAt                     time.Time `json:"created_at"`
 }
 
 // Command stores one validation command and its declared result.
@@ -131,6 +134,17 @@ func Verify(r Receipt) []string {
 	}
 	if r.Risk == "alto" && len(r.SecurityNotes) == 0 {
 		findings = append(findings, "security_notes requerido para riesgo alto")
+	}
+	if r.HumanEditsRequired || r.CorreccionesHumanasRequeridas {
+		if !r.HumanEditsRequired || !r.CorreccionesHumanasRequeridas {
+			findings = append(findings, "marcadores de correcciones humanas deben estar sincronizados")
+		}
+		if len(r.HumanEditsNotes) == 0 {
+			findings = append(findings, "human_edits_notes requerido cuando hay correcciones humanas")
+		}
+	}
+	if len(r.HumanEditsNotes) > 0 && (!r.HumanEditsRequired || !r.CorreccionesHumanasRequeridas) {
+		findings = append(findings, "human_edits_notes requiere human_edits_required")
 	}
 	return findings
 }
