@@ -1,0 +1,41 @@
+# Guardrails Orq — uso de Pi, delegación y loops caros
+
+## Problema observado
+
+Durante una sesión de organización del vault desde Pi, el operador ejecutó trabajo repetitivo directamente y repitió validaciones caras (`vg sync --full --prune`) en lugar de delegar análisis mecánico a agentes/modelos baratos recomendados por `orq budget`.
+
+Esto debe tratarse como bug/mejora de Orq: si Orq es la autoridad operativa, debe advertir cuando la conducta real se desvía del presupuesto, del routing o de buenas prácticas.
+
+## Errores/omisiones que Orq debe detectar
+
+- Uso prolongado del modelo activo de Pi para trabajo mecánico o repetitivo.
+- `orq budget` recomienda agentes baratos, pero la sesión sigue ejecutando directo desde Pi.
+- `orq delegate` se usa solo como `--dry-run` y no como delegación real cuando aplica.
+- Comandos caros repetidos sin cierre de lote, por ejemplo:
+  - `vg sync --full --prune`
+  - suites completas de tests/builds
+  - auditorías completas del vault/grafo
+- Validaciones completas antes de aplicar correcciones pequeñas.
+- Falta de recomendación explícita de `/compact` cuando hay loops largos o alto consumo.
+- Falta de bloqueo/advertencia antes de merge/push si la validación queda incompleta, abortada o con enlaces rotos.
+
+## Comportamiento esperado
+
+Orq debe emitir una advertencia accionable cuando detecte cualquiera de estos patrones:
+
+1. **Pi prolongado:** si el modelo Pi ejecuta varias operaciones mecánicas consecutivas, recomendar delegación a `local-or-cheap`, `agy/gemini-3.5-flash-low`, `agy/gpt-oss-120b-medium` u otro agente barato permitido.
+2. **Loop caro:** si se repite un comando caro dentro del mismo frente de trabajo, sugerir validación incremental y reservar la validación completa para el cierre del lote.
+3. **Delegación omitida:** si `orq budget` recomienda agentes baratos pero no se delega, marcar desviación operativa.
+4. **Compactación:** si el contexto o la secuencia operativa excede umbral, pedir `/compact` antes de continuar.
+5. **Pre-merge:** si hay comandos abortados, validaciones rotas o links rotos, impedir recomendar merge/push salvo aprobación humana explícita.
+
+## Criterios de aceptación
+
+- Dado un historial con dos o más `vg sync --full --prune` en el mismo frente, cuando se ejecute `orq budget` o `orq route`, entonces Orq debe advertir `loop caro detectado` y recomendar validación incremental.
+- Dado que `orq budget` recomienda agentes baratos, cuando el operador siga con trabajo mecánico desde Pi, entonces Orq debe registrar `delegación omitida`.
+- Dado un comando abortado o una validación incompleta, cuando se evalúe cierre/merge/push, entonces Orq debe exigir validación limpia o aprobación explícita.
+- Dado uso prolongado de Pi en tareas nivel 1/mecánicas, cuando se consulte Orq, entonces debe recomendar agente barato y compactación si aplica.
+
+## Nota operativa
+
+Este documento nace de feedback directo de Freddy: Orq existe para evitar consumo innecesario de tokens y coordinar agentes/modelos. Si no detecta estas desviaciones, es un bug del orquestador.
