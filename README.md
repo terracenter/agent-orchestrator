@@ -4,6 +4,8 @@
 
 **Idioma:** Español de Venezuela principal. [English version](README.en.md).
 
+**Licencia:** GNU AGPL-3.0-or-later. Si ejecutas una versión modificada como servicio de red, debes ofrecer el código fuente correspondiente según la licencia.
+
 ## Filosofía
 
 Este proyecto no busca reinventar la rueda. Reutiliza ideas y patrones buenos del ecosistema AI coding —especialmente Engram, Gentle-AI, Gentleman Guardian Angel y sistemas de skills— cuando encajan con el objetivo del proyecto.
@@ -20,6 +22,8 @@ Principios:
 ## Estado
 
 MVP inicial: **ledger + modo asesor**.
+
+Roadmap vivo: [ROADMAP.md](ROADMAP.md).
 
 Guía de uso: [docs/uso.md](docs/uso.md).
 

@@ -8,6 +8,7 @@
 - [ ] `go vet ./...`
 - [ ] Build validado si aplica
 - [ ] Docs/README/changelog actualizados si aplica
+- [ ] ROADMAP.md actualizado o `Roadmap: no aplica` justificado
 
 ## Revisión 4R
 
