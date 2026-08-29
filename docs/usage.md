@@ -24,6 +24,15 @@ On this machine the installed binary lives at:
 
 ## Basic commands
 
+Versioned guides from the binary:
+
+```bash
+orq docs usage
+orq docs orchestration
+```
+
+Common commands:
+
 ```bash
 orq classify "fix a broken reference"
 orq route "rotate production token"
