@@ -39,3 +39,16 @@ Orq debe emitir una advertencia accionable cuando detecte cualquiera de estos pa
 ## Nota operativa
 
 Este documento nace de feedback directo de Freddy: Orq existe para evitar consumo innecesario de tokens y coordinar agentes/modelos. Si no detecta estas desviaciones, es un bug del orquestador.
+## Feedback adicional 2026-08-29 — degradación obligatoria
+
+Freddy reportó nuevamente que Pi siguió consumiendo tokens rápido en tareas que otros agentes/modelos podían hacer. Esto refuerza que no basta con recomendar agentes baratos: Orq debe detectar la desviación en tiempo real y, cuando la tarea sea nivel 1/mecánica/documentación, debe exigir delegación o degradación antes de continuar.
+
+### Bug adicional
+
+- Orq permite que Pi continúe ejecutando pasos delegables después de haber recomendado agentes baratos.
+- Orq no emite un corte suficientemente fuerte cuando el patrón se repite en la misma sesión.
+- Orq debería registrar este evento como incumplimiento operativo y sugerir `/compact` + delegación real.
+
+### Criterio de aceptación adicional
+
+- Dado que `orq budget` recomienda evitar `pi/openai/gpt-5.5`, cuando se ejecuten más de N acciones delegables desde Pi en la misma tarea, entonces Orq debe responder con `degradación obligatoria` y pedir delegar a agente barato antes de seguir.
