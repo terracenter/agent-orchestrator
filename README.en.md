@@ -23,6 +23,8 @@ Initial MVP: **ledger + advisory mode**.
 
 Usage guide: [docs/usage.md](docs/usage.md).
 
+Integral harness test: [docs/prueba-integral-orq.md](docs/prueba-integral-orq.md) (Spanish primary).
+
 Orca technical inspiration: [docs/orca-inspiracion.md](docs/orca-inspiracion.md).
 
 Current/planned commands:
