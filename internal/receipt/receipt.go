@@ -30,6 +30,16 @@ type Command struct {
 	Result string `json:"result"`
 }
 
+// ValidCommandResult reports whether result is an accepted explicit command outcome.
+func ValidCommandResult(result string) bool {
+	switch result {
+	case "passed", "failed", "skipped", "recorded":
+		return true
+	default:
+		return false
+	}
+}
+
 // PRInfo stores the small subset of pull request metadata needed for RDD.
 type PRInfo struct {
 	Number      int
@@ -107,6 +117,10 @@ func Verify(r Receipt) []string {
 	for i, cmd := range r.Commands {
 		if strings.TrimSpace(cmd.Cmd) == "" || strings.TrimSpace(cmd.Result) == "" {
 			findings = append(findings, fmt.Sprintf("commands[%d] incompleto", i))
+			continue
+		}
+		if !ValidCommandResult(cmd.Result) && !strings.Contains(cmd.Result, "SUCCESS") && !strings.Contains(cmd.Result, "FAILURE") {
+			findings = append(findings, fmt.Sprintf("commands[%d] result invalido", i))
 		}
 	}
 	if len(r.Evidence) == 0 {

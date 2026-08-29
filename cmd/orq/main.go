@@ -123,7 +123,7 @@ Usage:
   orq audit prs [--path repo] [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
-  orq receipt create --task text --command text --evidence text --rollback text [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
+  orq receipt create --task text --command text --evidence text --rollback text [--command-result passed|failed|skipped|recorded] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
@@ -600,6 +600,13 @@ func cmdReceipt(args []string) error {
 		if err != nil {
 			return err
 		}
+		commandResult, remaining, err := extractStringFlag(remaining, "--command-result", "recorded")
+		if err != nil {
+			return err
+		}
+		if !receipt.ValidCommandResult(commandResult) {
+			return fmt.Errorf("invalid --command-result %q: use passed, failed, skipped or recorded", commandResult)
+		}
 		evidence, remaining, err := extractStringFlag(remaining, "--evidence", "")
 		if err != nil {
 			return err
@@ -634,7 +641,7 @@ func cmdReceipt(args []string) error {
 		r := receipt.New(task, agent, provider, model, risk, pr)
 		r.FilesChanged = splitCSV(files)
 		if command != "" {
-			r.Commands = []receipt.Command{{Cmd: command, Result: "recorded"}}
+			r.Commands = []receipt.Command{{Cmd: command, Result: commandResult}}
 		}
 		r.Evidence = splitCSV(evidence)
 		r.SecurityNotes = splitCSV(securityNotes)
