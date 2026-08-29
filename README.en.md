@@ -4,6 +4,8 @@
 
 **Language:** Venezuelan Spanish is the primary project language. This file provides American English documentation.
 
+**License:** GNU AGPL-3.0-or-later. If you run a modified version as a network service, you must offer the corresponding source code as required by the license.
+
 ## Philosophy
 
 This project does not try to reinvent the wheel. It reuses good ideas and patterns from the AI coding ecosystem — especially Engram, Gentle-AI, Gentleman Guardian Angel, and skill systems — when they fit the project's goals.
@@ -20,6 +22,8 @@ Principles:
 ## Status
 
 Initial MVP: **ledger + advisory mode**.
+
+Living roadmap: [ROADMAP.md](ROADMAP.md).
 
 Usage guide: [docs/usage.md](docs/usage.md).
 

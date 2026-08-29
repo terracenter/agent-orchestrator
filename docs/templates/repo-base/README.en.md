@@ -5,6 +5,8 @@
 
 Short description in American English: what it solves, who it serves, and why it exists.
 
+**License:** AGPL-3.0-or-later when applicable. If the project is offered as a network service, document the obligation to publish the corresponding source code.
+
 ## Architecture
 
 | Layer | Technology | Reason |
@@ -41,6 +43,12 @@ make test
 make security
 make build
 ```
+
+## Documentation
+
+- [Roadmap](ROADMAP.md)
+- [Security](SECURITY.md)
+- [Releases](RELEASES.md)
 
 ## License
 

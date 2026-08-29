@@ -5,6 +5,8 @@
 
 Descripción breve en Español Venezuela: qué resuelve, para quién y por qué existe.
 
+**Licencia:** AGPL-3.0-or-later cuando aplique. Si el proyecto se ofrece como servicio de red, documentar obligación de publicar código fuente correspondiente.
+
 ## Arquitectura
 
 | Capa | Tecnología | Motivo |
@@ -77,7 +79,9 @@ curl -fsS http://127.0.0.1:PUERTO/api/health
 
 ## Documentación
 
+- [Roadmap](ROADMAP.md)
 - [Seguridad](SECURITY.md)
+- [Releases](RELEASES.md)
 - [Contribución](CONTRIBUTING.md)
 - [Historial](RELEASES.md)
 - [Diagramas](docs/diagramas/)
