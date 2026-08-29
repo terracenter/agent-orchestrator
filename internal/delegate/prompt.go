@@ -1,21 +1,29 @@
 package delegate
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/terracenter/agent-orchestrator/internal/receipt"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 )
 
 type PlanOptions struct {
-	Task        string `json:"task"`
-	Agent       string `json:"agent"`
-	Executed    bool   `json:"executed"`
-	HandoffPath string `json:"handoff_path,omitempty"`
-	RepoPath    string `json:"repo_path,omitempty"`
-	AgentsDir   string `json:"agents_dir,omitempty"`
-	Workspace   string `json:"workspace,omitempty"`
-	Model       string `json:"model,omitempty"`
+	Task         string `json:"task"`
+	Agent        string `json:"agent"`
+	Executed     bool   `json:"executed"`
+	HandoffPath  string `json:"handoff_path,omitempty"`
+	RepoPath     string `json:"repo_path,omitempty"`
+	AgentsDir    string `json:"agents_dir,omitempty"`
+	Workspace    string `json:"workspace,omitempty"`
+	Model        string `json:"model,omitempty"`
+	WriteHandoff string `json:"write_handoff,omitempty"`
+	WriteReceipt string `json:"write_receipt,omitempty"`
+	Force        bool   `json:"force,omitempty"`
 }
 
 type Result struct {
@@ -28,6 +36,8 @@ type Result struct {
 	MustStopForDelegation bool           `json:"must_stop_for_delegation"`
 	SupervisorOnly        bool           `json:"supervisor_only"`
 	ExecutionAgentAllowed bool           `json:"execution_agent_allowed"`
+	WrittenHandoff        string         `json:"written_handoff,omitempty"`
+	WrittenReceipt        string         `json:"written_receipt,omitempty"`
 }
 
 func isPiAgent(agent string) bool {
@@ -65,9 +75,14 @@ func BuildAGYCommand(opts PlanOptions, decision route.Decision) string {
 		}
 	}
 
+	handoffTarget := opts.HandoffPath
+	if handoffTarget == "" && opts.WriteHandoff != "" {
+		handoffTarget = opts.WriteHandoff
+	}
+
 	var printInstruction string
-	if opts.HandoffPath != "" {
-		printInstruction = fmt.Sprintf("Olvida el historial anterior. Lee y ejecuta %s", opts.HandoffPath)
+	if handoffTarget != "" {
+		printInstruction = fmt.Sprintf("Olvida el historial anterior. Lee y ejecuta %s", handoffTarget)
 	} else if strings.HasSuffix(strings.TrimSpace(opts.Task), ".md") || strings.Contains(opts.Task, "handoffs/") {
 		printInstruction = fmt.Sprintf("Olvida el historial anterior. Lee y ejecuta %s", strings.TrimSpace(opts.Task))
 	} else if strings.TrimSpace(opts.Task) != "" {
@@ -89,6 +104,8 @@ func PlanWithOptions(opts PlanOptions) Result {
 	task := opts.Task
 	if task == "" && opts.HandoffPath != "" {
 		task = fmt.Sprintf("ejecutar handoff %s", opts.HandoffPath)
+	} else if task == "" && opts.WriteHandoff != "" {
+		task = fmt.Sprintf("ejecutar handoff %s", filepath.Base(opts.WriteHandoff))
 	}
 	decision := route.Decide(task)
 	if opts.Model != "" {
@@ -117,7 +134,7 @@ func PlanWithOptions(opts PlanOptions) Result {
 	}
 
 	var autoCmd string
-	if isAGYAgent(opts.Agent) || isAGYAgent(decision.RecommendedAgent) || opts.HandoffPath != "" {
+	if isAGYAgent(opts.Agent) || isAGYAgent(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
 		autoCmd = BuildAGYCommand(opts, decision)
 	}
 
@@ -162,4 +179,163 @@ func Prompt(task string, decision route.Decision) string {
 		"Al terminar, reporta comandos de validacion y estado final.",
 	)
 	return strings.Join(lines, "\n")
+}
+
+func BuildHandoff(opts PlanOptions, decision route.Decision) string {
+	taskTitle := strings.TrimSpace(opts.Task)
+	if taskTitle == "" && opts.HandoffPath != "" {
+		taskTitle = fmt.Sprintf("ejecutar handoff %s", filepath.Base(opts.HandoffPath))
+	} else if taskTitle == "" && opts.WriteHandoff != "" {
+		taskTitle = fmt.Sprintf("ejecutar handoff %s", filepath.Base(opts.WriteHandoff))
+	}
+	if taskTitle == "" {
+		taskTitle = "tarea delegada"
+	}
+
+	agent := opts.Agent
+	if agent == "" {
+		agent = "supervisor"
+	}
+
+	targetAgent := decision.RecommendedAgent
+	targetModel := decision.RecommendedModel
+	if opts.Model != "" {
+		targetModel = opts.Model
+	}
+
+	lines := []string{
+		fmt.Sprintf("# HANDOFF: %s", taskTitle),
+		"",
+		fmt.Sprintf("**Fecha:** %s · **Supervisor:** %s", time.Now().UTC().Format(time.RFC3339), agent),
+		fmt.Sprintf("**Agente recomendado:** %s · **Modelo:** %s", targetAgent, targetModel),
+		fmt.Sprintf("**Categoría:** %s (Nivel %d)", decision.Category, decision.RecommendedLevel),
+		"",
+		"## Objetivo",
+		taskTitle,
+		"",
+		"## Protocolo obligatorio",
+		"- Olvida el historial anterior.",
+		"- Todo comando de terminal/git/filesystem debe usar `rtk`.",
+		"- Usar `vg` para consultar el vault cuando aplique.",
+		"- No usar `sudo`.",
+		"- No push directo a `main`.",
+		"- No leer credenciales ni tokens ni exponer secretos.",
+		"- No ejecutar acciones destructivas sin validación previa.",
+	}
+
+	if len(decision.AvoidAgents) > 0 {
+		lines = append(lines, fmt.Sprintf("- Evitar escalar a: %s salvo error o duda explícita.", strings.Join(decision.AvoidAgents, ", ")))
+	}
+
+	lines = append(lines,
+		"",
+		"## Validación requerida y entrega esperada",
+		"- Ejecutar suite de pruebas y validaciones locales (`rtk go test ./...`, etc.).",
+		"- Reportar comandos de validación ejecutados y su resultado literal.",
+		"- Adjuntar recibo verificable (receipt) antes de cerrar la tarea.",
+		"",
+	)
+
+	return strings.Join(lines, "\n")
+}
+
+func BuildReceipt(opts PlanOptions, decision route.Decision) receipt.Receipt {
+	taskTitle := strings.TrimSpace(opts.Task)
+	if taskTitle == "" && opts.HandoffPath != "" {
+		taskTitle = fmt.Sprintf("ejecutar handoff %s", filepath.Base(opts.HandoffPath))
+	} else if taskTitle == "" && opts.WriteHandoff != "" {
+		taskTitle = fmt.Sprintf("ejecutar handoff %s", filepath.Base(opts.WriteHandoff))
+	}
+	if taskTitle == "" {
+		taskTitle = "tarea delegada"
+	}
+
+	agent := decision.RecommendedAgent
+	if agent == "" {
+		agent = opts.Agent
+	}
+	provider := providerForAgent(agent)
+	model := decision.RecommendedModel
+	if opts.Model != "" {
+		model = opts.Model
+	}
+
+	risk := "bajo"
+	if decision.Category == "seguridad" || decision.RecommendedLevel >= 3 {
+		risk = "medio"
+	}
+
+	r := receipt.New(taskTitle, agent, provider, model, risk, 0)
+	r.Commands = []receipt.Command{
+		{Cmd: "rtk go test ./...", Result: "recorded"},
+	}
+	r.Rollback = "revert branch or worktree changes"
+	r.Evidence = []string{
+		fmt.Sprintf("delegated from %s via orq delegate", opts.Agent),
+	}
+	return r
+}
+
+func providerForAgent(agent string) string {
+	switch strings.ToLower(strings.TrimSpace(agent)) {
+	case "agy", "agy-cli", "antigravity", "antigravity-cli":
+		return "google"
+	case "pi", "pi-api":
+		return "openai"
+	case "claude", "claude-code":
+		return "anthropic"
+	case "hermes":
+		return "hermes"
+	case "nvidia-api":
+		return "nvidia"
+	default:
+		return "local"
+	}
+}
+
+func WriteDelegationFiles(opts PlanOptions, res *Result) error {
+	if opts.WriteHandoff != "" {
+		handoffContent := BuildHandoff(opts, res.Decision)
+		if err := writeFileWithOverwriteCheck(opts.WriteHandoff, []byte(handoffContent), opts.Force); err != nil {
+			return err
+		}
+		res.WrittenHandoff = opts.WriteHandoff
+	}
+
+	if opts.WriteReceipt != "" {
+		r := BuildReceipt(opts, res.Decision)
+		data, err := json.MarshalIndent(r, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal initial receipt: %w", err)
+		}
+		data = append(data, '\n')
+		if err := writeFileWithOverwriteCheck(opts.WriteReceipt, data, opts.Force); err != nil {
+			return err
+		}
+		res.WrittenReceipt = opts.WriteReceipt
+	}
+	return nil
+}
+
+func writeFileWithOverwriteCheck(path string, data []byte, force bool) error {
+	cleanPath := filepath.Clean(path)
+	if !force {
+		if _, err := os.Stat(cleanPath); err == nil {
+			return fmt.Errorf("file %q already exists (use --force to overwrite)", cleanPath)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("checking file %q: %w", cleanPath, err)
+		}
+	}
+
+	dir := filepath.Dir(cleanPath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("creating directory %q: %w", dir, err)
+		}
+	}
+
+	if err := os.WriteFile(cleanPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing file %q: %w", cleanPath, err)
+	}
+	return nil
 }

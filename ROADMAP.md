@@ -34,7 +34,7 @@
 
 - [x] Agregar `must_stop_for_delegation=true` cuando el agente actual no debe ejecutar.
 - [x] Exponer `supervisor_only=true` y `execution_agent_allowed=false` para Pi/Codex bajo presión de presupuesto.
-- [ ] Hacer que `orq delegate` pueda escribir handoff/receipt en archivo.
+- [x] Hacer que `orq delegate` pueda escribir handoff/receipt en archivo.
 - [ ] Validar que Pi no ejecute trabajo largo si `delegate` recomendó AGY/OpenClaw/NVIDIA/local.
 
 ## Fase 3 — Tracking de agentes
