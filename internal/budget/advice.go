@@ -3,18 +3,25 @@ package budget
 import "fmt"
 
 type Advice struct {
-	ContextPercent           float64  `json:"context_percent"`
-	Codex5hPercent           float64  `json:"codex_5h_percent"`
-	WeeklyPercent            float64  `json:"weekly_percent"`
-	Action                   string   `json:"action"`
-	UseAgents                []string `json:"use_agents"`
-	AvoidAgents              []string `json:"avoid_agents"`
-	CompactPrompt            string   `json:"compact_prompt,omitempty"`
-	PreflightCompactRequired bool     `json:"preflight_compact_required"`
-	Reason                   string   `json:"reason"`
+	ContextPercent           float64           `json:"context_percent"`
+	Codex5hPercent           float64           `json:"codex_5h_percent"`
+	WeeklyPercent            float64           `json:"weekly_percent"`
+	Action                   string            `json:"action"`
+	UseAgents                []string          `json:"use_agents"`
+	AvoidAgents              []string          `json:"avoid_agents"`
+	CompactPrompt            string            `json:"compact_prompt,omitempty"`
+	PreflightCompactRequired bool              `json:"preflight_compact_required"`
+	CompactCapability        CompactCapability `json:"compact_capability"`
+	CompactInstruction       string            `json:"compact_instruction"`
+	Reason                   string            `json:"reason"`
 }
 
 func Decide(contextPercent, codex5hPercent, weeklyPercent float64) Advice {
+	return DecideForAgent(contextPercent, codex5hPercent, weeklyPercent, "unknown")
+}
+
+func DecideForAgent(contextPercent, codex5hPercent, weeklyPercent float64, agent string) Advice {
+	capability := CompactCapabilityFor(agent)
 	advice := Advice{
 		ContextPercent: contextPercent,
 		Codex5hPercent: codex5hPercent,
@@ -28,6 +35,8 @@ func Decide(contextPercent, codex5hPercent, weeklyPercent float64) Advice {
 		AvoidAgents:              []string{"pi/openai/gpt-5.5", "claude-opus", "claude-sonnet"},
 		CompactPrompt:            CompactPrompt(),
 		PreflightCompactRequired: true,
+		CompactCapability:        capability,
+		CompactInstruction:       capability.Instruction,
 	}
 
 	switch {
