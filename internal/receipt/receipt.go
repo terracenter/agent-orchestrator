@@ -82,7 +82,7 @@ func New(task, agent, provider, model, risk string, pr int) Receipt {
 func FromPR(info PRInfo, agent, provider, model, risk string) Receipt {
 	r := New(info.Title, agent, provider, model, risk, info.Number)
 	r.FilesChanged = append([]string(nil), info.Files...)
-	r.Commands = []Command{{Cmd: "gh pr checks", Result: strings.Join(info.Checks, ", ")}}
+	r.Commands = []Command{{Cmd: "rtk gh pr checks", Result: strings.Join(info.Checks, ", ")}}
 	r.Rollback = fmt.Sprintf("revert PR #%d", info.Number)
 	r.Evidence = []string{fmt.Sprintf("PR #%d", info.Number)}
 	if info.URL != "" {
@@ -173,7 +173,7 @@ func Verify(r Receipt) []string {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "gh ") || strings.HasPrefix(trimmed, "cd ") {
+		if strings.HasPrefix(trimmed, "cd ") {
 			continue
 		}
 		parts := strings.Fields(trimmed)

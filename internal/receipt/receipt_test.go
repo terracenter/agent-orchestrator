@@ -153,3 +153,45 @@ func TestVerifyDetectsRtkViolations(t *testing.T) {
 		t.Fatalf("esperaba que el recibo fuera valido despues de declarar la violacion, hallazgos: %+v", findingsAfter)
 	}
 }
+
+func TestVerifyGhDirectViolatesRtk(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{
+		{Cmd: "gh pr view 1", Result: "passed"},
+	}
+	r.Evidence = []string{"logs"}
+	r.Rollback = "revert PR #12"
+
+	findings := Verify(r)
+	if len(findings) == 0 {
+		t.Fatal("esperaba encontrar hallazgos de violacion de rtk para command 'gh pr view 1' directo")
+	}
+
+	// rtk gh pr view 1 debe pasar
+	r2 := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r2.Commands = []Command{
+		{Cmd: "rtk gh pr view 1", Result: "passed"},
+	}
+	r2.Evidence = []string{"logs"}
+	r2.Rollback = "revert PR #12"
+
+	findings2 := Verify(r2)
+	if len(findings2) != 0 {
+		t.Fatalf("esperaba que 'rtk gh pr view 1' fuera valido, hallazgos: %+v", findings2)
+	}
+}
+
+func TestVerifyCdDirectAllowed(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{
+		{Cmd: "cd /home/freddy/Workspace/Desarrollo/agent-orchestrator", Result: "passed"},
+	}
+	r.Evidence = []string{"logs"}
+	r.Rollback = "revert PR #12"
+
+	findings := Verify(r)
+	if len(findings) != 0 {
+		t.Fatalf("esperaba que 'cd ...' directo fuera permitido, hallazgos: %+v", findings)
+	}
+}
+
