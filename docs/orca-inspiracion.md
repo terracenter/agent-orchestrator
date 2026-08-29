@@ -64,7 +64,7 @@ Orca usa worktrees para evitar que agentes pisen el mismo checkout. En `orq`, es
 
 ### 6. Guías versionadas por el binario
 
-Orca sirve guías desde el CLI para evitar documentación desfasada. En `orq` debemos agregar un comando futuro:
+Orca sirve guías desde el CLI para evitar documentación desfasada. En `orq` esto se implementa con:
 
 ```bash
 orq docs usage

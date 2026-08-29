@@ -18,6 +18,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/config"
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
+	"github.com/terracenter/agent-orchestrator/internal/guides"
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
 	"github.com/terracenter/agent-orchestrator/internal/heartbeat"
 	"github.com/terracenter/agent-orchestrator/internal/inbox"
@@ -61,6 +62,8 @@ func main() {
 		err = cmdVaultOrder(os.Args[2:])
 	case "delegate":
 		err = cmdDelegate(os.Args[2:])
+	case "docs":
+		err = cmdDocs(os.Args[2:])
 	case "task":
 		err = cmdTask(os.Args[2:])
 	case "handoff":
@@ -113,6 +116,7 @@ Usage:
   orq config [--config path] [--check-adapters] [--format json]
   orq vault-order --vault <path> --query <term> [--format json]
   orq delegate <task> [--format json]
+  orq docs usage|orchestration
   orq task create <title> [--tasks path] [--format json]
   orq task list [--tasks path] [--format json]
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
@@ -140,6 +144,18 @@ Usage:
   orq safety check [--path repo] [--command text] [--format json]
   orq review 4r [--path repo] [--format json]
 `)
+}
+
+func cmdDocs(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("docs guide is required: %s", strings.Join(guides.Names(), "|"))
+	}
+	text, err := guides.Text(args[0])
+	if err != nil {
+		return err
+	}
+	fmt.Print(text)
+	return nil
 }
 
 func cmdSession(args []string) error {

@@ -30,6 +30,15 @@ source ~/.zshrc
 
 ## Comandos básicos
 
+### Ver guías versionadas del binario
+
+```bash
+orq docs usage
+orq docs orchestration
+```
+
+Estas guías salen del propio binario para evitar documentación operativa desfasada.
+
 ### Clasificar una tarea
 
 ```bash
