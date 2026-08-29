@@ -70,6 +70,30 @@ func TestVerifyRejectsHumanEditsRequiredWithoutNotes(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsHumanEditsRequiredValueUnknownOrInteger(t *testing.T) {
+	for _, value := range []string{"unknown", "0", "3"} {
+		r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+		r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+		r.Evidence = []string{"log"}
+		r.Rollback = "revert"
+		r.HumanEditsRequiredValue = value
+		if findings := Verify(r); len(findings) != 0 {
+			t.Fatalf("expected %q valid, got %+v", value, findings)
+		}
+	}
+}
+
+func TestVerifyRejectsInvalidHumanEditsRequiredValue(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "go test ./...", Result: "passed"}}
+	r.Evidence = []string{"log"}
+	r.Rollback = "revert"
+	r.HumanEditsRequiredValue = "true"
+	if findings := Verify(r); len(findings) == 0 {
+		t.Fatal("expected invalid human edits value finding")
+	}
+}
+
 func TestVerifyRequiresEvidence(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 0)
 	findings := Verify(r)
