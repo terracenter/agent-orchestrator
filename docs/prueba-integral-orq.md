@@ -77,7 +77,7 @@ La sesión solo se considera lista si:
 El 2026-08-29 se ejecutó el flujo en `agent-orchestrator` para documentar PR #46:
 
 - `orq guard-collision --path .` → repo limpio/sin colisión antes de cambios.
-- `orq repo check --path .` → OK, con advertencia no bloqueante por `RELEASES.md` ausente.
+- `orq repo check --path .` → OK; desde PR #51 el repo incluye `RELEASES.md` para no depender de una advertencia conocida.
 - `orq safety check --path .` → riesgo bajo, 0 findings.
 - `orq review 4r --path .` → preguntas 4R generadas.
 - `orq heartbeat run --workspace .` → 1 proyecto, 4 fuentes, 3 políticas, 2 acciones.
