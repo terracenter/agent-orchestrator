@@ -22,6 +22,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/inbox"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/observer"
+	"github.com/terracenter/agent-orchestrator/internal/receipt"
 	"github.com/terracenter/agent-orchestrator/internal/repostandard"
 	"github.com/terracenter/agent-orchestrator/internal/review4r"
 	"github.com/terracenter/agent-orchestrator/internal/route"
@@ -72,6 +73,8 @@ func main() {
 		err = cmdAudit(os.Args[2:])
 	case "observer":
 		err = cmdObserver(os.Args[2:])
+	case "receipt":
+		err = cmdReceipt(os.Args[2:])
 	case "budget":
 		err = cmdBudget(os.Args[2:])
 	case "repo":
@@ -118,6 +121,8 @@ Usage:
   orq agents [--format json]
   orq audit prs [--path repo] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
+  orq receipt create --task text --command text --evidence text --rollback text [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
+  orq receipt verify --path receipt.json [--format json]
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
@@ -525,6 +530,134 @@ func cmdBudget(args []string) error {
 	}
 	fmt.Printf("use=%s avoid=%s\n", strings.Join(advice.UseAgents, ","), strings.Join(advice.AvoidAgents, ","))
 	return nil
+}
+
+func cmdReceipt(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("receipt subcommand is required")
+	}
+	switch args[0] {
+	case "create":
+		task, remaining, err := extractStringFlag(args[1:], "--task", "")
+		if err != nil {
+			return err
+		}
+		agent, remaining, err := extractStringFlag(remaining, "--agent", "orq")
+		if err != nil {
+			return err
+		}
+		provider, remaining, err := extractStringFlag(remaining, "--provider", "manual")
+		if err != nil {
+			return err
+		}
+		model, remaining, err := extractStringFlag(remaining, "--model", "unknown")
+		if err != nil {
+			return err
+		}
+		risk, remaining, err := extractStringFlag(remaining, "--risk", "bajo")
+		if err != nil {
+			return err
+		}
+		command, remaining, err := extractStringFlag(remaining, "--command", "")
+		if err != nil {
+			return err
+		}
+		evidence, remaining, err := extractStringFlag(remaining, "--evidence", "")
+		if err != nil {
+			return err
+		}
+		rollback, remaining, err := extractStringFlag(remaining, "--rollback", "")
+		if err != nil {
+			return err
+		}
+		output, remaining, err := extractStringFlag(remaining, "--output", "receipt.json")
+		if err != nil {
+			return err
+		}
+		files, remaining, err := extractStringFlag(remaining, "--files", "")
+		if err != nil {
+			return err
+		}
+		securityNotes, remaining, err := extractStringFlag(remaining, "--security-notes", "")
+		if err != nil {
+			return err
+		}
+		prText, remaining, err := extractStringFlag(remaining, "--pr", "0")
+		if err != nil {
+			return err
+		}
+		pr, err := strconv.Atoi(prText)
+		if err != nil {
+			return fmt.Errorf("invalid --pr: %w", err)
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		r := receipt.New(task, agent, provider, model, risk, pr)
+		r.FilesChanged = splitCSV(files)
+		if command != "" {
+			r.Commands = []receipt.Command{{Cmd: command, Result: "recorded"}}
+		}
+		r.Evidence = splitCSV(evidence)
+		r.SecurityNotes = splitCSV(securityNotes)
+		r.Rollback = rollback
+		if findings := receipt.Verify(r); len(findings) > 0 {
+			return fmt.Errorf("invalid receipt: %s", strings.Join(findings, "; "))
+		}
+		if err := receipt.Save(output, r); err != nil {
+			return err
+		}
+		fmt.Printf("receipt path=%s task=%s risk=%s evidence=%d\n", output, r.Task, r.Risk, len(r.Evidence))
+		return nil
+	case "verify":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", "")
+		if err != nil {
+			return err
+		}
+		if path == "" {
+			return fmt.Errorf("--path is required")
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		r, err := receipt.Load(path)
+		if err != nil {
+			return err
+		}
+		findings := receipt.Verify(r)
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": len(findings) == 0, "findings": findings, "receipt": r})
+		}
+		if len(findings) > 0 {
+			fmt.Printf("INVALID path=%s findings=%d\n", path, len(findings))
+			for _, finding := range findings {
+				fmt.Printf("finding=%s\n", finding)
+			}
+			return fmt.Errorf("receipt verification failed")
+		}
+		fmt.Printf("OK path=%s task=%s risk=%s evidence=%d\n", path, r.Task, r.Risk, len(r.Evidence))
+		return nil
+	default:
+		return fmt.Errorf("unknown receipt subcommand %q", args[0])
+	}
+}
+
+func splitCSV(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	var values []string
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
 }
 
 func cmdObserver(args []string) error {
