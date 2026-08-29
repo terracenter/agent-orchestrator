@@ -18,6 +18,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/delegate"
 	"github.com/terracenter/agent-orchestrator/internal/guard"
 	"github.com/terracenter/agent-orchestrator/internal/handoff"
+	"github.com/terracenter/agent-orchestrator/internal/heartbeat"
 	"github.com/terracenter/agent-orchestrator/internal/inbox"
 	"github.com/terracenter/agent-orchestrator/internal/ledger"
 	"github.com/terracenter/agent-orchestrator/internal/observer"
@@ -61,6 +62,8 @@ func main() {
 		err = cmdTask(os.Args[2:])
 	case "handoff":
 		err = cmdHandoff(os.Args[2:])
+	case "heartbeat":
+		err = cmdHeartbeat(os.Args[2:])
 	case "inbox":
 		err = cmdInbox(os.Args[2:])
 	case "agents":
@@ -108,6 +111,7 @@ Usage:
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
   orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
+  orq heartbeat run [--workspace path] [--format json]
   orq inbox feedbacks [--path dir] [--format json]
   orq inbox next [--path dir] [--seen-file path] [--format json]
   orq inbox ack --file path [--seen-file path]
@@ -586,6 +590,43 @@ func cmdObserver(args []string) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown observer subcommand %q", args[0])
+	}
+}
+
+func cmdHeartbeat(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("heartbeat subcommand is required")
+	}
+	switch args[0] {
+	case "run":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		workspace, remaining, err := extractStringFlag(remaining, "--workspace", "/home/freddy/Workspace")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := heartbeat.Run(workspace)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("heartbeat workspace=%s projects=%d sources=%d actions=%d\n", report.Workspace, len(report.Projects), len(report.Sources), len(report.Actions))
+		for _, project := range report.Projects {
+			fmt.Printf("project=%s manifests=%s\n", project.Path, strings.Join(project.Manifests, ","))
+		}
+		for _, action := range report.Actions {
+			fmt.Printf("%s %s\n", action.Priority, action.Text)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown heartbeat subcommand %q", args[0])
 	}
 }
 
