@@ -446,7 +446,7 @@ func TestPlanWithOptionsOpenClawValidationAndCommand(t *testing.T) {
 		t.Fatal("expected AutonomousCommand to be generated for openclaw")
 	}
 
-	expectedPrefix := "rtk openclaw agent --agent openclaw"
+	expectedPrefix := "rtk openclaw agent --agent main"
 	if !strings.HasPrefix(res.AutonomousCommand, expectedPrefix) {
 		t.Errorf("expected command to start with %q, got: %q", expectedPrefix, res.AutonomousCommand)
 	}
@@ -469,7 +469,7 @@ func TestBuildOpenClawCommandWithHandoff(t *testing.T) {
 		return
 	}
 
-	expected := "rtk openclaw agent --agent openclaw --model haiku --message-file /tmp/handoff.md"
+	expected := "rtk openclaw agent --agent main --model haiku --message-file /tmp/handoff.md"
 	if res.AutonomousCommand != expected {
 		t.Errorf("expected command %q, got %q", expected, res.AutonomousCommand)
 	}

@@ -63,7 +63,7 @@ func BuildOpenClawCommand(opts PlanOptions, decision route.Decision) string {
 		handoffTarget = opts.WriteHandoff
 	}
 
-	agentID := "openclaw"
+	agentID := "main"
 	if opts.Agent != "" && isOpenClawAgent(opts.Agent) {
 		parts := strings.Split(opts.Agent, "/")
 		if len(parts) > 1 {
