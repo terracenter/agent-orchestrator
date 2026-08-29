@@ -223,6 +223,11 @@ orq task create "ordenar vault GLPI"
 orq task list
 orq task assign <id> --agent pi --model cheap-or-fast --host minipc
 orq handoff draft --task-id <id>
+orq handoff draft --task-id <id> --template reviewer-4r
+orq handoff draft --task-id <id> --template security-reviewer
+orq handoff draft --task-id <id> --template implementer
+orq handoff draft --task-id <id> --template documenter
+orq handoff draft --task-id <id> --template architect
 orq task update <id> --state running
 orq task update <id> --state done --evidence "PR o commit validado"
 ```
@@ -234,6 +239,14 @@ Por defecto las tareas se guardan en:
 ```
 
 Estos estados alimentarán el futuro dashboard/PWA por WireGuard.
+
+Las plantillas cacheables de `handoff draft` ordenan el prompt así: `<contexto_estatico>` → `<contexto_estable>` → `<contexto_dinamico>` → `<tarea>`. Los datos volátiles van abajo para reducir costo y evitar invalidar caché.
+
+Validar que no haya datos volátiles en bloques superiores:
+
+```bash
+orq handoff validate-template --file handoff.md
+```
 
 ### Planificar ordenamiento documental del vault
 

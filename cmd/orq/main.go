@@ -117,7 +117,8 @@ Usage:
   orq task list [--tasks path] [--format json]
   orq task update <id> --state <state> [--agent name] [--model name] [--host name] [--evidence text] [--tasks path] [--format json]
   orq task assign <id> --agent name [--model name] [--host name] [--tasks path] [--format json]
-  orq handoff draft --task-id <id> [--tasks path] [--output path] [--format json]
+  orq handoff draft --task-id <id> [--template reviewer-4r|security-reviewer|implementer|documenter|architect] [--tasks path] [--output path] [--format json]
+  orq handoff validate-template --file path [--format json]
   orq handoff chain --from path --to path --task text --next-agent name [--format json]
   orq heartbeat run [--workspace path] [--format json]
   orq inbox feedbacks [--path dir] [--format json]
@@ -1095,6 +1096,37 @@ func cmdHandoff(args []string) error {
 		return err
 	}
 	switch args[0] {
+	case "validate-template":
+		file, remaining, err := extractStringFlag(remaining, "--file", "")
+		if err != nil {
+			return err
+		}
+		if file == "" {
+			return fmt.Errorf("--file is required")
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		content, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		warnings := handoff.ValidateCacheableTemplate(string(content))
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				Valid    bool     `json:"valid"`
+				Warnings []string `json:"warnings"`
+			}{Valid: len(warnings) == 0, Warnings: warnings})
+		}
+		if len(warnings) == 0 {
+			fmt.Println("OK warnings=0")
+			return nil
+		}
+		fmt.Printf("WARN warnings=%d\n", len(warnings))
+		for _, warning := range warnings {
+			fmt.Printf("warning=%q\n", warning)
+		}
+		return nil
 	case "chain":
 		from, remaining, err := extractStringFlag(remaining, "--from", "")
 		if err != nil {
@@ -1129,6 +1161,10 @@ func cmdHandoff(args []string) error {
 		if err != nil {
 			return err
 		}
+		templateName, remaining, err := extractStringFlag(remaining, "--template", "default")
+		if err != nil {
+			return err
+		}
 		if id == "" {
 			return fmt.Errorf("--task-id is required")
 		}
@@ -1139,7 +1175,10 @@ func cmdHandoff(args []string) error {
 		if err != nil {
 			return err
 		}
-		draft := handoff.Draft(item)
+		draft, err := handoff.DraftWithTemplate(item, templateName)
+		if err != nil {
+			return err
+		}
 		if output != "" {
 			if _, err := os.Stat(output); err == nil {
 				return fmt.Errorf("output already exists: %s", output)
@@ -1155,10 +1194,11 @@ func cmdHandoff(args []string) error {
 		}
 		if format == "json" {
 			return json.NewEncoder(os.Stdout).Encode(struct {
-				TaskID string `json:"task_id"`
-				Output string `json:"output,omitempty"`
-				Draft  string `json:"draft"`
-			}{TaskID: id, Output: output, Draft: draft})
+				TaskID   string `json:"task_id"`
+				Template string `json:"template"`
+				Output   string `json:"output,omitempty"`
+				Draft    string `json:"draft"`
+			}{TaskID: id, Template: templateName, Output: output, Draft: draft})
 		}
 		fmt.Print(draft)
 		return nil
