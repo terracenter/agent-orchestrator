@@ -12,6 +12,32 @@ func TestSecurityOverridesCost(t *testing.T) {
 	}
 }
 
+func TestCriticalDeployValidationPrioritizesOpus(t *testing.T) {
+	decision := Decide("validar posible falso positivo en Deploy CWP falla: SSH exec request failed")
+	if decision.Category != "revision_critica" {
+		t.Fatalf("Category = %q, want revision_critica", decision.Category)
+	}
+	if decision.RecommendedAgent != "claude-code" || decision.RecommendedModel != "opus" {
+		t.Fatalf("recommended = %s/%s, want claude-code/opus", decision.RecommendedAgent, decision.RecommendedModel)
+	}
+	if !decision.RequiresConfirmation || !decision.SecurityOverride {
+		t.Fatalf("decision = %+v, want confirmation and security override", decision)
+	}
+	if !contains(decision.AllowedAgents, "claude-code/opus") {
+		t.Fatalf("AllowedAgents = %+v, want claude-code/opus", decision.AllowedAgents)
+	}
+}
+
+func TestProductionWorkflowValidationPrioritizesOpus(t *testing.T) {
+	decision := Decide("revisión crítica de workflow GitHub Actions de producción antes de cambiar deploy")
+	if decision.Category != "revision_critica" {
+		t.Fatalf("Category = %q, want revision_critica", decision.Category)
+	}
+	if decision.RecommendedModel != "opus" {
+		t.Fatalf("RecommendedModel = %q, want opus", decision.RecommendedModel)
+	}
+}
+
 func TestMechanicalUsesLowLevel(t *testing.T) {
 	decision := Decide("corregir referencia rota")
 	if decision.RecommendedLevel > 1 {
