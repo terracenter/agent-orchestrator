@@ -180,11 +180,35 @@ Propiedades del comando generado para AGY:
 
 `orq` puede enviar eventos al Observer usando el endpoint existente `POST /api/events/ingest`.
 
-Configuración local segura:
+Configuración persistente segura:
+
+```bash
+mkdir -p "$HOME/.config/sge-observer"
+chmod 700 "$HOME/.config/sge-observer"
+install -m 0600 /dev/null "$HOME/.config/sge-observer/client.env"
+```
+
+Contenido esperado de `~/.config/sge-observer/client.env`:
+
+```bash
+ORQ_OBSERVER_URL="http://127.0.0.1:4000"
+ORQ_OBSERVER_HOST_TOKEN_FILE="$HOME/.config/sge-observer/agent-orchestrator.host-token"
+```
+
+También se aceptan variables de entorno para uso temporal:
 
 ```bash
 export ORQ_OBSERVER_URL="http://127.0.0.1:4000"
 export ORQ_OBSERVER_HOST_TOKEN_FILE="$HOME/.config/sge-observer/agent-orchestrator.host-token"
+```
+
+Nunca guardes el token en git. Prefiere `ORQ_OBSERVER_HOST_TOKEN_FILE` sobre `ORQ_OBSERVER_HOST_TOKEN`.
+
+Diagnóstico sin exponer secretos:
+
+```bash
+orq observer status
+orq observer status --format json
 ```
 
 Prueba sintética:
@@ -201,7 +225,17 @@ orq record --task "validar Observer" --agent nvidia-api --model openai/gpt-oss-2
 
 Si el token está configurado, `orq record` guarda el ledger local y además envía un evento `orq_record` no bloqueante al Observer. Si Observer no está disponible o no hay token, el ledger local sigue funcionando.
 
-El token no se guarda en git. `orq observer send-test` falla de forma clara si no hay token; `orq record` no falla por problemas de Observer.
+Sincronización del ledger histórico:
+
+```bash
+orq observer sync --dry-run
+orq observer sync
+orq observer sync --format json
+```
+
+Por defecto, `orq observer sync` lee `~/.local/state/orq/ledger.jsonl` y guarda el estado de deduplicación en `~/.local/state/orq/observer-sync.json`. Ambos paths pueden cambiarse con `--ledger` y `--state`.
+
+El token no se guarda en git. `orq observer send-test` y `orq observer sync` fallan de forma clara si no hay token; `orq record` no falla por problemas de Observer.
 
 ### Validar estándar operativo de repos
 
