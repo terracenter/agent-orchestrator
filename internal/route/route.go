@@ -44,15 +44,16 @@ func Decide(task string) Decision {
 		decision.RecommendedLevel = 3
 		decision.RecommendedAgent = "claude-code"
 		decision.RecommendedModel = "sonnet"
+		decision.AllowedAgents = []string{"claude-code/sonnet", "claude-code/opus"}
 		decision.RequiresConfirmation = true
 		decision.SecurityOverride = true
-		decision.Reason = "seguridad sobrescribe costo"
+		decision.Reason = "seguridad sobrescribe costo; Sonnet por defecto, Opus solo para arquitectura/auditoria critica"
 	case "documentacion":
 		decision.RecommendedLevel = 1
 		decision.RecommendedAgent = "agy"
 		decision.RecommendedModel = "gpt-oss-120b-medium"
-		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "haiku/haiku"}
-		decision.AvoidAgents = []string{"claude-opus", "claude-sonnet"}
+		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/haiku"}
+		decision.AvoidAgents = []string{"claude-code/opus", "claude-code/sonnet"}
 		decision.Reason = "documentacion/vault: descubrir con vg/rtk y ejecutar con agente barato; escalar solo si hay conflicto o riesgo"
 	case "codigo":
 		decision.RecommendedLevel = 2
@@ -65,8 +66,8 @@ func Decide(task string) Decision {
 		decision.RecommendedLevel = 1
 		decision.RecommendedAgent = "local-or-cheap"
 		decision.RecommendedModel = "lowest-sufficient"
-		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "haiku/haiku", "local"}
-		decision.AvoidAgents = []string{"claude-opus", "claude-sonnet"}
+		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/haiku", "local"}
+		decision.AvoidAgents = []string{"claude-code/opus", "claude-code/sonnet"}
 		decision.Reason = "tarea mecanica: usar escalon mas barato suficiente"
 	}
 	return decision
