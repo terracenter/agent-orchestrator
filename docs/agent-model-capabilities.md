@@ -13,15 +13,16 @@ A continuación se detallan los agentes registrados y sus configuraciones de mod
 | **nvidia-api** | nvidia | `openai/gpt-oss-20b` | 0 | Smoke tests, clasificación barata y tareas mecánicas con API NVIDIA | Sí |
 | **nvidia-api** | nvidia | `openai/gpt-oss-120b` | 0 | Validación barata y razonamiento hospedado con API NVIDIA | Sí |
 | **pi** | nvidia | `free-or-low-cost` | 0 | Tareas mecánicas, resumen y clasificación cuando el provider esté disponible | No |
-| **haiku** | anthropic | `haiku` | 1 | Tareas mecánicas con instrucciones cerradas | Sí |
+| **claude-code** | anthropic | `haiku` | 1 | Tareas mecánicas con instrucciones cerradas cuando se quiere usar Claude barato | Sí |
 | **agy** | google | `gemini-3.5-flash-low` | 1 | Tareas mecánicas, clasificación y validaciones baratas | Sí |
 | **agy** | google | `gemini-3.5-flash-medium` | 1 | Tareas rápidas, resúmenes y documentación | No |
 | **agy** | google | `gemini-3.7-flash-high` | 1 | Implementación de código y análisis técnico medio | No |
 | **agy** | google | `gemini-3.1-pro-low` | 2 | Análisis técnico fuerte y refutación antes de escalar a Claude | No |
 | **agy** | open-model | `gpt-oss-120b-medium` | 0 | Validación barata de prompts, resúmenes y tareas mecánicas cuando AGY lo expone | Sí |
 | **agy** | nvidia | `free-or-low-cost` | 0 | Tareas mecánicas y validaciones baratas si AGY lo expone | No |
-| **claude-code** | anthropic | `sonnet` | 3 | Revisión crítica, seguridad, bloqueos y refutación de decisiones | Sí |
-| **claude-code** | anthropic | `opus` | 4 | Arquitectura compleja o decision mayor | Sí |
+| **claude-code** | anthropic | `sonnet` | 3 | Código, revisión crítica, seguridad, bloqueos y refutación de decisiones | Sí |
+| **claude-code** | anthropic | `opus` | 4 | Arquitectura compleja, auditoría crítica o decisión mayor | Sí |
+| **claude-code** | anthropic | `fable` | 2 | Modelo Claude pendiente de clasificar; usar solo si la CLI lo expone y hay confirmación operativa | No |
 
 ## 2. Detección Local de Agentes e Instalación
 
