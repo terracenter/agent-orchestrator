@@ -1,6 +1,7 @@
 package observer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -36,6 +37,15 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
+type Config struct {
+	BaseURL     string `json:"base_url"`
+	TokenFile   string `json:"token_file"`
+	TokenSource string `json:"token_source"`
+	ConfigFile  string `json:"config_file"`
+	Configured  bool   `json:"configured"`
+	TokenLoaded bool   `json:"token_loaded"`
+}
+
 type IngestResult struct {
 	OK       bool  `json:"ok"`
 	Inserted int64 `json:"inserted"`
@@ -46,26 +56,91 @@ func New(baseURL, hostToken string) Client {
 }
 
 func FromEnv() (Client, bool, error) {
-	baseURL := os.Getenv("ORQ_OBSERVER_URL")
-	if baseURL == "" {
-		baseURL = "http://127.0.0.1:4000"
+	cfg, token, err := LoadConfig()
+	if err != nil {
+		return Client{}, false, err
 	}
-	token := os.Getenv("ORQ_OBSERVER_HOST_TOKEN")
-	if token == "" {
-		path := os.Getenv("ORQ_OBSERVER_HOST_TOKEN_FILE")
-		if path == "" {
-			path = os.ExpandEnv("$HOME/.config/sge-observer/agent-orchestrator.host-token")
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return Client{}, false, nil
-		}
-		token = strings.TrimSpace(string(data))
-	}
-	if strings.TrimSpace(token) == "" {
+	if !cfg.TokenLoaded || strings.TrimSpace(token) == "" {
 		return Client{}, false, nil
 	}
-	return New(baseURL, token), true, nil
+	return New(cfg.BaseURL, token), true, nil
+}
+
+func DefaultConfigPath() string {
+	return os.ExpandEnv("$HOME/.config/sge-observer/client.env")
+}
+
+func DefaultTokenPath() string {
+	return os.ExpandEnv("$HOME/.config/sge-observer/agent-orchestrator.host-token")
+}
+
+func LoadConfig() (Config, string, error) {
+	cfg := Config{BaseURL: "http://127.0.0.1:4000", TokenFile: DefaultTokenPath(), ConfigFile: DefaultConfigPath()}
+	values, configExists, err := readEnvFile(cfg.ConfigFile)
+	if err != nil {
+		return cfg, "", err
+	}
+	if configExists {
+		cfg.Configured = true
+	}
+	if v := values["ORQ_OBSERVER_URL"]; v != "" {
+		cfg.BaseURL = v
+	}
+	if v := values["ORQ_OBSERVER_HOST_TOKEN_FILE"]; v != "" {
+		cfg.TokenFile = os.ExpandEnv(v)
+	}
+	token := values["ORQ_OBSERVER_HOST_TOKEN"]
+	if v := os.Getenv("ORQ_OBSERVER_URL"); v != "" {
+		cfg.BaseURL = v
+	}
+	if v := os.Getenv("ORQ_OBSERVER_HOST_TOKEN_FILE"); v != "" {
+		cfg.TokenFile = os.ExpandEnv(v)
+	}
+	if v := os.Getenv("ORQ_OBSERVER_HOST_TOKEN"); v != "" {
+		token = v
+	}
+	if strings.TrimSpace(token) != "" {
+		cfg.TokenSource = "env"
+		cfg.TokenLoaded = true
+		return cfg, strings.TrimSpace(token), nil
+	}
+	data, err := os.ReadFile(cfg.TokenFile)
+	if err != nil {
+		return cfg, "", nil
+	}
+	token = strings.TrimSpace(string(data))
+	if token != "" {
+		cfg.TokenSource = "file"
+		cfg.TokenLoaded = true
+	}
+	return cfg, token, nil
+}
+
+func readEnvFile(path string) (map[string]string, bool, error) {
+	values := map[string]string{}
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return values, false, nil
+	}
+	if err != nil {
+		return values, false, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.Trim(strings.TrimSpace(val), "\"'")
+		values[key] = os.ExpandEnv(val)
+	}
+	return values, true, scanner.Err()
 }
 
 func SyntheticEvent(project, agent, model string, tokensIn, tokensOut int64) Event {
