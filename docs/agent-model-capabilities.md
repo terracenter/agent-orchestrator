@@ -86,3 +86,17 @@ A continuación se lista el backlog de PRs sugeridos para el orquestador:
 *   **Usos Recomendados de Bajo Riesgo**:
     *   Fallback de Nivel 0 (costo cero de API) para tareas de desarrollo mecánico e implementación de código de nivel medio utilizando el modelo `qwen2.5-coder:7b-instruct-q4_K_M`.
 
+---
+
+## 6. Telemetría de Invocación, Timeout/Heartbeat y Consumo de Tokens (Claude CLI)
+
+*   **Supervisión por Invocación**:
+    *   Todo agente invocado bajo la supervisión de `orq` opera con control de **timeout** (`context.WithTimeout`) y pulsos periódicos de **heartbeat** (vía `internal/heartbeat/invocation.go`).
+    *   El ciclo de vida completo de cada invocación se persiste en el ledger (`~/.local/state/orq/ledger.jsonl`) registrando timestamps de inicio (`started_at`), fin (`finished_at`), duración efectiva (`duration_ms`), status resultante (`ok`, `timeout`, `failed`, `fallback_ok`, `fallback_failed`) y modelo de fallback utilizado.
+*   **Tratamiento de Tokens de Claude CLI (`claude-code`)**:
+    *   La CLI de Claude Code (`claude`) se ejecuta como subproceso interactivo o de sesión en el host local y no expone de forma estándar ni estructurada el conteo exacto de tokens (*tokens in* / *tokens out*) consumidos por comando en el shell.
+    *   **Regla RDD de Veracidad**: Queda estrictamente prohibido simular, inventar o extrapolar cifras no medidas de tokens para `claude-code`.
+    *   Cuando no se dispone de telemetría real reportada por la API de Anthropic, el consumo de tokens en `orq record`, en el ledger y en los recibos RDD DEBE registrarse como `unknown` (representado en telemetría de contadores como `tokens_in = 0, tokens_out = 0` y documentado en notas como consumo no medido/unknown).
+    *   La métrica primaria auditable y medible en el host para Claude CLI es su **duración temporal (`duration_ms`)**, su **status de salida**, y el control de **timeout/heartbeat** gestionado por el orquestador.
+
+

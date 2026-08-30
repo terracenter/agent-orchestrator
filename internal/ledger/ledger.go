@@ -12,11 +12,55 @@ import (
 
 // Event is an append-only fact produced by the orchestrator.
 type Event struct {
-	Timestamp time.Time `json:"ts"`
-	Task      string    `json:"task"`
-	Agent     string    `json:"agent"`
-	Model     string    `json:"model"`
-	Status    string    `json:"status"`
+	Timestamp     time.Time  `json:"ts"`
+	Task          string     `json:"task"`
+	Agent         string     `json:"agent"`
+	Model         string     `json:"model"`
+	Status        string     `json:"status"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	DurationMs    int64      `json:"duration_ms,omitempty"`
+	FallbackAgent string     `json:"fallback_agent,omitempty"`
+	FallbackModel string     `json:"fallback_model,omitempty"`
+	TokensIn      int64      `json:"tokens_in,omitempty"`
+	TokensOut     int64      `json:"tokens_out,omitempty"`
+	Notes         string     `json:"notes,omitempty"`
+}
+
+// NewInvocationEvent creates an Event recording the start, finish, duration, and status of an agent invocation.
+func NewInvocationEvent(task, agent, model, status string, started, finished time.Time, fallbackAgent, fallbackModel string) Event {
+	var durationMs int64
+	if !started.IsZero() && !finished.IsZero() {
+		durationMs = finished.Sub(started).Milliseconds()
+		if durationMs < 0 {
+			durationMs = 0
+		}
+	}
+	ts := finished
+	if ts.IsZero() {
+		ts = started
+	}
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+
+	ev := Event{
+		Timestamp:     ts,
+		Task:          task,
+		Agent:         agent,
+		Model:         model,
+		Status:        status,
+		DurationMs:    durationMs,
+		FallbackAgent: fallbackAgent,
+		FallbackModel: fallbackModel,
+	}
+	if !started.IsZero() {
+		ev.StartedAt = &started
+	}
+	if !finished.IsZero() {
+		ev.FinishedAt = &finished
+	}
+	return ev
 }
 
 func DefaultPath() string {
@@ -32,8 +76,20 @@ func DefaultPath() string {
 }
 
 func Append(path string, event Event) error {
+	if event.StartedAt != nil && event.FinishedAt != nil && event.DurationMs == 0 {
+		diff := event.FinishedAt.Sub(*event.StartedAt).Milliseconds()
+		if diff >= 0 {
+			event.DurationMs = diff
+		}
+	}
 	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now().UTC()
+		if event.FinishedAt != nil && !event.FinishedAt.IsZero() {
+			event.Timestamp = *event.FinishedAt
+		} else if event.StartedAt != nil && !event.StartedAt.IsZero() {
+			event.Timestamp = *event.StartedAt
+		} else {
+			event.Timestamp = time.Now().UTC()
+		}
 	}
 	if event.Task == "" {
 		return errors.New("task is required")

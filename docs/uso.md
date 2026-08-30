@@ -89,9 +89,31 @@ dry-run=true executed=false agent=local-or-cheap model=lowest-sufficient
 
 ### Registrar evidencia en el ledger
 
+Registra el resultado de una invocación de agente de forma auditable:
+
 ```bash
 orq record --task test --agent pi --model gpt-5.5 --status ok
 ```
+
+Con soporte completo de telemetría (timestamps RFC3339, duración calculada o explícita, modelo de fallback y conteo de tokens):
+
+```bash
+orq record \
+  --task "refactorizar modulo auth" \
+  --agent agy \
+  --model gemini-3.7-flash-high \
+  --status ok \
+  --started-at "2026-08-30T10:00:00Z" \
+  --finished-at "2026-08-30T10:00:15Z" \
+  --fallback-agent pi \
+  --fallback-model gpt-5.5 \
+  --tokens-in 1200 \
+  --tokens-out 450 \
+  --notes "completado exitosamente"
+```
+
+> [!NOTE]
+> **Política de consumo Claude CLI (`claude-code`)**: Dado que la CLI de Claude no expone conteo estructurado de tokens por invocación, su consumo se registra como `unknown` (`tokens_in = 0, tokens_out = 0` y nota de no-medido). Queda prohibido inventar o estimar tokens para Claude CLI. La métrica cuantificable en host es su **duración (`duration_ms`)**, **status** y **código de salida**.
 
 Por defecto escribe en:
 
@@ -245,9 +267,18 @@ orq observer sync
 orq observer sync --format json
 ```
 
+Verificación local de que el último evento de un agente quedó marcado como sincronizado:
+
+```bash
+orq observer verify-last --agent claude-code
+orq observer verify-last --agent claude-code --format json
+```
+
 Por defecto, `orq observer sync` lee `~/.local/state/orq/ledger.jsonl` y guarda el estado de deduplicación en `~/.local/state/orq/observer-sync.json`. Ambos paths pueden cambiarse con `--ledger` y `--state`.
 
 El token no se guarda en git. `orq observer send-test` y `orq observer sync` fallan de forma clara si no hay token; `orq record` no falla por problemas de Observer.
+
+Limitación actual: `orq record` y `orq observer sync` reportan eventos de delegación/ledger, pero no capturan automáticamente tokens ni costo real del Claude CLI. Para validaciones críticas se debe registrar el modelo Anthropic exacto cuando se conozca; el router usa `claude-opus-4-1-20250805` para `revision_critica`.
 
 ### Validar estándar operativo de repos
 

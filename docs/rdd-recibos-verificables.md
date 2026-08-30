@@ -26,6 +26,7 @@ Debe responder:
 - Si un comando no se ejecutó, no se declara como validado.
 - Si una validación falla, el recibo debe conservar el fallo y la decisión tomada.
 - Cambios de seguridad, deploy, secretos o datos requieren confirmación humana aunque haya recibo.
+- **Telemetría y Veracidad de Tokens (Claude CLI)**: Si una invocación proviene de `claude-code` (Claude CLI en host), no se inventan tokens de entrada/salida no expuestos por la CLI. Se documenta como `unknown` (o `0` tokens reportados con nota de consumo no medido), midiendo en su lugar la **duración real en milisegundos (`duration_ms`)** y el **status** de salida.
 
 ## Formato mínimo
 
@@ -56,3 +57,4 @@ orq receipt verify --path receipt.json
 ```
 
 El recibo debe poder enviarse a SGE Observer como evento operacional sin exponer secretos.
+

@@ -113,7 +113,7 @@ func usage() {
 Usage:
   orq classify <task>
   orq route <task> [--format json]
-  orq record --task <task> --agent <agent> --model <model> --status <status> [--ledger path]
+  orq record --task <task> --agent <agent> --model <model> --status <status> [--started-at RFC3339] [--finished-at RFC3339] [--duration-ms n] [--fallback-agent name] [--fallback-model name] [--tokens-in n] [--tokens-out n] [--notes text] [--ledger path]
   orq status [--ledger path]
   orq run <task> [--dry-run] [--format json]
   orq guard --vault <path> [--format json]
@@ -142,6 +142,7 @@ Usage:
   orq audit worktrees [--path repo] [--format json]
   orq observer status [--format json]
   orq observer sync [--ledger path] [--state path] [--dry-run] [--format json]
+  orq observer verify-last [--ledger path] [--state path] [--agent name] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq observer cost --reported-estimate-usd n --reported-label text --monthly-plan-usd n [--payment-fee-usd n] [--format json]
   orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required-value unknown|N] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
@@ -539,10 +540,55 @@ func cmdRecord(args []string) error {
 	agent := fs.String("agent", "", "agent")
 	model := fs.String("model", "", "model")
 	status := fs.String("status", "", "status")
+	startedAtStr := fs.String("started-at", "", "started at RFC3339 timestamp")
+	finishedAtStr := fs.String("finished-at", "", "finished at RFC3339 timestamp")
+	durationMs := fs.Int64("duration-ms", 0, "duration in milliseconds")
+	fallbackAgent := fs.String("fallback-agent", "", "fallback agent")
+	fallbackModel := fs.String("fallback-model", "", "fallback model")
+	tokensIn := fs.Int64("tokens-in", 0, "tokens in")
+	tokensOut := fs.Int64("tokens-out", 0, "tokens out")
+	notes := fs.String("notes", "", "notes or error details")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	event := ledger.Event{Task: *task, Agent: *agent, Model: *model, Status: *status}
+
+	event := ledger.Event{
+		Task:          *task,
+		Agent:         *agent,
+		Model:         *model,
+		Status:        *status,
+		DurationMs:    *durationMs,
+		FallbackAgent: *fallbackAgent,
+		FallbackModel: *fallbackModel,
+		TokensIn:      *tokensIn,
+		TokensOut:     *tokensOut,
+		Notes:         *notes,
+	}
+
+	if *startedAtStr != "" {
+		t, err := time.Parse(time.RFC3339Nano, *startedAtStr)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, *startedAtStr)
+			if err != nil {
+				return fmt.Errorf("invalid --started-at: %w", err)
+			}
+		}
+		utc := t.UTC()
+		event.StartedAt = &utc
+	}
+
+	if *finishedAtStr != "" {
+		t, err := time.Parse(time.RFC3339Nano, *finishedAtStr)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, *finishedAtStr)
+			if err != nil {
+				return fmt.Errorf("invalid --finished-at: %w", err)
+			}
+		}
+		utc := t.UTC()
+		event.FinishedAt = &utc
+	}
+
 	if err := ledger.Append(*path, event); err != nil {
 		return err
 	}
@@ -556,8 +602,19 @@ func emitObserverRecord(event ledger.Event) {
 	if err != nil || !ok {
 		return
 	}
-	raw, _ := json.Marshal(map[string]string{"task": event.Task, "status": event.Status})
-	obsEvent := observer.NewEvent("agent-orchestrator", event.Agent, event.Model, "orq-ledger", "orq_record", 0, 0, "orq record", string(raw))
+	meta := map[string]any{"task": event.Task, "status": event.Status}
+	if event.DurationMs > 0 {
+		meta["duration_ms"] = event.DurationMs
+	}
+	if event.FallbackAgent != "" {
+		meta["fallback_agent"] = event.FallbackAgent
+		meta["fallback_model"] = event.FallbackModel
+	}
+	if event.Notes != "" {
+		meta["notes"] = event.Notes
+	}
+	raw, _ := json.Marshal(meta)
+	obsEvent := observer.NewEvent("agent-orchestrator", event.Agent, event.Model, "orq-ledger", "orq_record", event.TokensIn, event.TokensOut, "orq record", string(raw))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if _, err := client.Ingest(ctx, []observer.Event{obsEvent}); err != nil {
@@ -1121,6 +1178,34 @@ func cmdObserver(args []string) error {
 		}
 		fmt.Printf("observer_sync configured=%t token_loaded=%t scanned=%d pending=%d sent=%d inserted=%d dry_run=%t state=%s\n", report.Configured, report.TokenLoaded, report.Scanned, report.Pending, report.Sent, report.Inserted, report.DryRun, report.StatePath)
 		return nil
+	case "verify-last":
+		ledgerPath, remaining, err := extractStringFlag(remaining, "--ledger", ledger.DefaultPath())
+		if err != nil {
+			return err
+		}
+		statePath, remaining, err := extractStringFlag(remaining, "--state", defaultObserverSyncStatePath())
+		if err != nil {
+			return err
+		}
+		agentName, remaining, err := extractStringFlag(remaining, "--agent", "")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := verifyLastObserverLedgerEvent(ledgerPath, statePath, agentName)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("observer_verify_last found=%t synced=%t event_id=%s agent=%s model=%s status=%s task=%q state=%s\n", report.Found, report.Synced, report.EventID, report.Agent, report.Model, report.Status, report.Task, report.StatePath)
+		if report.Found && !report.Synced {
+			return fmt.Errorf("last ledger event has not been synced to observer; run `orq observer sync`")
+		}
+		return nil
 	case "send-test":
 		project, remaining, err := extractStringFlag(remaining, "--project", "agent-orchestrator")
 		if err != nil {
@@ -1233,6 +1318,49 @@ type observerSyncReport struct {
 	Sent        int    `json:"sent"`
 	Inserted    int64  `json:"inserted"`
 	DryRun      bool   `json:"dry_run"`
+}
+
+type observerVerifyLastReport struct {
+	Found      bool      `json:"found"`
+	Synced     bool      `json:"synced"`
+	EventID    string    `json:"event_id,omitempty"`
+	Task       string    `json:"task,omitempty"`
+	Agent      string    `json:"agent,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
+	LedgerPath string    `json:"ledger_path"`
+	StatePath  string    `json:"state_path"`
+}
+
+func verifyLastObserverLedgerEvent(ledgerPath, statePath, agentName string) (observerVerifyLastReport, error) {
+	report := observerVerifyLastReport{LedgerPath: ledgerPath, StatePath: statePath}
+	events, err := ledger.ReadAll(ledgerPath)
+	if err != nil {
+		return report, err
+	}
+	needle := strings.ToLower(strings.TrimSpace(agentName))
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if needle != "" && strings.ToLower(strings.TrimSpace(ev.Agent)) != needle {
+			continue
+		}
+		obsEvent := observerEventFromLedger(ev)
+		report.Found = true
+		report.EventID = obsEvent.EventID
+		report.Task = ev.Task
+		report.Agent = ev.Agent
+		report.Model = ev.Model
+		report.Status = ev.Status
+		report.CreatedAt = obsEvent.CreatedAt
+		state, err := readObserverSyncState(statePath)
+		if err != nil {
+			return report, err
+		}
+		_, report.Synced = state.Sent[obsEvent.EventID]
+		return report, nil
+	}
+	return report, nil
 }
 
 func defaultObserverSyncStatePath() string {
