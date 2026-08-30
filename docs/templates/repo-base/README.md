@@ -38,6 +38,9 @@ go version
 
 Agregar aquí dependencias del sistema si aplican.
 
+> [!NOTE]
+> Los comandos que se ejecuten en servidores de base de datos, CWP, VPS o hosts de deploy deben documentarse tal como los ejecutará el operador en ese host, normalmente **sin `rtk`**. `rtk` es obligatorio para el agente dentro del workspace de desarrollo, pero no debe convertirse en dependencia implícita de producción.
+
 ## Desarrollo local
 
 ```bash
