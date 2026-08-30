@@ -57,6 +57,7 @@ Todo README principal debe priorizar lectura rápida:
 - tabla de arquitectura;
 - requisitos explícitos;
 - build/test/deploy con comandos copiables;
+- comandos remotos de servidores, bases de datos o paneles de deploy documentados sin `rtk`, salvo que el documento indique explícitamente que `rtk` está instalado en ese host;
 - primeros pasos en orden recomendado;
 - referencia rápida de comandos o endpoints;
 - archivos de configuración y permisos;
