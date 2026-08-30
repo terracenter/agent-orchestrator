@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/terracenter/agent-orchestrator/internal/agent"
 	"github.com/terracenter/agent-orchestrator/internal/receipt"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 )
@@ -40,14 +41,73 @@ type Result struct {
 	WrittenReceipt        string         `json:"written_receipt,omitempty"`
 }
 
-func isPiAgent(agent string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(agent))
+func isPiAgent(agentName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(agentName))
 	return normalized == "pi" || normalized == "pi-api" || strings.HasPrefix(normalized, "pi/")
 }
 
-func isAGYAgent(agent string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(agent))
+func isAGYAgent(agentName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(agentName))
 	return normalized == "agy" || normalized == "agy-cli" || normalized == "antigravity" || normalized == "antigravity-cli" || strings.HasPrefix(normalized, "agy/")
+}
+
+func isOpenClawAgent(agentName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(agentName))
+	return normalized == "openclaw" || normalized == "open-claw" || strings.HasPrefix(normalized, "openclaw/")
+}
+
+func BuildOpenClawCommand(opts PlanOptions, decision route.Decision) string {
+	model := opts.Model
+	handoffTarget := opts.HandoffPath
+	if handoffTarget == "" && opts.WriteHandoff != "" {
+		handoffTarget = opts.WriteHandoff
+	}
+
+	agentID := "main"
+	if opts.Agent != "" && isOpenClawAgent(opts.Agent) {
+		parts := strings.Split(opts.Agent, "/")
+		if len(parts) > 1 {
+			agentID = parts[1]
+		}
+	} else if isOpenClawAgent(decision.RecommendedAgent) {
+		parts := strings.Split(decision.RecommendedAgent, "/")
+		if len(parts) > 1 {
+			agentID = parts[1]
+		}
+	}
+
+	var args []string
+	args = append(args, "agent", "--agent", agentID)
+
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+
+	if handoffTarget != "" {
+		args = append(args, "--message-file", handoffTarget)
+	} else {
+		printInstruction := "Olvida el historial anterior."
+		taskTrimmed := strings.TrimSpace(opts.Task)
+		if strings.HasSuffix(taskTrimmed, ".md") || strings.Contains(taskTrimmed, "handoffs/") {
+			printInstruction = fmt.Sprintf("Olvida el historial anterior. Lee y ejecuta %s", taskTrimmed)
+		} else if taskTrimmed != "" {
+			printInstruction = fmt.Sprintf("Olvida el historial anterior. %s", taskTrimmed)
+		}
+		args = append(args, "--message", printInstruction)
+	}
+
+	var cmdParts []string
+	cmdParts = append(cmdParts, "rtk", "openclaw")
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--message" && i+1 < len(args) {
+			cmdParts = append(cmdParts, "--message", fmt.Sprintf("%q", args[i+1]))
+			i++
+		} else {
+			cmdParts = append(cmdParts, args[i])
+		}
+	}
+
+	return strings.Join(cmdParts, " ")
 }
 
 func BuildAGYCommand(opts PlanOptions, decision route.Decision) string {
@@ -100,7 +160,21 @@ func BuildAGYCommand(opts PlanOptions, decision route.Decision) string {
 	)
 }
 
-func PlanWithOptions(opts PlanOptions) Result {
+func PlanWithOptions(opts PlanOptions) (Result, error) {
+	if isOpenClawAgent(opts.Agent) {
+		detections := agent.DetectAgents()
+		installed := false
+		for _, d := range detections {
+			if d.Agent == "openclaw" {
+				installed = d.Installed
+				break
+			}
+		}
+		if !installed {
+			return Result{}, fmt.Errorf("agente openclaw no está detectado o instalado en el sistema")
+		}
+	}
+
 	task := opts.Task
 	if task == "" && opts.HandoffPath != "" {
 		task = fmt.Sprintf("ejecutar handoff %s", opts.HandoffPath)
@@ -134,7 +208,9 @@ func PlanWithOptions(opts PlanOptions) Result {
 	}
 
 	var autoCmd string
-	if isAGYAgent(opts.Agent) || isAGYAgent(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
+	if isOpenClawAgent(opts.Agent) || (opts.Agent == "" && isOpenClawAgent(decision.RecommendedAgent)) {
+		autoCmd = BuildOpenClawCommand(opts, decision)
+	} else if isAGYAgent(opts.Agent) || isAGYAgent(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
 		autoCmd = BuildAGYCommand(opts, decision)
 	}
 
@@ -152,10 +228,10 @@ func PlanWithOptions(opts PlanOptions) Result {
 		MustStopForDelegation: mustStop,
 		SupervisorOnly:        supervisorOnly,
 		ExecutionAgentAllowed: execAllowed,
-	}
+	}, nil
 }
 
-func Plan(task string, currentAgent string, executed bool) Result {
+func Plan(task string, currentAgent string, executed bool) (Result, error) {
 	return PlanWithOptions(PlanOptions{
 		Task:     task,
 		Agent:    currentAgent,
@@ -166,7 +242,7 @@ func Plan(task string, currentAgent string, executed bool) Result {
 func Prompt(task string, decision route.Decision) string {
 	lines := []string{
 		"OBLIGATORIO: Usa rtk; todo comando de terminal/git/filesystem debe ir prefijado con rtk. Si un comando no usa rtk, reportalo como BUG de orq y no lo ocultes.",
-		"Usa vg para consultar el vault cuando aplique.",
+		"Usa `rtk vg` para consultar el vault cuando aplique — nunca `vg` pelado. Si `rtk vg` falla por PATH, reportalo como BUG-RTK-VG-001 y no lo ocultes.",
 		fmt.Sprintf("Tarea: %s", task),
 		fmt.Sprintf("Routing orq: categoria=%s nivel=%d agente=%s modelo=%s", decision.Category, decision.RecommendedLevel, decision.RecommendedAgent, decision.RecommendedModel),
 	}

@@ -25,6 +25,7 @@ type Receipt struct {
 	HumanEditsNotes               []string  `json:"human_edits_notes,omitempty"`
 	Rollback                      string    `json:"rollback"`
 	Evidence                      []string  `json:"evidence"`
+	RtkViolations                 []string  `json:"rtk_violations,omitempty"`
 	CreatedAt                     time.Time `json:"created_at"`
 }
 
@@ -81,7 +82,7 @@ func New(task, agent, provider, model, risk string, pr int) Receipt {
 func FromPR(info PRInfo, agent, provider, model, risk string) Receipt {
 	r := New(info.Title, agent, provider, model, risk, info.Number)
 	r.FilesChanged = append([]string(nil), info.Files...)
-	r.Commands = []Command{{Cmd: "gh pr checks", Result: strings.Join(info.Checks, ", ")}}
+	r.Commands = []Command{{Cmd: "rtk gh pr checks", Result: strings.Join(info.Checks, ", ")}}
 	r.Rollback = fmt.Sprintf("revert PR #%d", info.Number)
 	r.Evidence = []string{fmt.Sprintf("PR #%d", info.Number)}
 	if info.URL != "" {
@@ -166,5 +167,30 @@ func Verify(r Receipt) []string {
 	if len(r.HumanEditsNotes) > 0 && (!r.HumanEditsRequired || !r.CorreccionesHumanasRequeridas) {
 		findings = append(findings, "human_edits_notes requiere human_edits_required")
 	}
+
+	for i, cmd := range r.Commands {
+		trimmed := strings.TrimSpace(cmd.Cmd)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "cd ") {
+			continue
+		}
+		parts := strings.Fields(trimmed)
+		if len(parts) > 0 && parts[0] != "rtk" {
+			// Es un comando que no usa rtk. Debe estar declarado en RtkViolations.
+			found := false
+			for _, v := range r.RtkViolations {
+				if v == cmd.Cmd {
+					found = true
+					break
+				}
+			}
+			if !found {
+				findings = append(findings, fmt.Sprintf("commands[%d] viola rtk_required (debe usar rtk y no esta declarado en rtk_violations): %q", i, cmd.Cmd))
+			}
+		}
+	}
+
 	return findings
 }

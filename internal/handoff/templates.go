@@ -40,7 +40,7 @@ Rol: %s
 Reglas permanentes:
 - Seguridad primero; funcionamiento/optimización segundo; UX/visual tercero.
 - orq es autoridad para guardias, seguridad, recibos y validación.
-- Usar rtk para shell/git/fs; usar vg para vault/grafo.
+- Usar rtk para shell/git/fs; usar 'rtk vg' para vault/grafo — nunca 'vg' pelado. Si 'rtk vg' falla por PATH, reportar BUG-RTK-VG-001 y no ocultarlo.
 - No usar --dangerously-skip-permissions.
 - No tocar producción, secretos, DB, DNS, firewall ni acciones irreversibles sin aprobación humana explícita.
 - RDD: no declarar como validado un comando que no fue ejecutado.
@@ -67,7 +67,8 @@ Errores actuales: completar solo si existen.
 
 Formato de salida requerido:
 - Resumen breve.
-- Comandos ejecutados y resultado real.
+- Comandos ejecutados y resultado real (deben ir con prefijo rtk).
+- Violaciones de RTK (declarar explícitamente si se corrieron comandos sin rtk).
 - Evidencia verificable.
 - Riesgos/bloqueos.
 - Rollback propuesto.

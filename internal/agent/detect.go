@@ -125,6 +125,13 @@ func DetectAgentsWithHome(home string) []AgentDetection {
 		Notes:      "costo cero / minimo para tareas mecanicas",
 	})
 
+	// TODO(minipc-local): Diseñar e implementar detección remota o registro de modelos locales en minipc.
+	// Dado que el host de desarrollo actual no cuenta con binarios locales de inferencia
+	// (como ollama, llama-server, etc.), la detección debe validar la existencia y conectividad
+	// vía SSH/Tailscale al host documentado minipc (100.76.175.78),
+	// respetando la aprobación previa y la integridad de credenciales.
+	// Referencia: docs/agent-model-capabilities.md y Obsidian/03.Servidores/Humanbyte/estaciones-personales.md.
+
 	return detections
 }
 

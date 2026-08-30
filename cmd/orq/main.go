@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -138,6 +140,8 @@ Usage:
   orq audit issues [--path repo] [--format json]
   orq audit models [--format json]
   orq audit worktrees [--path repo] [--format json]
+  orq observer status [--format json]
+  orq observer sync [--ledger path] [--state path] [--dry-run] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
   orq observer cost --reported-estimate-usd n --reported-label text --monthly-plan-usd n [--payment-fee-usd n] [--format json]
   orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required-value unknown|N] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
@@ -1074,6 +1078,49 @@ func cmdObserver(args []string) error {
 		return err
 	}
 	switch args[0] {
+	case "status":
+		cfg, _, err := observer.LoadConfig()
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(cfg)
+		}
+		configured := "no"
+		if cfg.Configured {
+			configured = "yes"
+		}
+		tokenLoaded := "no"
+		if cfg.TokenLoaded {
+			tokenLoaded = "yes"
+		}
+		fmt.Printf("observer_url=%s config_file=%s configured=%s token_file=%s token_loaded=%s token_source=%s\n", cfg.BaseURL, cfg.ConfigFile, configured, cfg.TokenFile, tokenLoaded, cfg.TokenSource)
+		return nil
+	case "sync":
+		ledgerPath, remaining, err := extractStringFlag(remaining, "--ledger", ledger.DefaultPath())
+		if err != nil {
+			return err
+		}
+		statePath, remaining, err := extractStringFlag(remaining, "--state", defaultObserverSyncStatePath())
+		if err != nil {
+			return err
+		}
+		dryRun, remaining := extractBoolFlag(remaining, "--dry-run", false)
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		report, err := syncObserverLedger(ledgerPath, statePath, dryRun)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		fmt.Printf("observer_sync configured=%t token_loaded=%t scanned=%d pending=%d sent=%d inserted=%d dry_run=%t state=%s\n", report.Configured, report.TokenLoaded, report.Scanned, report.Pending, report.Sent, report.Inserted, report.DryRun, report.StatePath)
+		return nil
 	case "send-test":
 		project, remaining, err := extractStringFlag(remaining, "--project", "agent-orchestrator")
 		if err != nil {
@@ -1170,6 +1217,127 @@ func cmdObserver(args []string) error {
 	default:
 		return fmt.Errorf("unknown observer subcommand %q", args[0])
 	}
+}
+
+type observerSyncState struct {
+	Sent map[string]time.Time `json:"sent"`
+}
+
+type observerSyncReport struct {
+	Configured  bool   `json:"configured"`
+	TokenLoaded bool   `json:"token_loaded"`
+	LedgerPath  string `json:"ledger_path"`
+	StatePath   string `json:"state_path"`
+	Scanned     int    `json:"scanned"`
+	Pending     int    `json:"pending"`
+	Sent        int    `json:"sent"`
+	Inserted    int64  `json:"inserted"`
+	DryRun      bool   `json:"dry_run"`
+}
+
+func defaultObserverSyncStatePath() string {
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return filepath.Join(".", "orq", "observer-sync.json")
+		}
+		state = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(state, "orq", "observer-sync.json")
+}
+
+func syncObserverLedger(ledgerPath, statePath string, dryRun bool) (observerSyncReport, error) {
+	cfg, token, err := observer.LoadConfig()
+	if err != nil {
+		return observerSyncReport{}, err
+	}
+	report := observerSyncReport{Configured: cfg.Configured, TokenLoaded: cfg.TokenLoaded, LedgerPath: ledgerPath, StatePath: statePath, DryRun: dryRun}
+	events, err := ledger.ReadAll(ledgerPath)
+	if err != nil {
+		return report, err
+	}
+	state, err := readObserverSyncState(statePath)
+	if err != nil {
+		return report, err
+	}
+	var pending []observer.Event
+	for _, ev := range events {
+		report.Scanned++
+		obsEvent := observerEventFromLedger(ev)
+		if _, ok := state.Sent[obsEvent.EventID]; ok {
+			continue
+		}
+		pending = append(pending, obsEvent)
+	}
+	report.Pending = len(pending)
+	if dryRun || len(pending) == 0 {
+		return report, nil
+	}
+	if !cfg.TokenLoaded || strings.TrimSpace(token) == "" {
+		return report, fmt.Errorf("observer token not configured; run `orq observer status` and configure token file")
+	}
+	client := observer.New(cfg.BaseURL, token)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	result, err := client.Ingest(ctx, pending)
+	if err != nil {
+		return report, err
+	}
+	now := time.Now().UTC()
+	for _, ev := range pending {
+		state.Sent[ev.EventID] = now
+	}
+	if err := writeObserverSyncState(statePath, state); err != nil {
+		return report, err
+	}
+	report.Sent = len(pending)
+	report.Inserted = result.Inserted
+	return report, nil
+}
+
+func observerEventFromLedger(ev ledger.Event) observer.Event {
+	created := ev.Timestamp
+	if created.IsZero() {
+		created = time.Now().UTC()
+	}
+	raw, _ := json.Marshal(map[string]string{"task": ev.Task, "status": ev.Status})
+	seed := fmt.Sprintf("%s|%s|%s|%s|%s", created.UTC().Format(time.RFC3339Nano), ev.Task, ev.Agent, ev.Model, ev.Status)
+	sum := sha256.Sum256([]byte(seed))
+	host, _ := os.Hostname()
+	return observer.Event{EventID: "orq-ledger-" + hex.EncodeToString(sum[:])[:24], Host: host, Agent: ev.Agent, Model: ev.Model, Project: "agent-orchestrator", SessionID: "orq-ledger", EventType: "orq_record", CreatedAt: created.UTC(), SourcePath: "orq ledger", Raw: string(raw)}
+}
+
+func readObserverSyncState(path string) (observerSyncState, error) {
+	state := observerSyncState{Sent: map[string]time.Time{}}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return state, nil
+	}
+	if err != nil {
+		return state, err
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return state, nil
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return state, err
+	}
+	if state.Sent == nil {
+		state.Sent = map[string]time.Time{}
+	}
+	return state, nil
+}
+
+func writeObserverSyncState(path string, state observerSyncState) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
 }
 
 func cmdHeartbeat(args []string) error {
@@ -1623,7 +1791,10 @@ func cmdDelegate(args []string) error {
 		WriteReceipt: writeReceipt,
 		Force:        force,
 	}
-	res := delegate.PlanWithOptions(opts)
+	res, err := delegate.PlanWithOptions(opts)
+	if err != nil {
+		return err
+	}
 	if err := delegate.WriteDelegationFiles(opts, &res); err != nil {
 		return err
 	}

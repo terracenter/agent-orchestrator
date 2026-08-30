@@ -20,7 +20,7 @@ Reglas operativas:
 
 - orq es la autoridad operacional.
 - Usar rtk para shell, git y filesystem.
-- Usar vg para vault/grafo.
+- Usar "rtk vg" para vault/grafo — nunca "vg" pelado. Si "rtk vg" falla por PATH, reportar BUG-RTK-VG-001 y no ocultarlo.
 - No usar --dangerously-skip-permissions.
 - No tocar produccion, secretos, DB, DNS ni firewall sin aprobacion humana explicita.
 `,

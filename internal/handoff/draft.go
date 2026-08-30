@@ -35,7 +35,8 @@ Host: %s
 ## Entrega esperada
 
 - Reportar estado final.
-- Pegar comandos de validación.
+- Pegar comandos de validación (deben usar prefijo rtk).
+- Violaciones de RTK (declarar explícitamente si se corrieron comandos sin rtk).
 - Si hubo bloqueo, marcar la tarea como blocked con evidencia.
 `, item.Title, time.Now().UTC().Format(time.RFC3339), item.ID, item.State, value(item.Agent, decision.RecommendedAgent), value(item.Model, decision.RecommendedModel), item.Host, body)) + "\n"
 }

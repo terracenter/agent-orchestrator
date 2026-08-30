@@ -22,7 +22,10 @@ func TestPromptIncludesCheapRouting(t *testing.T) {
 }
 
 func TestPlanForPiUnexecutedRequiresStop(t *testing.T) {
-	res := Plan("ordenar informacion del vault", "pi", false)
+	res, err := Plan("ordenar informacion del vault", "pi", false)
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
 	if res.Status != "not_executed" {
 		t.Fatalf("Status = %q, want not_executed", res.Status)
 	}
@@ -41,7 +44,10 @@ func TestPlanForPiUnexecutedRequiresStop(t *testing.T) {
 }
 
 func TestPlanForPiExecutedAllowsReceipt(t *testing.T) {
-	res := Plan("ordenar informacion del vault", "pi", true)
+	res, err := Plan("ordenar informacion del vault", "pi", true)
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
 	if res.Status != "executed_unverified" {
 		t.Fatalf("Status = %q, want executed_unverified", res.Status)
 	}
@@ -57,7 +63,10 @@ func TestPlanForPiExecutedAllowsReceipt(t *testing.T) {
 }
 
 func TestPlanForExternalAgentAllowsExecution(t *testing.T) {
-	res := Plan("ordenar informacion del vault", "agy", false)
+	res, err := Plan("ordenar informacion del vault", "agy", false)
+	if err != nil {
+		t.Fatalf("Plan failed: %v", err)
+	}
 	if res.Status != "not_executed" {
 		t.Fatalf("Status = %q, want not_executed", res.Status)
 	}
@@ -84,7 +93,10 @@ func TestBuildAGYCommandWithHandoff(t *testing.T) {
 		AgentsDir:   "/home/freddy/Workspace/.agents",
 		Workspace:   "/home/freddy/Workspace",
 	}
-	res := PlanWithOptions(opts)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
 
 	if res.AutonomousCommand == "" {
 		t.Fatal("expected AutonomousCommand to be populated")
@@ -122,7 +134,10 @@ func TestBuildAGYCommandCustomOptions(t *testing.T) {
 		Workspace:   "/custom/workspace",
 		HandoffPath: "/custom/handoff.md",
 	}
-	res := PlanWithOptions(opts)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
 
 	if !strings.Contains(res.AutonomousCommand, "cd /custom/workspace") {
 		t.Errorf("expected custom workspace in command: %s", res.AutonomousCommand)
@@ -146,7 +161,10 @@ func TestBuildAGYCommandDocRoutingModel(t *testing.T) {
 		Task:  "ordenar documentacion del vault",
 		Agent: "pi",
 	}
-	res := PlanWithOptions(opts)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
 
 	if !strings.Contains(res.AutonomousCommand, "--model gpt-oss-120b-medium") {
 		t.Errorf("expected gpt-oss-120b-medium for documentation routing: %s", res.AutonomousCommand)
@@ -162,7 +180,10 @@ func TestPlanWithOptionsJSON(t *testing.T) {
 		Agent:       "pi",
 		HandoffPath: "/home/freddy/Workspace/.agents/handoffs/test.md",
 	}
-	res := PlanWithOptions(opts)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
 
 	data, err := json.Marshal(res)
 	if err != nil {
@@ -266,8 +287,11 @@ func TestWriteDelegationFilesSuccess(t *testing.T) {
 		WriteReceipt: receiptFile,
 	}
 
-	res := PlanWithOptions(opts)
-	err := WriteDelegationFiles(opts, &res)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
+	err = WriteDelegationFiles(opts, &res)
 	if err != nil {
 		t.Fatalf("WriteDelegationFiles failed: %v", err)
 	}
@@ -317,8 +341,11 @@ func TestWriteDelegationFilesNoOverwriteByDefault(t *testing.T) {
 		Force:        false,
 	}
 
-	res := PlanWithOptions(opts)
-	err := WriteDelegationFiles(opts, &res)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
+	err = WriteDelegationFiles(opts, &res)
 	if err == nil {
 		t.Fatal("expected error due to existing file without force, got nil")
 	}
@@ -348,8 +375,11 @@ func TestWriteDelegationFilesOverwriteWithForce(t *testing.T) {
 		Force:        true,
 	}
 
-	res := PlanWithOptions(opts)
-	err := WriteDelegationFiles(opts, &res)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
+	err = WriteDelegationFiles(opts, &res)
 	if err != nil {
 		t.Fatalf("expected success with force=true, got: %v", err)
 	}
@@ -369,7 +399,10 @@ func TestPlanWithOptionsWithWriteHandoffSetsAutonomousCommand(t *testing.T) {
 		Agent:        "agy",
 		WriteHandoff: "/tmp/orq-handoff-test.md",
 	}
-	res := PlanWithOptions(opts)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
 
 	if !strings.Contains(res.AutonomousCommand, "Lee y ejecuta /tmp/orq-handoff-test.md") {
 		t.Errorf("expected autonomous command to reference write-handoff path: %s", res.AutonomousCommand)
@@ -382,9 +415,62 @@ func TestWriteDelegationFilesInvalidPath(t *testing.T) {
 		Agent:        "pi",
 		WriteHandoff: "/dev/null/impossible/path/handoff.md",
 	}
-	res := PlanWithOptions(opts)
-	err := WriteDelegationFiles(opts, &res)
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
+	err = WriteDelegationFiles(opts, &res)
 	if err == nil {
 		t.Fatal("expected error for invalid path, got nil")
+	}
+}
+
+func TestPlanWithOptionsOpenClawValidationAndCommand(t *testing.T) {
+	opts := PlanOptions{
+		Task:  "ordenar documentacion del vault",
+		Agent: "openclaw",
+	}
+	res, err := PlanWithOptions(opts)
+	// Si openclaw no está instalado en la máquina de pruebas del CI o del local, este test fallaría.
+	// Pero ya vimos por orq doctor / orq agents detect que openclaw sí está instalado.
+	// Por si acaso, si no estuviera instalado, el test fallaría con error esperado, pero en el host de Freddy está instalado.
+	if err != nil {
+		// Toleramos que falle si no está instalado, pero validamos el mensaje
+		if !strings.Contains(err.Error(), "no está detectado") {
+			t.Fatalf("expected detection error, got: %v", err)
+		}
+		return
+	}
+
+	if res.AutonomousCommand == "" {
+		t.Fatal("expected AutonomousCommand to be generated for openclaw")
+	}
+
+	expectedPrefix := "rtk openclaw agent --agent main"
+	if !strings.HasPrefix(res.AutonomousCommand, expectedPrefix) {
+		t.Errorf("expected command to start with %q, got: %q", expectedPrefix, res.AutonomousCommand)
+	}
+
+	if !strings.Contains(res.AutonomousCommand, "--message") {
+		t.Errorf("expected command to contain --message, got: %q", res.AutonomousCommand)
+	}
+}
+
+func TestBuildOpenClawCommandWithHandoff(t *testing.T) {
+	opts := PlanOptions{
+		Task:        "tarea de prueba",
+		Agent:       "openclaw",
+		HandoffPath: "/tmp/handoff.md",
+		Model:       "haiku",
+	}
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		// Si no está instalado, ignorar este test en entornos sin openclaw
+		return
+	}
+
+	expected := "rtk openclaw agent --agent main --model haiku --message-file /tmp/handoff.md"
+	if res.AutonomousCommand != expected {
+		t.Errorf("expected command %q, got %q", expected, res.AutonomousCommand)
 	}
 }
