@@ -2,12 +2,20 @@ package route
 
 import "strings"
 
+const (
+	AnthropicOpusCriticalModel = "claude-opus-4-1-20250805"
+	AnthropicSonnetReviewModel = "claude-sonnet-4-5-20250929"
+	AnthropicHaikuCheapModel   = "claude-3-5-haiku-20241022"
+)
+
 type Decision struct {
 	Task                 string   `json:"task"`
 	Category             string   `json:"category"`
 	RecommendedLevel     int      `json:"recommended_level"`
 	RecommendedAgent     string   `json:"recommended_agent"`
 	RecommendedModel     string   `json:"recommended_model"`
+	FallbackAgent        string   `json:"fallback_agent,omitempty"`
+	FallbackModel        string   `json:"fallback_model,omitempty"`
 	AllowedAgents        []string `json:"allowed_agents"`
 	AvoidAgents          []string `json:"avoid_agents,omitempty"`
 	RequiresConfirmation bool     `json:"requires_confirmation"`
@@ -61,16 +69,20 @@ func Decide(task string) Decision {
 	case "revision_critica":
 		decision.RecommendedLevel = 4
 		decision.RecommendedAgent = "claude-code"
-		decision.RecommendedModel = "opus"
-		decision.AllowedAgents = []string{"claude-code/opus", "claude-code/sonnet"}
+		decision.RecommendedModel = AnthropicOpusCriticalModel
+		decision.FallbackAgent = "claude-code"
+		decision.FallbackModel = AnthropicSonnetReviewModel
+		decision.AllowedAgents = []string{"claude-code/" + AnthropicOpusCriticalModel, "claude-code/" + AnthropicSonnetReviewModel}
 		decision.RequiresConfirmation = true
 		decision.SecurityOverride = true
 		decision.Reason = "revision critica de produccion/deploy/CI o posible falso positivo: priorizar Opus como validador experto antes de actuar"
 	case "seguridad":
 		decision.RecommendedLevel = 3
 		decision.RecommendedAgent = "claude-code"
-		decision.RecommendedModel = "sonnet"
-		decision.AllowedAgents = []string{"claude-code/sonnet", "claude-code/opus"}
+		decision.RecommendedModel = AnthropicSonnetReviewModel
+		decision.FallbackAgent = "claude-code"
+		decision.FallbackModel = AnthropicOpusCriticalModel
+		decision.AllowedAgents = []string{"claude-code/" + AnthropicSonnetReviewModel, "claude-code/" + AnthropicOpusCriticalModel}
 		decision.RequiresConfirmation = true
 		decision.SecurityOverride = true
 		decision.Reason = "seguridad sobrescribe costo; Sonnet por defecto, Opus solo para arquitectura/auditoria critica"
@@ -78,23 +90,37 @@ func Decide(task string) Decision {
 		decision.RecommendedLevel = 1
 		decision.RecommendedAgent = "agy"
 		decision.RecommendedModel = "gpt-oss-120b-medium"
-		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/haiku"}
-		decision.AvoidAgents = []string{"claude-code/opus", "claude-code/sonnet"}
+		decision.FallbackAgent = "pi"
+		decision.FallbackModel = "cheap-or-fast"
+		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/" + AnthropicHaikuCheapModel}
+		decision.AvoidAgents = []string{"claude-code/" + AnthropicOpusCriticalModel, "claude-code/" + AnthropicSonnetReviewModel}
 		decision.Reason = "documentacion/vault: descubrir con vg/rtk y ejecutar con agente barato; escalar solo si hay conflicto o riesgo"
 	case "codigo":
 		decision.RecommendedLevel = 2
 		decision.RecommendedAgent = "agy"
 		decision.RecommendedModel = "gemini-3.7-flash-high"
+		decision.FallbackAgent = "pi"
+		decision.FallbackModel = "gpt-5.5"
 		decision.AllowedAgents = []string{"agy/gemini-3.7-flash-high", "agy/gemini-3.5-flash-low", "pi/gpt-5.5"}
-		decision.AvoidAgents = []string{"claude-opus"}
+		decision.AvoidAgents = []string{"claude-code/" + AnthropicOpusCriticalModel}
 		decision.Reason = "codigo entra por agente de implementacion antes de escalar"
 	default:
 		decision.RecommendedLevel = 1
 		decision.RecommendedAgent = "local-or-cheap"
 		decision.RecommendedModel = "lowest-sufficient"
-		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/haiku", "local"}
-		decision.AvoidAgents = []string{"claude-code/opus", "claude-code/sonnet"}
+		decision.FallbackAgent = "nvidia-api"
+		decision.FallbackModel = "openai/gpt-oss-20b"
+		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/" + AnthropicHaikuCheapModel, "local"}
+		decision.AvoidAgents = []string{"claude-code/" + AnthropicOpusCriticalModel, "claude-code/" + AnthropicSonnetReviewModel}
 		decision.Reason = "tarea mecanica: usar escalon mas barato suficiente"
 	}
 	return decision
+}
+
+// ResolveFallback checks if a decision provides a configured fallback agent and model.
+func ResolveFallback(decision Decision) (fallbackAgent, fallbackModel string, hasFallback bool) {
+	if decision.FallbackAgent != "" && decision.FallbackModel != "" {
+		return decision.FallbackAgent, decision.FallbackModel, true
+	}
+	return "", "", false
 }

@@ -22,6 +22,51 @@ func TestObserverEventFromLedgerHasStableID(t *testing.T) {
 	}
 }
 
+func TestVerifyLastObserverLedgerEventReportsSyncedClaude(t *testing.T) {
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	statePath := filepath.Join(dir, "observer-sync.json")
+	event := ledger.Event{Timestamp: time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC), Task: "validacion opus", Agent: "claude-code", Model: "claude-opus-4-1-20250805", Status: "completed"}
+	if err := ledger.Append(ledgerPath, event); err != nil {
+		t.Fatalf("append ledger: %v", err)
+	}
+	obsEvent := observerEventFromLedger(event)
+	state := observerSyncState{Sent: map[string]time.Time{obsEvent.EventID: time.Now().UTC()}}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	if err := os.WriteFile(statePath, data, 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	report, err := verifyLastObserverLedgerEvent(ledgerPath, statePath, "claude-code")
+	if err != nil {
+		t.Fatalf("verify last: %v", err)
+	}
+	if !report.Found || !report.Synced || report.Agent != "claude-code" || report.Model != "claude-opus-4-1-20250805" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
+func TestVerifyLastObserverLedgerEventReportsUnsynced(t *testing.T) {
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	statePath := filepath.Join(dir, "observer-sync.json")
+	event := ledger.Event{Timestamp: time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC), Task: "validacion opus", Agent: "claude-code", Model: "opus", Status: "timeout"}
+	if err := ledger.Append(ledgerPath, event); err != nil {
+		t.Fatalf("append ledger: %v", err)
+	}
+
+	report, err := verifyLastObserverLedgerEvent(ledgerPath, statePath, "claude-code")
+	if err != nil {
+		t.Fatalf("verify last: %v", err)
+	}
+	if !report.Found || report.Synced || report.Status != "timeout" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
 func TestSyncObserverLedgerDryRunHonorsState(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ORQ_OBSERVER_HOST_TOKEN", "")

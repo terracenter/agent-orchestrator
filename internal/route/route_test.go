@@ -17,14 +17,14 @@ func TestCriticalDeployValidationPrioritizesOpus(t *testing.T) {
 	if decision.Category != "revision_critica" {
 		t.Fatalf("Category = %q, want revision_critica", decision.Category)
 	}
-	if decision.RecommendedAgent != "claude-code" || decision.RecommendedModel != "opus" {
-		t.Fatalf("recommended = %s/%s, want claude-code/opus", decision.RecommendedAgent, decision.RecommendedModel)
+	if decision.RecommendedAgent != "claude-code" || decision.RecommendedModel != AnthropicOpusCriticalModel {
+		t.Fatalf("recommended = %s/%s, want claude-code/%s", decision.RecommendedAgent, decision.RecommendedModel, AnthropicOpusCriticalModel)
 	}
 	if !decision.RequiresConfirmation || !decision.SecurityOverride {
 		t.Fatalf("decision = %+v, want confirmation and security override", decision)
 	}
-	if !contains(decision.AllowedAgents, "claude-code/opus") {
-		t.Fatalf("AllowedAgents = %+v, want claude-code/opus", decision.AllowedAgents)
+	if !contains(decision.AllowedAgents, "claude-code/"+AnthropicOpusCriticalModel) {
+		t.Fatalf("AllowedAgents = %+v, want claude-code/%s", decision.AllowedAgents, AnthropicOpusCriticalModel)
 	}
 }
 
@@ -33,8 +33,8 @@ func TestProductionWorkflowValidationPrioritizesOpus(t *testing.T) {
 	if decision.Category != "revision_critica" {
 		t.Fatalf("Category = %q, want revision_critica", decision.Category)
 	}
-	if decision.RecommendedModel != "opus" {
-		t.Fatalf("RecommendedModel = %q, want opus", decision.RecommendedModel)
+	if decision.RecommendedModel != AnthropicOpusCriticalModel {
+		t.Fatalf("RecommendedModel = %q, want %s", decision.RecommendedModel, AnthropicOpusCriticalModel)
 	}
 }
 
@@ -54,21 +54,21 @@ func TestRouteAlwaysRequiresRTK(t *testing.T) {
 
 func TestSecurityAllowsClaudeSonnetAndOpus(t *testing.T) {
 	decision := Decide("auditoria de seguridad de credenciales")
-	if decision.RecommendedAgent != "claude-code" || decision.RecommendedModel != "sonnet" {
-		t.Fatalf("recommended = %s/%s, want claude-code/sonnet", decision.RecommendedAgent, decision.RecommendedModel)
+	if decision.RecommendedAgent != "claude-code" || decision.RecommendedModel != AnthropicSonnetReviewModel {
+		t.Fatalf("recommended = %s/%s, want claude-code/%s", decision.RecommendedAgent, decision.RecommendedModel, AnthropicSonnetReviewModel)
 	}
-	if !contains(decision.AllowedAgents, "claude-code/sonnet") || !contains(decision.AllowedAgents, "claude-code/opus") {
-		t.Fatalf("AllowedAgents = %+v, want sonnet and opus", decision.AllowedAgents)
+	if !contains(decision.AllowedAgents, "claude-code/"+AnthropicSonnetReviewModel) || !contains(decision.AllowedAgents, "claude-code/"+AnthropicOpusCriticalModel) {
+		t.Fatalf("AllowedAgents = %+v, want exact sonnet and opus", decision.AllowedAgents)
 	}
 }
 
 func TestMechanicalAllowsClaudeHaikuButAvoidsExpensiveClaude(t *testing.T) {
 	decision := Decide("corregir typo simple")
-	if !contains(decision.AllowedAgents, "claude-code/haiku") {
-		t.Fatalf("AllowedAgents = %+v, want claude-code/haiku", decision.AllowedAgents)
+	if !contains(decision.AllowedAgents, "claude-code/"+AnthropicHaikuCheapModel) {
+		t.Fatalf("AllowedAgents = %+v, want claude-code/%s", decision.AllowedAgents, AnthropicHaikuCheapModel)
 	}
-	if !contains(decision.AvoidAgents, "claude-code/sonnet") || !contains(decision.AvoidAgents, "claude-code/opus") {
-		t.Fatalf("AvoidAgents = %+v, want expensive Claude models", decision.AvoidAgents)
+	if !contains(decision.AvoidAgents, "claude-code/"+AnthropicSonnetReviewModel) || !contains(decision.AvoidAgents, "claude-code/"+AnthropicOpusCriticalModel) {
+		t.Fatalf("AvoidAgents = %+v, want expensive exact Claude models", decision.AvoidAgents)
 	}
 }
 
@@ -91,5 +91,30 @@ func TestVaultDocumentationUsesCheapAgents(t *testing.T) {
 	}
 	if len(decision.AvoidAgents) == 0 {
 		t.Fatalf("AvoidAgents empty: %+v", decision)
+	}
+}
+
+func TestDecideFallbackAssignment(t *testing.T) {
+	cases := []struct {
+		task          string
+		wantFallbackA string
+		wantFallbackM string
+	}{
+		{"revisión crítica de deploy", "claude-code", AnthropicSonnetReviewModel},
+		{"rotar token de acceso y credenciales api", "claude-code", AnthropicOpusCriticalModel},
+		{"ordenar notas de vault", "pi", "cheap-or-fast"},
+		{"refactor de codigo go", "pi", "gpt-5.5"},
+		{"corregir typo simple", "nvidia-api", "openai/gpt-oss-20b"},
+	}
+
+	for _, tc := range cases {
+		decision := Decide(tc.task)
+		if decision.FallbackAgent != tc.wantFallbackA || decision.FallbackModel != tc.wantFallbackM {
+			t.Errorf("Decide(%q) fallback = %s/%s, want %s/%s", tc.task, decision.FallbackAgent, decision.FallbackModel, tc.wantFallbackA, tc.wantFallbackM)
+		}
+		fa, fm, ok := ResolveFallback(decision)
+		if !ok || fa != tc.wantFallbackA || fm != tc.wantFallbackM {
+			t.Errorf("ResolveFallback for %q = (%s, %s, %t), want (%s, %s, true)", tc.task, fa, fm, ok, tc.wantFallbackA, tc.wantFallbackM)
+		}
 	}
 }
