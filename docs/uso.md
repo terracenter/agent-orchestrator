@@ -63,6 +63,18 @@ Salida esperada:
 agent=claude-code model=sonnet level=3 category=seguridad reason=seguridad sobrescribe costo
 ```
 
+Para validaciones críticas de deploy/producción, CI/CD o posibles falsos positivos del asistente, el orquestador debe priorizar Opus como segundo par de ojos antes de actuar:
+
+```bash
+orq route "validar posible falso positivo en Deploy CWP falla: SSH exec request failed"
+```
+
+Salida esperada:
+
+```txt
+agent=claude-code model=opus level=4 category=revision_critica reason=revision critica de produccion/deploy/CI o posible falso positivo: priorizar Opus como validador experto antes de actuar
+```
+
 ### Simular ejecución sin ejecutar agentes
 
 ```bash
@@ -132,8 +144,8 @@ La política actual es:
 - Pi/NVIDIA o AGY/NVIDIA quedan registrados como candidatos baratos, pero deben validarse antes de usarse.
 - AGY/Gemini Flash High para código y análisis técnico medio cuando se valide el modelo exacto disponible.
 - AGY/Gemini Pro para análisis más fuerte si se valida disponibilidad.
-- Claude/Sonnet como revisión crítica, seguridad o bloqueo.
-- Claude/Opus solo para arquitectura compleja o decisión mayor.
+- Claude/Sonnet como revisión crítica general, seguridad o bloqueo.
+- Claude/Opus tiene prioridad para `revision_critica`: deploy/producción, workflows CI/CD, diagnósticos dudosos, posibles falsos positivos del asistente, incidentes y decisiones donde actuar con baja certeza pueda romper producción.
 
 ### Revisar presupuesto de contexto/cuota
 

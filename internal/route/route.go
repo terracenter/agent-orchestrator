@@ -18,7 +18,10 @@ type Decision struct {
 
 func Classify(task string) string {
 	text := strings.ToLower(task)
-	for _, word := range []string{"token", "credential", "credencial", ".env", "producción", "produccion", "sudo", "systemd", "push --force", "reset --hard"} {
+	if isCriticalReview(text) {
+		return "revision_critica"
+	}
+	for _, word := range []string{"token", "credential", "credencial", ".env", "sudo", "systemd", "push --force", "reset --hard"} {
 		if strings.Contains(text, word) {
 			return "seguridad"
 		}
@@ -36,10 +39,33 @@ func Classify(task string) string {
 	return "mecanico"
 }
 
+func isCriticalReview(text string) bool {
+	criticalSignals := []string{
+		"validacion critica", "validación crítica", "revision critica", "revisión crítica",
+		"posible falso positivo", "falso positivo", "diagnostico dudoso", "diagnóstico dudoso",
+		"deploy", "despliegue", "produccion", "producción", "cwp", "workflow", "github actions", "ci/cd",
+		"ssh", "exec request failed", "postmortem", "incidente",
+	}
+	for _, signal := range criticalSignals {
+		if strings.Contains(text, signal) {
+			return true
+		}
+	}
+	return false
+}
+
 func Decide(task string) Decision {
 	category := Classify(task)
 	decision := Decision{Task: task, Category: category, RtkRequired: true}
 	switch category {
+	case "revision_critica":
+		decision.RecommendedLevel = 4
+		decision.RecommendedAgent = "claude-code"
+		decision.RecommendedModel = "opus"
+		decision.AllowedAgents = []string{"claude-code/opus", "claude-code/sonnet"}
+		decision.RequiresConfirmation = true
+		decision.SecurityOverride = true
+		decision.Reason = "revision critica de produccion/deploy/CI o posible falso positivo: priorizar Opus como validador experto antes de actuar"
 	case "seguridad":
 		decision.RecommendedLevel = 3
 		decision.RecommendedAgent = "claude-code"

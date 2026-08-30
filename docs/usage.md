@@ -36,6 +36,7 @@ Common commands:
 ```bash
 orq classify "fix a broken reference"
 orq route "rotate production token"
+orq route "validate possible false positive in CWP deploy: SSH exec request failed"
 orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/task.md
 orq delegate "implement feature" --agent agy
 orq delegate "implement feature" --agent agy --write-handoff /home/freddy/Workspace/.agents/handoffs/task.md --write-receipt /tmp/receipt.json
@@ -107,6 +108,7 @@ orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/example
 
 - classifies tasks;
 - recommends agent/model routing;
+- prioritizes Claude Opus for critical production/deploy/CI validation, doubtful diagnoses, incidents and possible assistant false positives;
 - records events;
 - records tasks with verifiable state;
 - validates basic guards;
