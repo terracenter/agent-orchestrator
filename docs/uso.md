@@ -257,6 +257,14 @@ Snapshot manual de capacidad/cuota para Observer LLM:
 orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
 ```
 
+Usar capacidad agregada para ajustar routing no crítico desde un archivo JSON explícito:
+
+```bash
+orq route --capacity-file /ruta/capacity.json "tarea mecánica simple"
+```
+
+El archivo debe contener un arreglo de snapshots agregados con campos como `agent`, `provider_group`, `model_group`, `remaining_percent`, `window`, `source` y `captured_at`. Si una decisión tiene `security_override=true`, la seguridad prevalece sobre costo/cuota.
+
 Registro automático desde el ledger:
 
 ```bash

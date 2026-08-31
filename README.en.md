@@ -21,7 +21,7 @@ Principles:
 
 ## Status
 
-Initial MVP: **ledger + advisory mode**.
+Current MVP: **ledger + advisory mode + Observer telemetry + non-critical routing assisted by capacity snapshots**.
 
 Living roadmap: [ROADMAP.md](ROADMAP.md).
 
@@ -36,6 +36,7 @@ Current/planned commands:
 ```bash
 orq classify "fix a broken reference"
 orq route "rotate production token"
+orq route --capacity-file /path/capacity.json "simple mechanical task"
 orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq run "audit project" --dry-run
@@ -46,6 +47,8 @@ orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format js
 orq delegate "organize vault information related to GLPI"
 orq task create "organize GLPI vault"
 orq task list
+orq agents --format json
+orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
 ```
 
 ## Development setup
