@@ -149,6 +149,7 @@ Usage:
   orq audit issues [--path repo] [--format json]
   orq audit models [--format json]
   orq audit worktrees [--path repo] [--format json]
+  orq audit session [--session-id id] [--path dir] [--file path] [--format json]
   orq observer status [--format json]
   orq observer sync [--ledger path] [--state path] [--dry-run] [--format json]
   orq observer verify-last [--ledger path] [--state path] [--agent name] [--format json]
@@ -442,6 +443,61 @@ func cmdAudit(args []string) error {
 			fmt.Printf("%s #%d %s mergeable=%s review=%s checks=%d\n", state, pr.Number, pr.Title, pr.Mergeable, pr.ReviewDecision, len(pr.Checks))
 			for _, blocker := range pr.Blockers {
 				fmt.Printf("  blocker=%s\n", blocker)
+			}
+		}
+		return nil
+	case "session":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		sessionID, remaining, err := extractStringFlag(remaining, "--session-id", "")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", "")
+		if err != nil {
+			return err
+		}
+		file, remaining, err := extractStringFlag(remaining, "--file", "")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+
+		var report audit.SessionAuditReport
+		opts := audit.SessionAuditOptions{
+			SessionID: sessionID,
+			TraceDir:  path,
+			FilePath:  file,
+		}
+
+		if file != "" {
+			report, err = audit.AuditSessionFile(file, opts)
+		} else if sessionID != "" {
+			report, err = audit.AuditSessionByID(path, sessionID, opts)
+		} else {
+			report, err = audit.AuditLatestSession(path, opts)
+		}
+		if err != nil && len(report.Findings) == 0 {
+			return err
+		}
+
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+
+		fmt.Printf("%s session_id=%s agent=%s model=%s events=%d findings=%d\n",
+			report.Status, report.SessionID, report.Agent, report.Model, report.TotalEvents, len(report.Findings))
+		for _, finding := range report.Findings {
+			fmt.Printf("finding code=%s severity=%s message=%q\n", finding.Code, finding.Severity, finding.Message)
+			if finding.Target != "" {
+				fmt.Printf("  target=%s\n", finding.Target)
+			}
+			if finding.Remediation != "" {
+				fmt.Printf("  remediation=%s\n", finding.Remediation)
 			}
 		}
 		return nil

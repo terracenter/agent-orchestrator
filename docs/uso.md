@@ -342,6 +342,18 @@ orq audit models --format json
 
 Los modelos no verificados o `review_only` quedan marcados como `not_assignable`.
 
+### Auditar sesión de trace
+
+Audita una sesión creada con `orq trace` y emite findings con códigos estables y severidad.
+
+```bash
+orq audit session --session-id <id>
+orq audit session --session-id <id> --format json
+orq audit session --file ~/.local/state/orq/traces/<id>.session.json
+```
+
+Detecta comandos sin `rtk` cuando aplica `rtk_required=true`, ejecución directa en agente caro/supervisor y mutaciones destructivas sin `--dry-run` o confirmación humana.
+
 ### Validar seguridad Tiger Style
 
 ```bash

@@ -50,11 +50,11 @@
 
 ## Fase 4 — Auditoría de cumplimiento
 
-- [ ] Implementar `orq audit session`.
-- [ ] Detectar comandos sin `rtk` cuando `rtk_required=true`.
-- [ ] Detectar ejecución en agente caro cuando la política exigía delegación.
-- [ ] Detectar mutaciones sin dry-run/confirmación cuando aplique.
-- [ ] Emitir findings con códigos estables y severidad.
+- [x] Implementar `orq audit session`.
+- [x] Detectar comandos sin `rtk` cuando `rtk_required=true`.
+- [x] Detectar ejecución en agente caro cuando la política exigía delegación.
+- [x] Detectar mutaciones sin dry-run/confirmación cuando aplique.
+- [x] Emitir findings con códigos estables y severidad.
 
 ## Fase 5 — Issue/PR automático ante fallas
 
