@@ -35,6 +35,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/safety"
 	"github.com/terracenter/agent-orchestrator/internal/session"
 	"github.com/terracenter/agent-orchestrator/internal/task"
+	"github.com/terracenter/agent-orchestrator/internal/trace"
 	"github.com/terracenter/agent-orchestrator/internal/vaultorder"
 )
 
@@ -98,6 +99,8 @@ func main() {
 		err = cmdSafety(os.Args[2:])
 	case "review":
 		err = cmdReview(os.Args[2:])
+	case "trace":
+		err = cmdTrace(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
 	case "help", "--help", "-h":
@@ -162,6 +165,11 @@ Usage:
   orq roadmap check --phase n [--path ROADMAP.md] [--override security|optimization|cost] [--format json]
   orq safety check [--path repo] [--command text] [--format json]
   orq review 4r [--path repo] [--format json]
+  orq trace start --agent <name> --host <name> [--workspace path] [--model name] [--description text] [--format json]
+  orq trace status [--session-id id] [--format json]
+  orq trace stop --session-id id [--format json]
+  orq trace list [--format json]
+  orq trace record --session-id id --type command|file|test|commit|pr|issue|discovery --data json [--format json]
 `)
 }
 
@@ -2332,4 +2340,196 @@ func extractBoolFlag(args []string, name string, defaultValue bool) (bool, []str
 		remaining = append(remaining, arg)
 	}
 	return value, remaining
+}
+
+func cmdTrace(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("trace subcommand is required: start|status|stop|list|record")
+	}
+
+	format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+	if err != nil {
+		return err
+	}
+
+	stateDir := trace.DefaultStateDir()
+	m := trace.NewManager(stateDir)
+
+	switch args[0] {
+	case "start":
+		agent, remaining, err := extractStringFlag(remaining, "--agent", "")
+		if err != nil {
+			return err
+		}
+		if agent == "" {
+			return fmt.Errorf("--agent is required")
+		}
+
+		host, remaining, err := extractStringFlag(remaining, "--host", "")
+		if err != nil {
+			return err
+		}
+		if host == "" {
+			return fmt.Errorf("--host is required")
+		}
+
+		workspace, remaining, err := extractStringFlag(remaining, "--workspace", "")
+		if err != nil {
+			return err
+		}
+
+		model, remaining, err := extractStringFlag(remaining, "--model", "")
+		if err != nil {
+			return err
+		}
+
+		description, remaining, err := extractStringFlag(remaining, "--description", "")
+		if err != nil {
+			return err
+		}
+
+		metadata := trace.TraceMetadata{
+			Agent:       agent,
+			Host:        host,
+			Workspace:   workspace,
+			Model:       model,
+			Description: description,
+		}
+
+		session, err := m.Start(metadata)
+		if err != nil {
+			return err
+		}
+
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(session)
+		}
+		fmt.Printf("session_id=%s agent=%s host=%s status=%s\n", session.ID, session.Agent, session.Host, session.Status)
+		return nil
+
+	case "status":
+		sessionID, _, err := extractStringFlag(remaining, "--session-id", "")
+		if err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("--session-id is required")
+		}
+
+		session, events, err := m.Status(sessionID)
+		if err != nil {
+			return err
+		}
+
+		result := struct {
+			Session *trace.TraceSession `json:"session"`
+			Events  []trace.TraceEvent  `json:"events"`
+		}{Session: session, Events: events}
+
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+
+		fmt.Printf("session_id=%s agent=%s status=%s events=%d\n", session.ID, session.Agent, session.Status, session.EventCount)
+		for _, ev := range events {
+			fmt.Printf("  [%s] %s: %s\n", ev.Timestamp.Format("15:04:05"), ev.EventType, ev.Command)
+		}
+		return nil
+
+	case "stop":
+		sessionID, _, err := extractStringFlag(remaining, "--session-id", "")
+		if err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("--session-id is required")
+		}
+
+		if err := m.Stop(sessionID); err != nil {
+			return err
+		}
+
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "stopped", "session_id": sessionID})
+		}
+		fmt.Printf("session_id=%s status=stopped\n", sessionID)
+		return nil
+
+	case "list":
+		sessions, err := m.List()
+		if err != nil {
+			return err
+		}
+
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(sessions)
+		}
+
+		for _, session := range sessions {
+			fmt.Printf("session_id=%s agent=%s status=%s events=%d\n", session.ID, session.Agent, session.Status, session.EventCount)
+		}
+		return nil
+
+	case "record":
+		sessionID, remaining, err := extractStringFlag(remaining, "--session-id", "")
+		if err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("--session-id is required")
+		}
+
+		eventType, remaining, err := extractStringFlag(remaining, "--type", "")
+		if err != nil {
+			return err
+		}
+		if eventType == "" {
+			return fmt.Errorf("--type is required")
+		}
+
+		dataStr, remaining, err := extractStringFlag(remaining, "--data", "{}")
+		if err != nil {
+			return err
+		}
+
+		var eventData map[string]interface{}
+		if err := json.Unmarshal([]byte(dataStr), &eventData); err != nil {
+			return fmt.Errorf("invalid JSON in --data: %w", err)
+		}
+
+		event := trace.TraceEvent{
+			EventType: trace.TraceEventType(eventType),
+			Details:   make(map[string]string),
+		}
+
+		// Parse common fields from eventData
+		for k, v := range eventData {
+			event.Details[k] = fmt.Sprintf("%v", v)
+		}
+
+		// Handle specific event types
+		if cmd, ok := eventData["command"].(string); ok {
+			event.Command = cmd
+		}
+		if path, ok := eventData["path"].(string); ok {
+			if eventType == "file" {
+				event.FilePath = path
+			} else if eventType == "command" {
+				event.CommandPath = path
+			}
+		}
+
+		if err := m.Record(sessionID, event); err != nil {
+			return err
+		}
+
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"recorded": "true", "session_id": sessionID})
+		}
+		fmt.Printf("recorded session_id=%s type=%s\n", sessionID, eventType)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown trace subcommand: %s", args[0])
+	}
 }
