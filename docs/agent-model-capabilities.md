@@ -65,6 +65,20 @@ Salida consolidada del comando de diagnóstico:
 
 Regla de seguridad: no imprimir ni auditar `.secrets`, tokens, endpoints privados o contenido de `~/.qwen/settings.json`; solo se permite metadata segura como existencia de binario/directorio y modelos declarados por ejecución controlada.
 
+## 3.2 Snapshots de capacidades/modelos (#81)
+
+`orq models snapshot --format json` emite un snapshot fechado por combinación `agente/proveedor/modelo`. Cada registro separa:
+
+- identidad: agente, proveedor y modelo;
+- estado de verificación;
+- costo operativo;
+- entradas, salidas, herramientas y modos declarados;
+- evidencia/fuente (`registry`, `empirical`, `status`);
+- `captured_at` para trazabilidad temporal;
+- nota de seguridad explícita.
+
+La evidencia empírica de Qwen Code se limita al runtime reportado por el usuario en #81. Modelos no verificados reciben fuente `status=pendiente` hasta validación por runtime, documentación oficial o tareas reales. Este comando no lee configuración privada, tokens ni `.secrets`; prepara el contrato de datos para aprendizaje/scoring posterior y para exportación a Observer en un corte separado.
+
 ---
 
 ## 4. Backlog PRs propuestos
