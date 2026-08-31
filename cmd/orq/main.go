@@ -112,7 +112,7 @@ func usage() {
 
 Usage:
   orq classify <task>
-  orq route <task> [--format json]
+  orq route <task> [--capacity-file path] [--format json]
   orq record --task <task> --agent <agent> --model <model> --status <status> [--started-at RFC3339] [--finished-at RFC3339] [--duration-ms n] [--fallback-agent name] [--fallback-model name] [--tokens-in n] [--tokens-out n] [--notes text] [--ledger path]
   orq status [--ledger path]
   orq run <task> [--dry-run] [--format json]
@@ -522,16 +522,39 @@ func cmdRoute(args []string) error {
 	if err != nil {
 		return err
 	}
+	capacityFile, remaining, err := extractStringFlag(remaining, "--capacity-file", "")
+	if err != nil {
+		return err
+	}
 	task := strings.TrimSpace(strings.Join(remaining, " "))
 	if task == "" {
 		return fmt.Errorf("task is required")
 	}
 	decision := route.Decide(task)
+	if capacityFile != "" {
+		snapshots, err := readRouteCapacitySnapshots(capacityFile)
+		if err != nil {
+			return err
+		}
+		decision = route.ApplyCapacity(decision, snapshots)
+	}
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(decision)
 	}
 	fmt.Printf("agent=%s model=%s level=%d category=%s reason=%s\n", decision.RecommendedAgent, decision.RecommendedModel, decision.RecommendedLevel, decision.Category, decision.Reason)
 	return nil
+}
+
+func readRouteCapacitySnapshots(path string) ([]route.CapacitySnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var snapshots []route.CapacitySnapshot
+	if err := json.Unmarshal(data, &snapshots); err != nil {
+		return nil, err
+	}
+	return snapshots, nil
 }
 
 func cmdRecord(args []string) error {
