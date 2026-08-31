@@ -894,6 +894,8 @@ func cmdAgents(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Subcomando: detect
 	if len(remaining) > 0 && remaining[0] == "detect" {
 		if len(remaining) > 1 {
 			return fmt.Errorf("unexpected arguments after detect: %s", strings.Join(remaining[1:], " "))
@@ -911,6 +913,55 @@ func cmdAgents(args []string) error {
 		}
 		return nil
 	}
+
+	// Subcomando: configure
+	if len(remaining) > 0 && remaining[0] == "configure" {
+		if len(remaining) < 2 {
+			return fmt.Errorf("usage: orq agents configure <agent|all> [--dry-run] [--yes] [--format json]")
+		}
+
+		agentName := remaining[1]
+		dryRun := false
+		autoYes := false
+
+		// Parsear flags
+		for _, arg := range remaining[2:] {
+			switch arg {
+			case "--dry-run":
+				dryRun = true
+			case "--yes":
+				autoYes = true
+			case "--format":
+				// Ya procesado arriba
+			default:
+				if !strings.HasPrefix(arg, "json") && !strings.HasPrefix(arg, "text") {
+					return fmt.Errorf("unknown flag: %s", arg)
+				}
+			}
+		}
+
+		req := agentpkg.ConfigureRequest{
+			Agent:   agentName,
+			DryRun:  dryRun,
+			AutoYes: autoYes,
+		}
+
+		if agentName == "all" {
+			results, err := agentpkg.ConfigureAll(req)
+			if err != nil {
+				return err
+			}
+			return agentpkg.FormatResults(results, format)
+		}
+
+		result, err := agentpkg.Configure(req)
+		if err != nil {
+			return err
+		}
+		return agentpkg.FormatResults([]agentpkg.ConfigureResult{result}, format)
+	}
+
+	// Sin subcomando: listar perfiles
 	if len(remaining) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}

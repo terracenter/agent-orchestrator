@@ -145,6 +145,48 @@ orq agents detect
 orq agents detect --format json
 ```
 
+### Configurar guardrails de agentes (`orq agents configure`)
+
+Configura recordatorios y hooks de `rtk_required` en los agentes instalados. Esto garantiza que los agentes usen el wrapper `rtk` para optimizar tokens en comandos git/docker/shell.
+
+```bash
+# Vista previa sin modificar archivos
+orq agents configure <agent> --dry-run
+
+# Mostrar qué se haría sin ejecutar
+orq agents configure <agent>
+
+# Aplicar configuración (crea backup automático)
+orq agents configure <agent> --yes
+
+# Configurar todos los agentes soportados
+orq agents configure all --yes
+
+# Salida JSON
+orq agents configure all --dry-run --format json
+```
+
+**Agentes soportados para configuración automática:**
+- `openclaw`: crea `~/.openclaw/rtk.md` con recordatorio rtk_required
+- `agy`: crea `~/.gemini/rtk_required.md` con recordatorio rtk_required
+- `hermes`: crea `~/.hermes/rtk_required.md` con recordatorio rtk_required
+- `claude-code`: verifica que `~/.claude/RTK.md` exista (no lo modifica)
+
+**Agentes que requieren configuración manual:**
+- `qwen-code`: no se modifica `~/.qwen/settings.json` automáticamente (prohibido por política de seguridad). Configurar rtk_required manualmente en prompts del proyecto.
+- `pi`: supervisión principal; configurar rtk_required vía BOOTSTRAP.md o archivo de configuración del orquestador.
+- `nvidia-api`: servicio remoto sin configuración local; configurar rtk_required en el wrapper que lo invoque.
+- `codex`: ubicación de config pendiente de documentar; agregar prompt recordando rtk_required en directorio de trabajo.
+
+**Runners independientes y política de credenciales:**
+
+Los runners `openclaw`, `agy`, `hermes` y `codex` operan de forma independiente:
+- Orq no asume ni lee sus credenciales (tokens, API keys).
+- Orq puede detectar su presencia (`orq agents detect`) pero no modifica su configuración real sin confirmación explícita (`--yes`).
+- Todo cambio de configuración crea backup automático del archivo existente antes de modificarlo.
+- La configuración de `rtk_required` es no invasiva: crea archivos `.md` de recordatorio en el directorio de configuración del agente sin tocar archivos de credenciales ni settings.
+- Cuando Orq enruta trabajo a un runner, el runner usa sus propias credenciales configuradas de forma independiente.
+
 ### Diagnóstico del entorno (`orq doctor`)
 
 Verifica la disponibilidad de herramientas clave (`rtk`, `git`, `gh`, `orq`, `vg`) y agentes configurados en el host. Para `vg`, la detección se realiza en orden: variable `ORQ_VG_PATH`, `$PATH` y rutas conocidas del workspace (ej. `Workspace/Obsidian/10.Tooling/vault-graph/vg` o `Workspace/Obsidian/Tooling/vault-graph/scripts/vg`):

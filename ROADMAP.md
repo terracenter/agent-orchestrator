@@ -77,10 +77,10 @@
 - [x] Detectar Qwen Code de forma segura por binario/directorio y registrar perfiles Bailian iniciales sin leer secretos (#81).
 - [x] Emitir `orq models snapshot` con capacidades/modelos fechados, fuentes separadas y evidencia segura para aprendizaje posterior (#81).
 - [x] Ajustar routing no crítico con snapshots de capacidad agregados desde archivo JSON explícito (`orq route --capacity-file`) (#68, PR #77).
-- [ ] Implementar `orq agents configure <agent|all>`.
-- [ ] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.
-- [ ] Documentar OpenClaw, AGY, Hermes y Codex como runners independientes.
-- [ ] No asumir credenciales; pedir confirmación antes de modificar configs.
+- [x] Implementar `orq agents configure <agent|all>`.
+- [x] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.
+- [x] Documentar OpenClaw, AGY, Hermes y Codex como runners independientes.
+- [x] No asumir credenciales; pedir confirmación antes de modificar configs.
 
 ## Fase 8 — Piloto OpenClaw + vault
 
