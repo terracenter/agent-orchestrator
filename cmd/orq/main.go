@@ -77,6 +77,8 @@ func main() {
 		err = cmdInbox(os.Args[2:])
 	case "agents":
 		err = cmdAgents(os.Args[2:])
+	case "models":
+		err = cmdModels(os.Args[2:])
 	case "audit":
 		err = cmdAudit(os.Args[2:])
 	case "observer":
@@ -135,6 +137,7 @@ Usage:
   orq inbox ack --file path [--seen-file path]
   orq agents [--format json]
   orq agents detect [--format json]
+  orq models snapshot [--format json]
   orq doctor [--format json]
   orq audit prs [--path repo] [--format json]
   orq audit issues [--path repo] [--format json]
@@ -762,6 +765,29 @@ func cmdAgents(args []string) error {
 	}
 	for _, profile := range agentpkg.DefaultProfiles {
 		fmt.Printf("agent=%s provider=%s model=%s cost=%d verified=%t review_only=%t use_for=%s\n", profile.Agent, profile.Provider, profile.Model, profile.CostLevel, profile.Verified, profile.ReviewOnly, profile.UseFor)
+	}
+	return nil
+}
+
+func cmdModels(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	if len(remaining) != 1 || remaining[0] != "snapshot" {
+		return fmt.Errorf("usage: orq models snapshot [--format json]")
+	}
+	snapshots := agentpkg.CapabilitySnapshots(time.Now().UTC())
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(snapshots)
+	}
+	for _, snapshot := range snapshots {
+		verified := "unverified"
+		if snapshot.Verified {
+			verified = "verified"
+		}
+		fmt.Printf("agent=%s provider=%s model=%s cost=%d status=%s source=%s captured_at=%s\n",
+			snapshot.Agent, snapshot.Provider, snapshot.Model, snapshot.CostLevel, verified, snapshot.Evidence[0].Source, snapshot.CapturedAt.Format(time.RFC3339))
 	}
 	return nil
 }
