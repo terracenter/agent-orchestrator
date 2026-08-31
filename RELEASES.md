@@ -10,6 +10,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 - README en español e inglés rediseñados con badges, estado, quickstart, arquitectura resumida y política documental.
 - Plantillas GitHub piloto para issues de bug/documentación, alineadas con PRs con evidencia Orq.
 - Documento de guardrails para que Orq detecte uso prolongado de Pi, delegación omitida y loops caros: `docs/guardrails-pi-token-control.md`.
+- `orq delegate` valida con pruebas que Pi quede en modo supervisor y no pueda ejecutar cuando la recomendación apunta a AGY/local-or-cheap sin recibo externo.
 - `orq budget` ahora registra cada decisión de presupuesto en el ledger como evento `budget_<action>` para trazabilidad de sesión.
 - `orq budget` ahora bloquea la continuación con `action=compactar_manual` y `manual_compact_stop=true` cuando el agente actual no puede compactar automáticamente.
 - `orq budget` ahora acepta `--agent` y distingue capacidad de compactación por agente/sesión; si no puede compactar automáticamente, instruye al usuario a ejecutar `/compact`.
