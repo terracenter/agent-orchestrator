@@ -6,6 +6,9 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 
 ### Agregado
 
+- Estándar profesional de presentación GitHub en `docs/github-repository-standard.md`.
+- README en español e inglés rediseñados con badges, estado, quickstart, arquitectura resumida y política documental.
+- Plantillas GitHub piloto para issues de bug/documentación, alineadas con PRs con evidencia Orq.
 - Documento de guardrails para que Orq detecte uso prolongado de Pi, delegación omitida y loops caros: `docs/guardrails-pi-token-control.md`.
 - `orq budget` ahora bloquea la continuación con `action=compactar_manual` y `manual_compact_stop=true` cuando el agente actual no puede compactar automáticamente.
 - `orq budget` ahora acepta `--agent` y distingue capacidad de compactación por agente/sesión; si no puede compactar automáticamente, instruye al usuario a ejecutar `/compact`.
