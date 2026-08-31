@@ -58,10 +58,10 @@
 
 ## Fase 5 — Issue/PR automático ante fallas
 
-- [ ] Implementar generador de issue desde findings de auditoría.
-- [ ] Incluir comportamiento esperado, comportamiento actual, evidencia y criterios de aceptación.
-- [ ] Evaluar generación automática de rama/PR para fixes mecánicos.
-- [ ] Requerir revisión humana antes de mergear cambios de guardrails.
+- [x] Implementar generador de issue desde findings de auditoría.
+- [x] Incluir comportamiento esperado, comportamiento actual, evidencia y criterios de aceptación.
+- [x] Evaluar generación automática de rama/PR para fixes mecánicos (decisión MVP: generar borrador; no crear remoto automáticamente).
+- [x] Requerir revisión humana antes de mergear cambios de guardrails.
 
 ## Fase 6 — Installer y doctor para usuarios básicos
 

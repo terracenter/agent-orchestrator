@@ -354,6 +354,17 @@ orq audit session --file ~/.local/state/orq/traces/<id>.session.json
 
 Detecta comandos sin `rtk` cuando aplica `rtk_required=true`, ejecución directa en agente caro/supervisor y mutaciones destructivas sin `--dry-run` o confirmación humana.
 
+### Generar borrador de issue desde auditoría
+
+Genera un borrador revisable; no crea issues remotos automáticamente.
+
+```bash
+orq audit issue-from-session --session-id <id>
+orq audit issue-from-session --session-id <id> --format json
+```
+
+El borrador incluye comportamiento esperado, comportamiento actual, evidencia, criterios de aceptación y checklist de revisión humana para cambios de guardrails.
+
 ### Validar seguridad Tiger Style
 
 ```bash
