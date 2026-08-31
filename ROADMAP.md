@@ -83,6 +83,7 @@
 ## Fase 8 — Piloto OpenClaw + vault
 
 - [x] Registrar contexto operativo: OpenClaw está operativo por Telegram y el modelo default configurado es Haiku.
+- [x] Garantizar que cada tarea autorizada desde el router móvil/OpenClaw pase por `route.Decide` y deje auditoría `routed_by_orq` (#82).
 - [ ] Validar si OpenClaw usa Claude Pro/suscripción sin gasto adicional.
 - [ ] Ejecutar tareas pequeñas del vault con OpenClaw como runner principal.
 - [ ] Pi queda como supervisor corto y validador de recibos.

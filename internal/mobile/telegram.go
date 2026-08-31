@@ -14,14 +14,18 @@ type Message struct {
 }
 
 type AuditEntry struct {
-	UserID        int64     `json:"user_id"`
-	Command       string    `json:"command"`
-	Authorized    bool      `json:"authorized"`
-	RequiresWrite bool      `json:"requires_write"`
-	ModelAssigned string    `json:"model_assigned"`
-	CostEstimated string    `json:"cost_estimated"`
-	Result        string    `json:"result"`
-	CreatedAt     time.Time `json:"created_at"`
+	UserID           int64     `json:"user_id"`
+	Command          string    `json:"command"`
+	Authorized       bool      `json:"authorized"`
+	RoutedByOrq      bool      `json:"routed_by_orq"`
+	RouteCategory    string    `json:"route_category,omitempty"`
+	RouteAgent       string    `json:"route_agent,omitempty"`
+	RouteModel       string    `json:"route_model,omitempty"`
+	RequiresWrite    bool      `json:"requires_write"`
+	ModelAssigned    string    `json:"model_assigned"`
+	CostEstimated    string    `json:"cost_estimated"`
+	Result           string    `json:"result"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 type Response struct {
@@ -61,14 +65,18 @@ func (r Router) Handle(msg Message) Response {
 		return Response{Text: "rechazado: usuario no autorizado", Rejected: true, Audit: audit}
 	}
 	audit.Authorized = true
+	decision := route.Decide(msg.Text)
+	audit.RoutedByOrq = true
+	audit.RouteCategory = decision.Category
+	audit.RouteAgent = decision.RecommendedAgent
+	audit.RouteModel = decision.RecommendedModel
+	audit.ModelAssigned = cheapMobileModel(decision)
 	if isReadOnly(cmd) {
 		audit.Result = "allowed_read_only"
 		return Response{Text: readOnlyResponse(cmd), ReadOnly: true, Audit: audit}
 	}
 	if isWrite(cmd) {
 		audit.RequiresWrite = true
-		decision := route.Decide(msg.Text)
-		audit.ModelAssigned = cheapMobileModel(decision)
 		audit.Result = "confirmation_required"
 		return Response{Text: "confirmacion requerida: responder /confirm para ejecutar", RequiresConfirmation: true, Audit: audit}
 	}

@@ -48,6 +48,10 @@ Cada comando debe registrar:
 - usuario (`user_id`)
 - comando
 - si fue autorizado
+- si fue enrutado por Orq (`routed_by_orq`)
+- categoría decidida por Orq
+- agente recomendado por Orq
+- modelo recomendado por Orq
 - si requiere escritura/confirmación
 - modelo asignado
 - costo estimado
@@ -67,4 +71,6 @@ No usar Pi/OpenAI salvo override explícito y auditado.
 
 ## Estado actual
 
-El paquete `internal/mobile` implementa el router seguro y testeable de Telegram: allowlist, comandos read-only, compuerta de confirmación para escritura y auditoría estructurada. La integración real con la API de Telegram y `orq serve` queda como siguiente etapa.
+El paquete `internal/mobile` implementa el router seguro y testeable de Telegram: allowlist, comandos read-only, compuerta de confirmación para escritura y auditoría estructurada.
+
+Como MVP de #82, toda tarea autorizada desde el router móvil/OpenClaw llama a `route.Decide` antes de permitir, pedir confirmación o rechazar el comando. La auditoría conserva `routed_by_orq`, categoría, agente y modelo recomendados. La integración real con la API de Telegram y `orq serve` queda como siguiente etapa.

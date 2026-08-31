@@ -11,6 +11,9 @@ func TestAuthorizedStatusIsReadOnly(t *testing.T) {
 	if resp.Audit.Result != "allowed_read_only" || !resp.Audit.Authorized {
 		t.Fatalf("missing audit: %+v", resp.Audit)
 	}
+	if !resp.Audit.RoutedByOrq || resp.Audit.RouteCategory == "" || resp.Audit.RouteAgent == "" || resp.Audit.RouteModel == "" {
+		t.Fatalf("expected OpenClaw/mobile task to be routed by Orq, got %+v", resp.Audit)
+	}
 }
 
 func TestUnauthorizedUserRejectedAndAudited(t *testing.T) {
@@ -30,6 +33,9 @@ func TestWriteCommandRequiresConfirmation(t *testing.T) {
 	if resp.Audit.ModelAssigned == "" || resp.Audit.Result != "confirmation_required" {
 		t.Fatalf("missing routing audit: %+v", resp.Audit)
 	}
+	if !resp.Audit.RoutedByOrq || resp.Audit.RouteCategory == "" || resp.Audit.RouteAgent == "" || resp.Audit.RouteModel == "" {
+		t.Fatalf("expected write command to route through Orq, got %+v", resp.Audit)
+	}
 }
 
 func TestUnknownCommandRejected(t *testing.T) {
@@ -37,5 +43,8 @@ func TestUnknownCommandRejected(t *testing.T) {
 	resp := r.Handle(Message{UserID: 42, Text: "/shell rm -rf"})
 	if !resp.Rejected || resp.Audit.Result != "rejected_unknown_command" {
 		t.Fatalf("expected safe rejection, got %+v", resp)
+	}
+	if !resp.Audit.RoutedByOrq || resp.Audit.RouteCategory == "" || resp.Audit.RouteAgent == "" {
+		t.Fatalf("unknown authorized command must still be routed through Orq before rejection, got %+v", resp.Audit)
 	}
 }

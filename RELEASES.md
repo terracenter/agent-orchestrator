@@ -23,6 +23,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 - Plantillas cacheables para handoffs con validación de contexto volátil.
 - Recibos verificables con métrica `human_edits_required_value`.
 - Router móvil seguro para Telegram/WireGuard en `internal/mobile`.
+- Puente MVP OpenClaw/Telegram -> Orq: cada tarea autorizada pasa por `route.Decide` y la auditoría registra `routed_by_orq`, categoría, agente y modelo recomendados (#82).
 
 ### Seguridad
 
