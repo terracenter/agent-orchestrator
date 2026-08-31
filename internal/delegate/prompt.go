@@ -56,6 +56,11 @@ func isOpenClawAgent(agentName string) bool {
 	return normalized == "openclaw" || normalized == "open-claw" || strings.HasPrefix(normalized, "openclaw/")
 }
 
+func requiresExternalCheapExecution(agentName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(agentName))
+	return isAGYAgent(normalized) || isOpenClawAgent(normalized) || normalized == "nvidia-api" || strings.HasPrefix(normalized, "nvidia-api/") || normalized == "local" || normalized == "local-or-cheap"
+}
+
 func BuildOpenClawCommand(opts PlanOptions, decision route.Decision) string {
 	model := opts.Model
 	handoffTarget := opts.HandoffPath
@@ -210,7 +215,7 @@ func PlanWithOptions(opts PlanOptions) (Result, error) {
 	var autoCmd string
 	if isOpenClawAgent(opts.Agent) || (opts.Agent == "" && isOpenClawAgent(decision.RecommendedAgent)) {
 		autoCmd = BuildOpenClawCommand(opts, decision)
-	} else if isAGYAgent(opts.Agent) || isAGYAgent(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
+	} else if isAGYAgent(opts.Agent) || requiresExternalCheapExecution(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
 		autoCmd = BuildAGYCommand(opts, decision)
 	}
 

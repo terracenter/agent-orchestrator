@@ -22,24 +22,57 @@ func TestPromptIncludesCheapRouting(t *testing.T) {
 }
 
 func TestPlanForPiUnexecutedRequiresStop(t *testing.T) {
-	res, err := Plan("ordenar informacion del vault", "pi", false)
-	if err != nil {
-		t.Fatalf("Plan failed: %v", err)
+	tests := []struct {
+		name                 string
+		task                 string
+		wantRecommendedAgent string
+		wantCommandFragment  string
+	}{
+		{
+			name:                 "agy documentation delegation",
+			task:                 "ordenar informacion del vault",
+			wantRecommendedAgent: "agy",
+			wantCommandFragment:  "rtk agy",
+		},
+		{
+			name:                 "local or cheap mechanical delegation",
+			task:                 "listar archivos pendientes",
+			wantRecommendedAgent: "local-or-cheap",
+			wantCommandFragment:  "rtk agy",
+		},
 	}
-	if res.Status != "not_executed" {
-		t.Fatalf("Status = %q, want not_executed", res.Status)
-	}
-	if !res.MustStopForDelegation {
-		t.Fatal("MustStopForDelegation = false, want true")
-	}
-	if !res.SupervisorOnly {
-		t.Fatal("SupervisorOnly = false, want true")
-	}
-	if res.ExecutionAgentAllowed {
-		t.Fatal("ExecutionAgentAllowed = true, want false")
-	}
-	if res.AutonomousCommand == "" {
-		t.Fatal("AutonomousCommand should be populated for recommended AGY delegation")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := Plan(tt.task, "pi", false)
+			if err != nil {
+				t.Fatalf("Plan failed: %v", err)
+			}
+			if res.Decision.RecommendedAgent != tt.wantRecommendedAgent {
+				t.Fatalf("RecommendedAgent = %q, want %q", res.Decision.RecommendedAgent, tt.wantRecommendedAgent)
+			}
+			if res.Status != "not_executed" {
+				t.Fatalf("Status = %q, want not_executed", res.Status)
+			}
+			if !res.MustStopForDelegation {
+				t.Fatal("MustStopForDelegation = false, want true")
+			}
+			if !res.SupervisorOnly {
+				t.Fatal("SupervisorOnly = false, want true")
+			}
+			if res.ExecutionAgentAllowed {
+				t.Fatal("ExecutionAgentAllowed = true, want false")
+			}
+			if !strings.Contains(res.NextStep, "volver con recibo verificable") {
+				t.Fatalf("NextStep missing receipt requirement: %q", res.NextStep)
+			}
+			if res.AutonomousCommand == "" {
+				t.Fatal("AutonomousCommand should be populated for delegated execution")
+			}
+			if !strings.Contains(res.AutonomousCommand, tt.wantCommandFragment) {
+				t.Fatalf("AutonomousCommand = %q, want fragment %q", res.AutonomousCommand, tt.wantCommandFragment)
+			}
+		})
 	}
 }
 
