@@ -74,6 +74,7 @@
 ## Fase 7 — Configuración multi-agente
 
 - [x] Implementar `orq agents detect` para inspección segura de presencia/rutas de runners.
+- [x] Detectar Qwen Code de forma segura por binario/directorio y registrar perfiles Bailian iniciales sin leer secretos (#81).
 - [x] Ajustar routing no crítico con snapshots de capacidad agregados desde archivo JSON explícito (`orq route --capacity-file`) (#68, PR #77).
 - [ ] Implementar `orq agents configure <agent|all>`.
 - [ ] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.

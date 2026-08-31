@@ -20,6 +20,10 @@ A continuación se detallan los agentes registrados y sus configuraciones de mod
 | **agy** | google | `gemini-3.1-pro-low` | 2 | Análisis técnico fuerte y refutación antes de escalar a Claude | No |
 | **agy** | open-model | `gpt-oss-120b-medium` | 0 | Validación barata de prompts, resúmenes y tareas mecánicas cuando AGY lo expone | Sí |
 | **agy** | nvidia | `free-or-low-cost` | 0 | Tareas mecánicas y validaciones baratas si AGY lo expone | No |
+| **qwen-code** | bailian | `qwen3.8-max` | 1 | Código, búsqueda en repos, shell/git/docker y tareas técnicas medianas bajo plan Standard reportado por runtime | Sí |
+| **qwen-code** | bailian | `qwen3.5` | 1 | Modelo disponible reportado por Qwen Code; validar empíricamente antes de asignación crítica | No |
+| **qwen-code** | bailian | `qwen3.6` | 1 | Modelo disponible reportado por Qwen Code; validar empíricamente antes de asignación crítica | No |
+| **qwen-code** | bailian | `qwen3.7-plus` | 1 | Modelo disponible reportado por Qwen Code; validar empíricamente antes de asignación crítica | No |
 | **claude-code** | anthropic | `sonnet` | 3 | Código, revisión crítica, seguridad, bloqueos y refutación de decisiones | Sí |
 | **claude-code** | anthropic | `opus` | 4 | Arquitectura compleja, auditoría crítica o decisión mayor | Sí |
 | **claude-code** | anthropic | `fable` | 2 | Modelo Claude pendiente de clasificar; usar solo si la CLI lo expone y hay confirmación operativa | No |
@@ -35,6 +39,7 @@ Resultados de la auto-detección local mediante `rtk orq agents detect --format 
 | **hermes** | Sí | `/home/freddy/.local/bin/hermes` | `/home/freddy/.hermes` | Runner para tareas de integración y exploración. |
 | **claude-code**| Sí | `/home/freddy/.local/bin/claude` | `/home/freddy/.claude` | Revisión crítica, seguridad y refutación (review_only). |
 | **pi** | Sí | `/home/freddy/.local/share/pi-node/node-v22.23.2-linux-x64/bin/pi` | PENDIENTE | Supervisor principal; detener y delegar si hay tensión de presupuesto. |
+| **qwen-code** | Sí | `/home/freddy/.local/bin/qwen` o `PATH` | `/home/freddy/.qwen` | Runner multi-modelo para código y tareas técnicas; detección segura sin leer settings ni secretos. |
 | **codex** | No | PENDIENTE | PENDIENTE | Runner y asistente secundario. |
 | **nvidia-api** | No | PENDIENTE | PENDIENTE | Smoke tests, clasificación barata y tareas mecánicas. |
 
@@ -53,6 +58,12 @@ Salida consolidada del comando de diagnóstico:
 *   **claude**: `ok`
 
 *Todos los agentes clave cuentan con CLI funcional que responde correctamente a flags de ayuda (`--help`).*
+
+## 3.1 Qwen Code — piloto de autodiscovery seguro (#81)
+
+`orq agents detect` reconoce `qwen-code` mediante presencia del binario `qwen` y/o directorio de configuración `~/.qwen`, pero no lee archivos de configuración potencialmente sensibles. El primer perfil verificado se registra como `qwen-code/bailian/qwen3.8-max` porque fue reportado por runtime en una ejecución empírica del usuario. Los modelos `qwen3.5`, `qwen3.6` y `qwen3.7-plus` quedan como disponibles/no verificados hasta que exista prueba empírica versionada.
+
+Regla de seguridad: no imprimir ni auditar `.secrets`, tokens, endpoints privados o contenido de `~/.qwen/settings.json`; solo se permite metadata segura como existencia de binario/directorio y modelos declarados por ejecución controlada.
 
 ---
 
