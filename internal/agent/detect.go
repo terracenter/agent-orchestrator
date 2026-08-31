@@ -101,7 +101,22 @@ func DetectAgentsWithHome(home string) []AgentDetection {
 		Notes:      "supervisor principal; detener y delegar si el presupuesto esta tensionado",
 	})
 
-	// 6. Codex
+	// 6. Qwen Code
+	qwenBin := findBin("qwen", []string{filepath.Join(home, ".local", "bin")})
+	qwenCfg := findDir(filepath.Join(home, ".qwen"), filepath.Join(home, ".config", "qwen"))
+	detections = append(detections, AgentDetection{
+		Agent:      "qwen-code",
+		Installed:  qwenBin != "",
+		BinaryPath: qwenBin,
+		ConfigPath: qwenCfg,
+		Role:       "runner multi-modelo para codigo, busqueda en repos, shell/git/docker y tareas mecanicas o tecnicas",
+		CostLevel:  1,
+		ReviewOnly: false,
+		Verified:   qwenBin != "" || qwenCfg != "",
+		Notes:      "deteccion segura: solo valida binario/directorio de configuracion; no lee settings ni secretos",
+	})
+
+	// 7. Codex
 	codexBin := findBin("codex", []string{filepath.Join(home, ".local", "bin")})
 	detections = append(detections, AgentDetection{
 		Agent:      "codex",
@@ -113,7 +128,7 @@ func DetectAgentsWithHome(home string) []AgentDetection {
 		Verified:   false,
 	})
 
-	// 7. NVIDIA API
+	// 8. NVIDIA API
 	nvidiaKey := os.Getenv("NVIDIA_API_KEY")
 	detections = append(detections, AgentDetection{
 		Agent:      "nvidia-api",
