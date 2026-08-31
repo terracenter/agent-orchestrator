@@ -79,6 +79,17 @@ Regla de seguridad: no imprimir ni auditar `.secrets`, tokens, endpoints privado
 
 La evidencia empírica de Qwen Code se limita al runtime reportado por el usuario en #81. Modelos no verificados reciben fuente `status=pendiente` hasta validación por runtime, documentación oficial o tareas reales. Este comando no lee configuración privada, tokens ni `.secrets`; prepara el contrato de datos para aprendizaje/scoring posterior y para exportación a Observer en un corte separado.
 
+## 3.3 Scoring personalizado inicial (#81)
+
+`orq score --format json` resume el ledger local por `agente/modelo` para aprender del historial real del usuario. El primer scoring es deliberadamente simple y verificable:
+
+- `ok`, `passed`, `success`, `completed` y `executed` cuentan como éxito;
+- estados desconocidos cuentan como fallo;
+- `not_executed` se contabiliza separado y penaliza medio punto, porque una delegación que solo generó prompt/receipt no debe mejorar la reputación del agente ni ocultarse como éxito;
+- el resultado se ordena de mayor a menor score.
+
+Este corte no decide routing automáticamente todavía: expone una señal segura y auditable para un PR posterior que combine scoring con repo, tipo de tarea, riesgo y snapshots de capacidad.
+
 ---
 
 ## 4. Backlog PRs propuestos

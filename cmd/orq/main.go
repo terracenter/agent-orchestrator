@@ -33,6 +33,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/roadmap"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/safety"
+	"github.com/terracenter/agent-orchestrator/internal/score"
 	"github.com/terracenter/agent-orchestrator/internal/session"
 	"github.com/terracenter/agent-orchestrator/internal/task"
 	"github.com/terracenter/agent-orchestrator/internal/trace"
@@ -55,6 +56,8 @@ func main() {
 		err = cmdRecord(os.Args[2:])
 	case "status":
 		err = cmdStatus(os.Args[2:])
+	case "score":
+		err = cmdScore(os.Args[2:])
 	case "run":
 		err = cmdRun(os.Args[2:])
 	case "guard":
@@ -123,6 +126,7 @@ Usage:
   orq route <task> [--capacity-file path] [--format json]
   orq record --task <task> --agent <agent> --model <model> --status <status> [--started-at RFC3339] [--finished-at RFC3339] [--duration-ms n] [--fallback-agent name] [--fallback-model name] [--tokens-in n] [--tokens-out n] [--notes text] [--ledger path]
   orq status [--ledger path]
+  orq score [--ledger path] [--format json]
   orq run <task> [--dry-run] [--execute] [--agent name] [--model name] [--timeout seconds] [--orq-agent-bin path] [--format json]
   orq guard --vault <path> [--format json]
   orq guard-collision --path <repo> [--format json]
@@ -2451,6 +2455,33 @@ func runOrqAgentExec(orqAgentBin, agent, model, taskText string, timeoutSeconds 
 		return OrqAgentReceipt{}, fmt.Errorf("decode orq-agent receipt: %w", err)
 	}
 	return receipt, nil
+}
+
+func cmdScore(args []string) error {
+	format, remaining, err := extractStringFlag(args, "--format", "text")
+	if err != nil {
+		return err
+	}
+	ledgerPath, remaining, err := extractStringFlag(remaining, "--ledger", ledger.DefaultPath())
+	if err != nil {
+		return err
+	}
+	if len(remaining) != 0 {
+		return fmt.Errorf("unexpected score arguments: %s", strings.Join(remaining, " "))
+	}
+	events, err := ledger.ReadAll(ledgerPath)
+	if err != nil {
+		return err
+	}
+	summaries := score.FromLedger(events)
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(summaries)
+	}
+	for _, summary := range summaries {
+		fmt.Printf("agent=%s model=%s score=%.2f events=%d successes=%d failures=%d not_executed=%d\n",
+			summary.Agent, summary.Model, summary.Score, summary.Events, summary.Successes, summary.Failures, summary.NotExecuted)
+	}
+	return nil
 }
 
 func cmdRun(args []string) error {
