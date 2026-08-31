@@ -30,6 +30,7 @@ import (
 	"github.com/terracenter/agent-orchestrator/internal/receipt"
 	"github.com/terracenter/agent-orchestrator/internal/repostandard"
 	"github.com/terracenter/agent-orchestrator/internal/review4r"
+	"github.com/terracenter/agent-orchestrator/internal/roadmap"
 	"github.com/terracenter/agent-orchestrator/internal/route"
 	"github.com/terracenter/agent-orchestrator/internal/safety"
 	"github.com/terracenter/agent-orchestrator/internal/session"
@@ -91,6 +92,8 @@ func main() {
 		err = cmdBudget(os.Args[2:])
 	case "repo":
 		err = cmdRepo(os.Args[2:])
+	case "roadmap":
+		err = cmdRoadmap(os.Args[2:])
 	case "safety":
 		err = cmdSafety(os.Args[2:])
 	case "review":
@@ -156,6 +159,7 @@ Usage:
   orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--agent pi|claude|codex|hermes|agy] [--compact-applied] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
+  orq roadmap check --phase n [--path ROADMAP.md] [--override security|optimization|cost] [--format json]
   orq safety check [--path repo] [--command text] [--format json]
   orq review 4r [--path repo] [--format json]
 `)
@@ -227,6 +231,41 @@ func cmdSession(args []string) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+func cmdRoadmap(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: orq roadmap check --phase n [--path ROADMAP.md] [--override security|optimization|cost] [--format json]")
+	}
+	switch args[0] {
+	case "check":
+		fs := flag.NewFlagSet("roadmap check", flag.ContinueOnError)
+		phase := fs.Int("phase", 0, "requested roadmap phase")
+		path := fs.String("path", "ROADMAP.md", "roadmap path")
+		override := fs.String("override", "", "allowed override: security, optimization, or cost")
+		format := fs.String("format", "text", "output format: text or json")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		report, err := roadmap.CheckPhase(*path, *phase, *override)
+		if err != nil {
+			return err
+		}
+		if *format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(report)
+		}
+		if report.Allowed {
+			fmt.Printf("allowed phase=%d\n", report.RequestedPhase)
+			return nil
+		}
+		fmt.Printf("blocked phase=%d; open items exist in earlier phases\n", report.RequestedPhase)
+		for _, item := range report.BlockingOpenItems {
+			fmt.Printf("phase=%d line=%d %s\n", item.Phase, item.Line, item.Text)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown roadmap command %q", args[0])
 	}
 }
 

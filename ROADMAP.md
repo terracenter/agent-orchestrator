@@ -91,6 +91,23 @@
 - [ ] Pi queda como supervisor corto y validador de recibos.
 - [ ] Medir si el flujo reduce consumo de Pi/OpenAI sin perder seguridad.
 
+## Política de orden de fases
+
+Las fases son contrato de ejecución: por defecto se trabaja en la fase pendiente más temprana antes de avanzar a fases posteriores.
+
+Solo se permite saltar una fase pendiente por justificación explícita de:
+
+1. **seguridad**; o
+2. **optimización/costo**.
+
+Antes de iniciar o mergear trabajo de una fase posterior, ejecutar:
+
+```bash
+orq roadmap check --phase <n>
+```
+
+Si el comando reporta pendientes en fases anteriores, el PR debe detenerse o declarar el override con `--override security`, `--override optimization` o `--override cost` y explicar la evidencia en la descripción del PR.
+
 ## Política de actualización
 
 Todo PR que agregue comando, guardrail, integración, instalador, tracking o política de ejecución debe actualizar este roadmap o indicar en el PR: `Roadmap: no aplica` con justificación.
