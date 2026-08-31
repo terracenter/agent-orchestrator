@@ -43,10 +43,10 @@
 
 - [x] Registrar eventos de ledger en Observer LLM de forma best-effort sin bloquear la tarea principal.
 - [x] Enviar snapshots manuales de capacidad/cuota a Observer LLM mediante `orq observer send-capacity` (#68, PR #76).
-- [ ] Diseñar `orq trace start/status/stop`.
-- [ ] Registrar comandos ejecutados, archivos leídos/modificados, tests, commits, PRs e issues.
-- [ ] Registrar descubrimientos nuevos que deban alimentar memoria/configuración.
-- [ ] Soportar ingestión de recibos de agentes externos.
+- [x] Diseñar `orq trace start/status/stop/list/record` con Manager y modelos (commit d6b47e5).
+- [x] Registrar comandos ejecutados, archivos leídos/modificados, tests, commits, PRs e issues (TraceEvent).
+- [x] Registrar descubrimientos nuevos que deban alimentar memoria/configuración (EventTypeDiscovery).
+- [x] Soportar ingestión de recibos de agentes externos (orq trace record --type discovery).
 
 ## Fase 4 — Auditoría de cumplimiento
 
