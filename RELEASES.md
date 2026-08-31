@@ -10,6 +10,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 - README en español e inglés rediseñados con badges, estado, quickstart, arquitectura resumida y política documental.
 - Plantillas GitHub piloto para issues de bug/documentación, alineadas con PRs con evidencia Orq.
 - Documento de guardrails para que Orq detecte uso prolongado de Pi, delegación omitida y loops caros: `docs/guardrails-pi-token-control.md`.
+- `scripts/install.sh` instala `orq` con modo interactivo, `--dry-run`, advertencia si falta `rtk` y backup antes de reemplazar binarios.
 - `orq audit issue-from-session` genera borradores de issue desde findings de auditoría con evidencia, comportamiento esperado/actual, criterios de aceptación y revisión humana obligatoria para guardrails.
 - `orq audit session` audita sesiones `orq trace`, detecta comandos sin `rtk`, ejecución directa por agente caro/supervisor y mutaciones sin `--dry-run` o confirmación, con findings de código estable y severidad.
 - `orq delegate` valida con pruebas que Pi quede en modo supervisor y no pueda ejecutar cuando la recomendación apunta a AGY/local-or-cheap sin recibo externo.

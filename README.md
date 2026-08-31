@@ -63,6 +63,18 @@ install -m 0755 bin/orq ~/.local/bin/orq
 orq --help
 ```
 
+Instalador simple con modo seguro:
+
+```bash
+# Ver acciones sin modificar archivos
+rtk bash scripts/install.sh --dry-run
+
+# Instalación interactiva
+rtk bash scripts/install.sh
+```
+
+El instalador crea backup de `~/.local/bin/orq` antes de reemplazarlo y advierte si falta `rtk`.
+
 ---
 
 ## Uso esencial

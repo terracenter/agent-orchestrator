@@ -65,11 +65,11 @@
 
 ## Fase 6 — Installer y doctor para usuarios básicos
 
-- [ ] Crear instalador simple estilo `curl | bash`, con modo interactivo y dry-run.
+- [x] Crear instalador simple estilo `curl | bash`, con modo interactivo y dry-run.
 - [x] Implementar `orq doctor` para detectar `rtk`, `git`, `gh`, `vg`, `openclaw`, `agy`, `hermes`, `claude`.
-- [ ] Si falta `rtk`, ofrecer instalación automática o instrucciones manuales.
+- [x] Si falta `rtk`, ofrecer instalación automática o instrucciones manuales.
 - [x] Si falta una herramienta opcional, marcar estado `missing`, `degraded` o `blocked` según impacto.
-- [ ] Crear backups antes de tocar configuración de agentes.
+- [x] Crear backups antes de tocar configuración de agentes.
 
 ## Fase 7 — Configuración multi-agente
 
