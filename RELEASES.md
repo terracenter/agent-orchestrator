@@ -26,6 +26,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 - Puente MVP OpenClaw/Telegram -> Orq: cada tarea autorizada pasa por `route.Decide` y la auditoría registra `routed_by_orq`, categoría, agente y modelo recomendados (#82).
 - `orq agents detect` reconoce Qwen Code (`qwen-code`) de forma segura por binario/directorio sin leer secretos, y el registry incluye perfiles Bailian iniciales para `qwen3.8-max`, `qwen3.5`, `qwen3.6` y `qwen3.7-plus` (#81).
 - `orq models snapshot` emite snapshots fechados de capacidades/modelos con fuentes (`registry`, `empirical`, `status`) y notas de seguridad para aprendizaje/scoring posterior (#81).
+- `orq roadmap check` valida el orden de fases del ROADMAP y bloquea trabajo de fases futuras salvo override explícito de seguridad u optimización/costo (#87).
 
 ### Seguridad
 
