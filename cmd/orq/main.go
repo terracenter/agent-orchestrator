@@ -150,6 +150,7 @@ Usage:
   orq audit models [--format json]
   orq audit worktrees [--path repo] [--format json]
   orq audit session [--session-id id] [--path dir] [--file path] [--format json]
+  orq audit issue-from-session [--session-id id] [--path dir] [--file path] [--title text] [--format json]
   orq observer status [--format json]
   orq observer sync [--ledger path] [--state path] [--dry-run] [--format json]
   orq observer verify-last [--ledger path] [--state path] [--agent name] [--format json]
@@ -446,6 +447,45 @@ func cmdAudit(args []string) error {
 			}
 		}
 		return nil
+	case "issue-from-session":
+		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
+		if err != nil {
+			return err
+		}
+		sessionID, remaining, err := extractStringFlag(remaining, "--session-id", "")
+		if err != nil {
+			return err
+		}
+		path, remaining, err := extractStringFlag(remaining, "--path", "")
+		if err != nil {
+			return err
+		}
+		file, remaining, err := extractStringFlag(remaining, "--file", "")
+		if err != nil {
+			return err
+		}
+		title, remaining, err := extractStringFlag(remaining, "--title", "")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+
+		report, err := loadSessionAuditReport(path, sessionID, file)
+		if err != nil && len(report.Findings) == 0 {
+			return err
+		}
+		draft := audit.GenerateIssueDraftFromSessionAudit(audit.IssueDraftInput{
+			Title:    title,
+			Report:   report,
+			Evidence: []string{"Generado desde orq audit issue-from-session; revisar antes de crear el issue remoto."},
+		})
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(draft)
+		}
+		fmt.Printf("title=%s requires_human_review=%t guardrail_related=%t\n\n%s", draft.Title, draft.RequiresHumanReview, draft.GuardrailRelated, draft.Body)
+		return nil
 	case "session":
 		format, remaining, err := extractStringFlag(args[1:], "--format", "text")
 		if err != nil {
@@ -504,6 +544,17 @@ func cmdAudit(args []string) error {
 	default:
 		return fmt.Errorf("unknown audit subcommand %q", args[0])
 	}
+}
+
+func loadSessionAuditReport(path, sessionID, file string) (audit.SessionAuditReport, error) {
+	opts := audit.SessionAuditOptions{SessionID: sessionID, TraceDir: path, FilePath: file}
+	if file != "" {
+		return audit.AuditSessionFile(file, opts)
+	}
+	if sessionID != "" {
+		return audit.AuditSessionByID(path, sessionID, opts)
+	}
+	return audit.AuditLatestSession(path, opts)
 }
 
 func cmdReview(args []string) error {
