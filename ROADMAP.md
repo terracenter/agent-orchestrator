@@ -30,7 +30,7 @@
 - [x] Exponer `compact_capability` por agente.
 - [x] Bloquear Pi/API con `manual_compact_stop=true` cuando falta `/compact`.
 - [x] Permitir continuación explícita con `--compact-applied` tras compactación manual.
-- [ ] Registrar eventos de presupuesto en ledger/traza de sesión.
+- [x] Registrar eventos de presupuesto en ledger/traza de sesión.
 
 ## Fase 2 — Delegación real y stop obligatorio
 

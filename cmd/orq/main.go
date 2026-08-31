@@ -156,7 +156,7 @@ Usage:
   orq receipt verify --path receipt.json [--format json]
   orq receipt from-pr --pr N [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto]
   orq session validate --guard-collision text --repo-check text --safety-check text --tests text --receipt text [--handoff text] [--touches-dangerous] [--human-approval] [--format json]
-  orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--agent pi|claude|codex|hermes|agy] [--compact-applied] [--format json]
+  orq budget --context-percent n --codex-5h-percent n [--weekly-percent n] [--agent pi|claude|codex|hermes|agy] [--compact-applied] [--ledger path] [--format json]
   orq repo check [--path repo] [--format json]
   orq repo init-template --path repo [--name project] [--format json]
   orq roadmap check --phase n [--path ROADMAP.md] [--override security|optimization|cost] [--format json]
@@ -916,6 +916,10 @@ func cmdBudget(args []string) error {
 		return err
 	}
 	compactApplied, remaining := extractBoolFlag(remaining, "--compact-applied", false)
+	ledgerPath, remaining, err := extractStringFlag(remaining, "--ledger", ledger.DefaultPath())
+	if err != nil {
+		return err
+	}
 	if len(remaining) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}
@@ -940,6 +944,9 @@ func cmdBudget(args []string) error {
 		}
 	}
 	advice := budget.DecideForAgentWithCompactApplied(contextPercent, codexPercent, weeklyPercent, agentName, compactApplied)
+	if err := ledger.Append(ledgerPath, budgetLedgerEvent(agentName, advice)); err != nil {
+		return err
+	}
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(advice)
 	}
@@ -952,6 +959,30 @@ func cmdBudget(args []string) error {
 	}
 	fmt.Printf("use=%s avoid=%s\n", strings.Join(advice.UseAgents, ","), strings.Join(advice.AvoidAgents, ","))
 	return nil
+}
+
+func budgetLedgerEvent(agentName string, advice budget.Advice) ledger.Event {
+	notes, _ := json.Marshal(map[string]any{
+		"event_type":                 "budget_decision",
+		"context_percent":            advice.ContextPercent,
+		"codex_5h_percent":           advice.Codex5hPercent,
+		"weekly_percent":             advice.WeeklyPercent,
+		"action":                     advice.Action,
+		"preflight_compact_required": advice.PreflightCompactRequired,
+		"manual_compact_stop":        advice.ManualCompactStop,
+		"must_stop_for_delegation":   advice.MustStopForDelegation,
+		"supervisor_only":            advice.SupervisorOnly,
+		"execution_agent_allowed":    advice.ExecutionAgentAllowed,
+		"reason":                     advice.Reason,
+	})
+	return ledger.Event{
+		Timestamp: time.Now().UTC(),
+		Task:      "budget decision",
+		Agent:     agentName,
+		Model:     "budget-policy",
+		Status:    "budget_" + advice.Action,
+		Notes:     string(notes),
+	}
 }
 
 func cmdReceipt(args []string) error {
