@@ -251,6 +251,12 @@ Prueba sintética:
 orq observer send-test --project agent-orchestrator --agent nvidia-api --model openai/gpt-oss-20b
 ```
 
+Snapshot manual de capacidad/cuota para Observer LLM:
+
+```bash
+orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
+```
+
 Registro automático desde el ledger:
 
 ```bash
@@ -276,7 +282,7 @@ orq observer verify-last --agent claude-code --format json
 
 Por defecto, `orq observer sync` lee `~/.local/state/orq/ledger.jsonl` y guarda el estado de deduplicación en `~/.local/state/orq/observer-sync.json`. Ambos paths pueden cambiarse con `--ledger` y `--state`.
 
-El token no se guarda en git. `orq observer send-test` y `orq observer sync` fallan de forma clara si no hay token; `orq record` no falla por problemas de Observer.
+El token no se guarda en git. `orq observer send-test`, `orq observer send-capacity` y `orq observer sync` fallan de forma clara si no hay token; `orq record` no falla por problemas de Observer.
 
 Limitación actual: `orq record` y `orq observer sync` reportan eventos de delegación/ledger, pero no capturan automáticamente tokens ni costo real del Claude CLI. Para validaciones críticas se debe registrar el modelo Anthropic exacto cuando se conozca; el router usa `claude-opus-4-1-20250805` para `revision_critica`.
 

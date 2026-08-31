@@ -51,6 +51,18 @@ type IngestResult struct {
 	Inserted int64 `json:"inserted"`
 }
 
+type CapacitySnapshot struct {
+	Agent            string     `json:"agent"`
+	ProviderGroup    string     `json:"provider_group"`
+	ModelGroup       string     `json:"model_group"`
+	RemainingPercent *float64   `json:"remaining_percent,omitempty"`
+	UsedPercent      *float64   `json:"used_percent,omitempty"`
+	WindowLabel      string     `json:"window"`
+	ResetsAt         *time.Time `json:"resets_at,omitempty"`
+	Source           string     `json:"source"`
+	CapturedAt       time.Time  `json:"captured_at"`
+}
+
 func New(baseURL, hostToken string) Client {
 	return Client{BaseURL: strings.TrimRight(baseURL, "/"), HostToken: strings.TrimSpace(hostToken), HTTPClient: &http.Client{Timeout: 10 * time.Second}}
 }
@@ -169,17 +181,25 @@ func NewEvent(project, agent, model, sessionID, eventType string, tokensIn, toke
 }
 
 func (c Client) Ingest(ctx context.Context, events []Event) (IngestResult, error) {
+	return c.postIngest(ctx, "/api/events/ingest", events, "observer ingest")
+}
+
+func (c Client) SendCapacitySnapshots(ctx context.Context, snapshots []CapacitySnapshot) (IngestResult, error) {
+	return c.postIngest(ctx, "/api/capacity/snapshots", snapshots, "observer capacity ingest")
+}
+
+func (c Client) postIngest(ctx context.Context, path string, payload any, label string) (IngestResult, error) {
 	if c.BaseURL == "" {
 		return IngestResult{}, fmt.Errorf("observer base URL is required")
 	}
 	if c.HostToken == "" {
 		return IngestResult{}, fmt.Errorf("observer host token is required")
 	}
-	body, err := json.Marshal(events)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return IngestResult{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/events/ingest", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return IngestResult{}, err
 	}
@@ -195,7 +215,7 @@ func (c Client) Ingest(ctx context.Context, events []Event) (IngestResult, error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return IngestResult{}, fmt.Errorf("observer ingest returned %s", resp.Status)
+		return IngestResult{}, fmt.Errorf("%s returned %s", label, resp.Status)
 	}
 	var result IngestResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

@@ -144,6 +144,7 @@ Usage:
   orq observer sync [--ledger path] [--state path] [--dry-run] [--format json]
   orq observer verify-last [--ledger path] [--state path] [--agent name] [--format json]
   orq observer send-test [--project name] [--agent name] [--model name] [--tokens-in n] [--tokens-out n] [--format json]
+  orq observer send-capacity --agent name --provider-group name --model-group name [--remaining-percent n] [--used-percent n] [--window text] [--source text] [--format json]
   orq observer cost --reported-estimate-usd n --reported-label text --monthly-plan-usd n [--payment-fee-usd n] [--format json]
   orq receipt create --task text --command text [--command text ...] --evidence text --rollback text [--command-result passed|failed|skipped|recorded ...] [--human-edits-required-value unknown|N] [--human-edits-required] [--correcciones-humanas-requeridas] [--human-edits-notes text] [--output path] [--agent name] [--provider name] [--model name] [--risk bajo|medio|alto] [--pr n] [--files a,b] [--security-notes a,b]
   orq receipt verify --path receipt.json [--format json]
@@ -1257,6 +1258,75 @@ func cmdObserver(args []string) error {
 			}{Event: event, Result: result})
 		}
 		fmt.Printf("observer=ok inserted=%d event_id=%s project=%s agent=%s model=%s\n", result.Inserted, event.EventID, event.Project, event.Agent, event.Model)
+		return nil
+	case "send-capacity":
+		agent, remaining, err := extractStringFlag(remaining, "--agent", "")
+		if err != nil {
+			return err
+		}
+		providerGroup, remaining, err := extractStringFlag(remaining, "--provider-group", "unknown")
+		if err != nil {
+			return err
+		}
+		modelGroup, remaining, err := extractStringFlag(remaining, "--model-group", "unknown")
+		if err != nil {
+			return err
+		}
+		remainingText, remaining, err := extractStringFlag(remaining, "--remaining-percent", "")
+		if err != nil {
+			return err
+		}
+		usedText, remaining, err := extractStringFlag(remaining, "--used-percent", "")
+		if err != nil {
+			return err
+		}
+		windowLabel, remaining, err := extractStringFlag(remaining, "--window", "unknown")
+		if err != nil {
+			return err
+		}
+		source, remaining, err := extractStringFlag(remaining, "--source", "orq-manual")
+		if err != nil {
+			return err
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
+		}
+		if strings.TrimSpace(agent) == "" {
+			return fmt.Errorf("--agent is required")
+		}
+		snapshot := observer.CapacitySnapshot{Agent: agent, ProviderGroup: providerGroup, ModelGroup: modelGroup, WindowLabel: windowLabel, Source: source, CapturedAt: time.Now().UTC()}
+		if remainingText != "" {
+			value, err := parseFloatFlag("--remaining-percent", remainingText)
+			if err != nil {
+				return err
+			}
+			snapshot.RemainingPercent = &value
+		}
+		if usedText != "" {
+			value, err := parseFloatFlag("--used-percent", usedText)
+			if err != nil {
+				return err
+			}
+			snapshot.UsedPercent = &value
+		}
+		client, ok, err := observer.FromEnv()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("observer token not configured; set ORQ_OBSERVER_HOST_TOKEN or ORQ_OBSERVER_HOST_TOKEN_FILE")
+		}
+		result, err := client.SendCapacitySnapshots(context.Background(), []observer.CapacitySnapshot{snapshot})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				Snapshot observer.CapacitySnapshot `json:"snapshot"`
+				Result   observer.IngestResult     `json:"result"`
+			}{Snapshot: snapshot, Result: result})
+		}
+		fmt.Printf("observer_capacity=ok inserted=%d agent=%s provider_group=%s model_group=%s\n", result.Inserted, snapshot.Agent, snapshot.ProviderGroup, snapshot.ModelGroup)
 		return nil
 	case "cost":
 		reportedText, remaining, err := extractStringFlag(remaining, "--reported-estimate-usd", "0")
