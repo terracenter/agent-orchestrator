@@ -1,106 +1,140 @@
+**English** · [Español](README.md)
+
 # agent-orchestrator
 
-> Local-first agent/model orchestrator: classifies tasks, recommends the cheapest safe agent/model, and records verifiable evidence before automating execution.
+![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+![Status](https://img.shields.io/badge/status-operational%20MVP-orange)
+![Stack](https://img.shields.io/badge/stack-Go%20%7C%20Docker%20%7C%20Observer-informational)
+![PRs](https://img.shields.io/badge/PRs-docs%20%2B%20tests%20required-brightgreen)
 
-**Language:** Venezuelan Spanish is the primary project language. This file provides American English documentation.
+> Local-first orchestrator for agents and models: classifies tasks, recommends the cheapest sufficient safe agent/model, records verifiable evidence, and keeps documentation as an operational changelog.
 
-**License:** GNU AGPL-3.0-or-later. If you run a modified version as a network service, you must offer the corresponding source code as required by the license.
+`orq` coordinates runners such as Pi, Claude Code, AGY, OpenClaw, NVIDIA/local, and workspace adapters without turning automation into a black box. Its core rule is simple: **verified facts, minimum sufficient cost, and dry-run before mutation**.
 
-## Philosophy
+---
 
-This project does not try to reinvent the wheel. It reuses good ideas and patterns from the AI coding ecosystem — especially Engram, Gentle-AI, Gentleman Guardian Angel, and skill systems — when they fit the project's goals.
+## Current status
 
-Principles:
+| Area | Status |
+|---|---|
+| Classification and routing | Operational MVP with `orq classify` and `orq route` |
+| Evidence | JSONL ledger + verifiable receipts |
+| Observer LLM | Best-effort sync and capacity snapshots |
+| Budget control | Compaction guardrails and low-cost routing |
+| Automatic execution | Limited; dry-run and confirmation before sensitive actions |
+| Documentation | ROADMAP/RELEASES/README/docs act as the operational changelog |
 
-- **Obsidian can be the human SSoT**, but the project also works without Obsidian.
-- **Kuzu/vg can be the documentation graph layer**, but it is an optional adapter.
-- **Engram can be cross-session operational memory**, but it does not replace the source of truth.
-- **rtk can wrap commands to reduce noise**, but third-party users can use standard execution.
-- **Verified facts > model opinions.**
-- **Dry-run first.** Automatic agent execution is not part of the initial MVP.
+> ⚠️ **This is not an autonomous production executor.** Destructive actions, credentials, deploys, or remote changes require explicit confirmation.
 
-## Status
+---
 
-Current MVP: **ledger + advisory mode + Observer telemetry + non-critical routing assisted by capacity snapshots**.
+## What it solves
 
-Living roadmap: [ROADMAP.md](ROADMAP.md).
+- Avoids using expensive models for mechanical tasks.
+- Detects when a task requires a stronger validator because of risk or security.
+- Records which agent/model acted, with verifiable receipts.
+- Sends telemetry to Observer LLM.
+- Uses capacity/quota snapshots to avoid routing non-critical work to exhausted agents.
+- Keeps public documentation auditable on every PR.
 
-Usage guide: [docs/usage.md](docs/usage.md).
+---
 
-Integral harness test: [docs/prueba-integral-orq.md](docs/prueba-integral-orq.md) (Spanish primary).
+## Development quickstart
 
-Orca technical inspiration: [docs/orca-inspiracion.md](docs/orca-inspiracion.md).
-
-Current/planned commands:
+This repository uses Go and Docker for reproducible validation.
 
 ```bash
-orq classify "fix a broken reference"
-orq route "rotate production token"
-orq route --capacity-file /path/capacity.json "simple mechanical task"
-orq record --task test --agent pi --model gpt-5.5 --status ok
-orq status
-orq run "audit project" --dry-run
-orq guard --vault /path/to/vault --format json
-orq guard-collision --path /home/freddy/Workspace/Obsidian
-orq config --config examples/config.example.toml --check-adapters --format json
-orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
-orq delegate "organize vault information related to GLPI"
-orq task create "organize GLPI vault"
-orq task list
-orq agents --format json
-orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
+rtk docker compose run --rm dev go test ./...
+rtk docker compose run --rm dev go run ./cmd/orq --help
+rtk docker compose run --rm dev go run ./cmd/orq config --config examples/config.example.toml --check-adapters
 ```
 
-## Development setup
-
-This repo uses Go and a Docker environment for reproducible validation.
+Install the local binary:
 
 ```bash
-docker compose run --rm dev go test ./...
-docker compose run --rm dev go run ./cmd/orq --help
-docker compose run --rm dev go run ./cmd/orq config --config examples/config.example.toml --check-adapters
-```
-
-## Local CLI installation
-
-To use `orq` in future Pi sessions or after `/reload`, install the binary into `~/.local/bin`:
-
-```bash
-docker compose run --rm dev make build
+rtk docker compose run --rm dev make build
 mkdir -p ~/.local/bin
 install -m 0755 bin/orq ~/.local/bin/orq
 orq --help
 ```
 
-If you are developing without a container:
+---
+
+## Essential usage
 
 ```bash
-make install
+orq classify "fix a broken reference"
+orq route "rotate a production token"
+orq route --capacity-file /path/capacity.json "simple mechanical task"
+orq record --task test --agent pi --model gpt-5.5 --status ok
+orq status
+orq delegate "organize vault information related to GLPI"
+orq observer sync --format json
+orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
 ```
 
-## Project languages
+---
 
-- Primary documentation: Venezuelan Spanish.
-- Secondary documentation: American English.
-- Standard infrastructure and development terms stay in English when appropriate.
+## Architecture summary
 
-## Repository security
+| Component | Role |
+|---|---|
+| `cmd/orq` | Main CLI |
+| `internal/route` | Classification, routing, and capacity-aware adjustment |
+| `internal/ledger` / `internal/receipt` | Local evidence and receipts |
+| `internal/observer` | Observer LLM client |
+| `internal/adapters` | Workspace tooling integration (`rtk`, `vg`, runners) |
+| `examples/config.example.toml` | Reference configuration |
 
-`main` is protected with a GitHub ruleset: Pull Requests are required, force pushes/deletion are blocked, and the `go-test` check is required.
+---
+
+## Key documentation
+
+- [ROADMAP.md](ROADMAP.md) — live status, phases, and update policy.
+- [RELEASES.md](RELEASES.md) — operational changelog by deliverable.
+- [docs/uso.md](docs/uso.md) — Spanish usage guide.
+- [docs/usage.md](docs/usage.md) — English usage guide.
+- [docs/prueba-integral-orq.md](docs/prueba-integral-orq.md) — full harness test.
+- [docs/orca-inspiracion.md](docs/orca-inspiracion.md) — Orca technical inspiration.
+
+---
+
+## Documentation policy
+
+Every closed issue, PR, or deliverable must update, when applicable:
+
+- `ROADMAP.md`
+- `RELEASES.md`
+- `README.md` / `README.en.md`
+- `docs/uso.md` / `docs/usage.md`
+- related operational documentation
+
+If documentation does not apply, the PR must explicitly say: `Docs: no aplica` with justification.
+
+---
+
+## Security
+
+`main` is protected by a GitHub ruleset: pull request required, force-push/deletion blocked, and the `go-test` check required.
 
 See [SECURITY.md](SECURITY.md).
 
+---
+
+## Philosophy and inspiration
+
+This project reuses useful patterns from the AI coding ecosystem — Engram, Gentle-AI, Gentleman Guardian Angel, skills, and receipt systems — only when they fit the local-first goal.
+
+Principles:
+
+- Obsidian can be the human SSoT, but the project must work without Obsidian.
+- Kuzu/vg can be the documentation graph layer, but it is optional.
+- rtk reduces command noise, but it does not replace evidence.
+- Verified facts > model opinions.
+- Dry-run first.
+
+---
+
 ## License
 
-AGPLv3. The goal is to ensure improvements and derivatives offered as a service are shared back with the community.
-
-## Inspiration and attribution
-
-This project is inspired by ideas from the [Gentleman-Programming](https://github.com/Gentleman-Programming) ecosystem, especially:
-
-- Engram — persistent memory for agents.
-- Gentle-AI — workflows, SDD, phase routing, and multi-agent ecosystem ideas.
-- Gentleman Guardian Angel — review/verdict contracts and provider-agnostic validation.
-- Gentleman-Skills — community skill format and governance.
-
-Ideas are evaluated and adapted as needed. Any third-party code reused literally must preserve its license and attribution.
+GNU AGPL-3.0-or-later. If you run a modified version as a network service, you must provide the corresponding source code under the license.
