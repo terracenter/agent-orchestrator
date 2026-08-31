@@ -21,7 +21,7 @@ Principios:
 
 ## Estado
 
-MVP inicial: **ledger + modo asesor**.
+MVP actual: **ledger + modo asesor + telemetría Observer + routing no crítico asistido por capacidad**.
 
 Roadmap vivo: [ROADMAP.md](ROADMAP.md).
 
@@ -36,6 +36,7 @@ Comandos previstos/actuales:
 ```bash
 orq classify "corregir una referencia rota"
 orq route "rotar token de producción"
+orq route --capacity-file /ruta/capacity.json "tarea mecánica simple"
 orq record --task test --agent pi --model gpt-5.5 --status ok
 orq status
 orq run "auditar proyecto" --dry-run
@@ -47,6 +48,7 @@ orq delegate "ordenar información del vault relacionada con GLPI"
 orq task create "ordenar vault GLPI"
 orq task list
 orq agents --format json
+orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
 ```
 
 ## Instalación de desarrollo

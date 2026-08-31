@@ -36,6 +36,7 @@ Common commands:
 ```bash
 orq classify "fix a broken reference"
 orq route "rotate production token"
+orq route --capacity-file /path/capacity.json "simple mechanical task"
 orq route "validate possible false positive in CWP deploy: SSH exec request failed"
 orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/task.md
 orq delegate "implement feature" --agent agy
@@ -46,6 +47,7 @@ orq status
 orq agents
 orq agents detect
 orq doctor  # checks key tools (rtk, git, gh, orq, vg via ORQ_VG_PATH/PATH/known workspace paths)
+orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
 ```
 
 ## Task tracking for future mobile dashboard

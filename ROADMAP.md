@@ -18,10 +18,12 @@
 ## Estado actual
 
 - `orq budget`: guardrails de presupuesto y compactación manual en Pi.
-- `orq route`: clasificación básica y recomendación de agente/modelo.
+- `orq route`: clasificación básica, recomendación de agente/modelo y ajuste opcional por snapshots de capacidad agregados vía `--capacity-file`.
+- `orq observer send-capacity`: envío manual de snapshots de capacidad/cuota a Observer LLM usando el token de host existente.
 - `orq delegate`: genera prompt seguro con `rtk_required=true`, pero aún no ejecuta ni impone stop duro.
 - `orq receipt/session`: validación inicial de recibos y checks.
 - Plantilla base: incluye README, README.en, CONTRIBUTING, SECURITY, RELEASES, CI y Makefile; falta reforzar ROADMAP como obligatorio.
+- Documentación como changelog operativo: todo issue/PR/entregable cerrado debe reflejarse en ROADMAP, RELEASES y docs relevantes.
 
 ## Fase 1 — Guardrails de sesión y presupuesto
 
@@ -39,6 +41,8 @@
 
 ## Fase 3 — Tracking de agentes
 
+- [x] Registrar eventos de ledger en Observer LLM de forma best-effort sin bloquear la tarea principal.
+- [x] Enviar snapshots manuales de capacidad/cuota a Observer LLM mediante `orq observer send-capacity` (#68, PR #76).
 - [ ] Diseñar `orq trace start/status/stop`.
 - [ ] Registrar comandos ejecutados, archivos leídos/modificados, tests, commits, PRs e issues.
 - [ ] Registrar descubrimientos nuevos que deban alimentar memoria/configuración.
@@ -70,6 +74,7 @@
 ## Fase 7 — Configuración multi-agente
 
 - [x] Implementar `orq agents detect` para inspección segura de presencia/rutas de runners.
+- [x] Ajustar routing no crítico con snapshots de capacidad agregados desde archivo JSON explícito (`orq route --capacity-file`) (#68, PR #77).
 - [ ] Implementar `orq agents configure <agent|all>`.
 - [ ] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.
 - [ ] Documentar OpenClaw, AGY, Hermes y Codex como runners independientes.
@@ -77,6 +82,7 @@
 
 ## Fase 8 — Piloto OpenClaw + vault
 
+- [x] Registrar contexto operativo: OpenClaw está operativo por Telegram y el modelo default configurado es Haiku.
 - [ ] Validar si OpenClaw usa Claude Pro/suscripción sin gasto adicional.
 - [ ] Ejecutar tareas pequeñas del vault con OpenClaw como runner principal.
 - [ ] Pi queda como supervisor corto y validador de recibos.
@@ -85,3 +91,5 @@
 ## Política de actualización
 
 Todo PR que agregue comando, guardrail, integración, instalador, tracking o política de ejecución debe actualizar este roadmap o indicar en el PR: `Roadmap: no aplica` con justificación.
+
+Además, la documentación funciona como changelog operativo: ROADMAP, RELEASES, README y docs de uso deben quedar alineados con cada issue/PR/entregable cerrado antes de darlo por terminado.
