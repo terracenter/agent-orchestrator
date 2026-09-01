@@ -64,6 +64,31 @@ fn orq_binary_alias_supports_models_command() {
 }
 
 #[test]
+fn route_documentation_returns_qwen_flash_decision() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["route", "--task-kind", "documentation", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"default_agent\": \"qwen-code\""))
+        .stdout(predicate::str::contains(
+            "\"default_model\": \"qwen3.6-flash\"",
+        ))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn route_architecture_without_gated_approval_requires_confirmation() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["route", "--task-kind", "architecture", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"default_model\": \"claude-opus-5\"",
+        ))
+        .stdout(predicate::str::contains("\"requires_confirmation\": true"));
+}
+
+#[test]
 fn smoke_qwen_fake_succeeds_with_receipt() {
     let runner = fake_runner(
         "qwen-smoke",

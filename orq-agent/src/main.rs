@@ -8,6 +8,7 @@ mod exec;
 mod models;
 mod policy;
 mod receipt;
+mod route;
 mod smoke;
 
 #[derive(Debug, Parser)]
@@ -54,6 +55,18 @@ enum Commands {
         /// Agent adapter name.
         #[arg(long)]
         agent: String,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Recommend an agent/model for a task kind using the consolidated routing matrix.
+    Route {
+        /// Pre-classified task kind.
+        #[arg(long, value_enum)]
+        task_kind: route::TaskKind,
+        /// Allow gated agents/models after explicit human approval.
+        #[arg(long, default_value_t = false)]
+        allow_gated: bool,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -114,6 +127,11 @@ async fn main() -> Result<()> {
             print_json(format, &receipt)
         }
         Commands::Models { agent, format } => print_json(format, &models::list(&agent)?),
+        Commands::Route {
+            task_kind,
+            allow_gated,
+            format,
+        } => print_json(format, &route::decide(task_kind, allow_gated)),
         Commands::Smoke {
             agent,
             model,
