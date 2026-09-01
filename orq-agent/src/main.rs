@@ -217,14 +217,13 @@ async fn run_command(command: Commands) -> Result<()> {
             adapters_config,
             format,
         } => {
-            let config_path = config.as_deref().map(std::path::Path::new);
-            let (catalog, config_source) = models::load_catalog(config_path).await?;
-            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
-            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
-            print_json(
-                format,
-                &models::list(&agent, &catalog, &adapters_registry, &config_source)?,
-            )
+            let report = commands::models::run(commands::models::ModelsArgs {
+                agent,
+                config,
+                adapters_config,
+            })
+            .await?;
+            print_json(format, &report)
         }
         Commands::Route {
             task_kind,
