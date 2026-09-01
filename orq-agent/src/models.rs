@@ -51,12 +51,46 @@ pub fn list(agent: &str) -> Result<ModelsReport> {
 
 fn static_models(agent: &str) -> Vec<ModelCandidate> {
     match agent {
-        "qwen-code" => vec![ModelCandidate {
-            id: "qwen3.8-max",
-            source: "observed_cli_usage",
-            confidence: "candidate",
-            notes: "usable by direct qwen CLI, pending Orq registry certification",
-        }],
+        "qwen-code" => vec![
+            ModelCandidate {
+                id: "qwen3-coder-next",
+                source: "workspace_qwen_policy",
+                confidence: "candidate_preferred_cheap",
+                notes:
+                    "preferred for mechanical code reviews and small coding tasks before escalating",
+            },
+            ModelCandidate {
+                id: "glm-4.7",
+                source: "workspace_qwen_policy",
+                confidence: "candidate_preferred_cheap",
+                notes: "cheap second-opinion route for simple mechanical reviews",
+            },
+            ModelCandidate {
+                id: "MiniMax-M2.5",
+                source: "workspace_qwen_policy",
+                confidence: "candidate_preferred_cheap",
+                notes: "cheap agent route for simple multi-step tasks with low QPM",
+            },
+            ModelCandidate {
+                id: "qwen3.6-flash",
+                source: "workspace_qwen_policy",
+                confidence: "candidate_daily_driver",
+                notes: "daily coding workhorse; use before flagship for edit-test-fix tasks",
+            },
+            ModelCandidate {
+                id: "qwen3-coder-plus",
+                source: "workspace_qwen_policy",
+                confidence: "candidate_large_repo",
+                notes: "large-repo/refactor coding route with 1M context",
+            },
+            ModelCandidate {
+                id: "qwen3.8-max",
+                source: "observed_cli_usage",
+                confidence: "candidate_expensive_gated",
+                notes:
+                    "flagship/costly; reserve for deep security, architecture, or hard reasoning",
+            },
+        ],
         "pi" => vec![ModelCandidate {
             id: "nvidia/openai/gpt-oss-20b",
             source: "workspace_policy",
