@@ -3,6 +3,7 @@ use color_eyre::eyre::Result;
 use serde::Serialize;
 
 mod adapters;
+mod certify;
 mod detect;
 mod exec;
 mod models;
@@ -85,6 +86,39 @@ enum Commands {
         /// Allow gated agents/models after explicit human approval.
         #[arg(long, default_value_t = false)]
         allow_gated: bool,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Certify an agent/model/task-kind with a bounded smoke receipt.
+    Certify {
+        /// Agent adapter name.
+        #[arg(long)]
+        agent: String,
+        /// Model identifier passed to the adapter.
+        #[arg(long)]
+        model: String,
+        /// Task kind being certified.
+        #[arg(long)]
+        task_kind: String,
+        /// Timeout in seconds.
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
+        /// Allow gated agents/models after explicit human approval.
+        #[arg(long, default_value_t = false)]
+        allow_gated: bool,
+        /// Correlation id propagated from Orq legacy/Observer.
+        #[arg(long)]
+        correlation_id: Option<String>,
+        /// Optional certificate output path.
+        #[arg(long)]
+        output: Option<String>,
+        /// Optional policy config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        policy_config: Option<String>,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
@@ -206,6 +240,36 @@ async fn main() -> Result<()> {
                 &detected,
             )?;
             print_json(format, &decision)
+        }
+        Commands::Certify {
+            agent,
+            model,
+            task_kind,
+            timeout,
+            allow_gated,
+            correlation_id,
+            output,
+            policy_config,
+            adapters_config,
+            format,
+        } => {
+            let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
+            let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
+            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let certificate = certify::run(certify::CertifyRequest {
+                agent,
+                model,
+                task_kind,
+                timeout_seconds: timeout,
+                allow_gated,
+                correlation_id,
+                output,
+                policy_config,
+                adapters_registry,
+            })
+            .await?;
+            print_json(format, &certificate)
         }
         Commands::Smoke {
             agent,

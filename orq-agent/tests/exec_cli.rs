@@ -222,6 +222,41 @@ fn route_architecture_without_gated_approval_requires_confirmation() {
 }
 
 #[test]
+fn certify_qwen_fake_writes_certificate() {
+    let runner = fake_runner(
+        "qwen-certify",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.8-max'\n",
+    );
+    let output = std::env::temp_dir().join(format!("orq-agent-cert-{}.json", std::process::id()));
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .args([
+            "certify",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.8-max",
+            "--task-kind",
+            "documentation",
+            "--timeout",
+            "5",
+            "--output",
+            output.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"certified\""))
+        .stdout(predicate::str::contains("\"receipt_sha256\""));
+
+    let certificate = fs::read_to_string(output).unwrap();
+    assert!(certificate.contains("qwen3.8-max"));
+    assert!(certificate.contains("documentation"));
+}
+
+#[test]
 fn smoke_qwen_fake_succeeds_with_receipt() {
     let runner = fake_runner(
         "qwen-smoke",
