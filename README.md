@@ -54,6 +54,12 @@ rtk go test ./...
 
 # Ejecución real progresiva vía Rust
 rtk go run ./cmd/orq run --execute --agent qwen-code --model qwen3.8-max --orq-agent-bin ./orq-agent/target/debug/orq-agent "Responde exactamente: OK"
+
+# Alias Rust en transición: el crate ya compila `orq-agent` y `orq`.
+# Mientras el binario Go legacy siga instalado como `orq`, no instalar el alias Rust
+# sobre PATH compartido sin decidir explícitamente el handoff.
+cd orq-agent && rtk cargo build --bins
+./target/debug/orq models --agent qwen-code --format json
 ```
 
 Instalación local del binario:

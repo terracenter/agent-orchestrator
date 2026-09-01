@@ -128,7 +128,7 @@ Objetivo: eliminar la capa Go -> Rust y consolidar Orq como un solo binario Rust
 
 Slices de migración propuestos como PRs independientes:
 
-1. [ ] **PR Rust core/CLI**: reestructurar crate para producir `orq` Rust, mantener compatibilidad temporal con `orq-agent`, módulos `commands/`, `core/`, `adapters/`, `receipts/`.
+1. [x] **PR Rust core/CLI inicial**: el crate Rust ya produce binarios `orq` y `orq-agent` desde el mismo entrypoint; queda pendiente resolver handoff de instalación para evitar colisión con el `orq` Go legacy y luego separar módulos `commands/`, `core/`, `adapters/`, `receipts/`.
 2. [ ] **PR ejecución**: portar `orq run`, `agents detect`, `models`, `smoke` y preparar `certify`; mantener receipts actuales como contrato.
 3. [ ] **PR routing**: portar `classify`, `route`, políticas de costo, gating Sonnet/Opus y selección por evidencia certificada.
 4. [ ] **PR estado local**: portar `task`, `record`, `status`, ledger JSONL y transiciones válidas.

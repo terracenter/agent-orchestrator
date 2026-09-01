@@ -39,9 +39,7 @@ pub fn now_unix() -> u64 {
 
 pub fn tail_sanitized(input: &[u8], max_bytes: usize) -> String {
     let start = input.len().saturating_sub(max_bytes);
-    String::from_utf8_lossy(&input[start..])
-        .replace('\0', "")
-        .replace('\r', "")
+    String::from_utf8_lossy(&input[start..]).replace(['\0', '\r'], "")
 }
 
 #[cfg(test)]

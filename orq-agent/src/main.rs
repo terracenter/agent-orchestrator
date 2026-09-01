@@ -11,7 +11,6 @@ mod receipt;
 mod smoke;
 
 #[derive(Debug, Parser)]
-#[command(name = "orq-agent")]
 #[command(about = "Real local dispatcher for Orq agents")]
 struct Cli {
     #[command(subcommand)]

@@ -54,6 +54,16 @@ fn models_qwen_reports_candidate_without_secrets() {
 }
 
 #[test]
+fn orq_binary_alias_supports_models_command() {
+    let mut cmd = Command::cargo_bin("orq").unwrap();
+    cmd.args(["models", "--agent", "qwen-code", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("qwen3.8-max"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
 fn smoke_qwen_fake_succeeds_with_receipt() {
     let runner = fake_runner(
         "qwen-smoke",
