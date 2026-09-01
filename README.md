@@ -62,16 +62,16 @@ cd orq-agent && rtk cargo build --bins
 ./target/debug/orq models --agent qwen-code --format json
 ```
 
-Instalación local del binario legacy Go:
+Instalación local del binario legacy Go, solo si necesitas comandos aún no migrados:
 
 ```bash
 rtk docker compose run --rm dev make build
 mkdir -p ~/.local/bin
-install -m 0755 bin/orq ~/.local/bin/orq
-orq --help
+install -m 0755 bin/orq ~/.local/bin/orq-go
+orq-go --help
 ```
 
-> ⚠️ Transición CLI: `scripts/install.sh` todavía instala el `orq` Go legacy. El crate Rust ya compila `orq-agent` y alias `orq`, pero el reemplazo de PATH será un slice separado para no romper comandos Go pendientes (`task`, `handoff`, `inbox`, `observer`, etc.).
+> ⚠️ Transición CLI: `scripts/install.sh` instala Rust `orq`/`orq-agent` por defecto. Si necesitas el CLI Go legacy para comandos pendientes (`task`, `handoff`, `inbox`, `observer`, etc.), usa `--with-go-legacy` para instalarlo como `orq-go`.
 
 Instalador simple con modo seguro:
 
@@ -83,7 +83,7 @@ rtk bash scripts/install.sh --dry-run
 rtk bash scripts/install.sh
 ```
 
-El instalador crea backup de `~/.local/bin/orq` antes de reemplazarlo y advierte si falta `rtk`.
+El instalador crea backup de `~/.local/bin/orq`, `orq-agent` y `orq-go` antes de reemplazarlos y advierte si falta `rtk`.
 
 ---
 
