@@ -4,12 +4,14 @@
 
 ![Licencia](https://img.shields.io/badge/licencia-AGPL--3.0--or--later-blue)
 ![Estado](https://img.shields.io/badge/estado-MVP%20operativo-orange)
-![Stack](https://img.shields.io/badge/stack-Go%20%7C%20Docker%20%7C%20Observer-informational)
+![Stack](https://img.shields.io/badge/stack-Rust--first%20%7C%20Go%20legacy%20%7C%20Observer-informational)
 ![PRs](https://img.shields.io/badge/PRs-docs%20%2B%20tests%20obligatorios-brightgreen)
 
-> Orquestador local-first de agentes y modelos: clasifica tareas, recomienda el agente/modelo más barato suficiente, registra evidencia verificable y mantiene documentación como changelog operativo.
+> Orquestador local-first de agentes y modelos: clasifica tareas, recomienda el agente/modelo más barato suficiente, ejecuta agentes reales con receipts verificables y mantiene documentación como changelog operativo.
 
-`orq` coordina runners como Pi, Claude Code, AGY, OpenClaw, NVIDIA/local y adaptadores del workspace sin convertir la automatización en una caja negra. Su principio central es simple: **hechos verificados, costo mínimo suficiente y dry-run antes de mutar**.
+`orq` coordina runners como Pi, Claude Code, AGY, OpenClaw, Qwen y adaptadores del workspace sin convertir la automatización en una caja negra. Su principio central es simple: **hechos verificados, costo mínimo suficiente y dry-run antes de mutar**.
+
+> Decisión de arquitectura: el proyecto pasa a **Rust-first**. Go queda como implementación legacy temporal y referencia de paridad mientras los comandos se migran por slices al binario Rust objetivo.
 
 ---
 
@@ -21,7 +23,7 @@
 | Evidencia | Ledger JSONL + receipts verificables |
 | Observer LLM | Sincronización best-effort y snapshots de capacidad |
 | Control de presupuesto | Guardrails de compactación y rutas de bajo costo |
-| Ejecución automática | Limitada; dry-run y confirmación antes de acciones sensibles |
+| Ejecución automática | Rust `orq-agent` operativo con receipts JSON; Go solo lo consume como puente temporal |
 | Documentación | ROADMAP/RELEASES/README/docs funcionan como changelog operativo |
 
 > ⚠️ **No es un ejecutor autónomo de producción.** Acciones destructivas, credenciales, deploys o cambios remotos requieren confirmación explícita.
@@ -41,17 +43,17 @@
 
 ## Quickstart de desarrollo
 
-Este repo usa Go y Docker para validación reproducible.
+Este repo está migrando a Rust-first. Go se conserva temporalmente para compatibilidad y como referencia de paridad.
 
 ```bash
-# Tests
-rtk docker compose run --rm dev go test ./...
+# Tests Rust
+cd orq-agent && rtk cargo test
 
-# Ayuda del CLI
-rtk docker compose run --rm dev go run ./cmd/orq --help
+# Tests Go legacy mientras dure la migración
+rtk go test ./...
 
-# Validar adaptadores
-rtk docker compose run --rm dev go run ./cmd/orq config --config examples/config.example.toml --check-adapters
+# Ejecución real progresiva vía Rust
+rtk go run ./cmd/orq run --execute --agent qwen-code --model qwen3.8-max --orq-agent-bin ./orq-agent/target/debug/orq-agent "Responde exactamente: OK"
 ```
 
 Instalación local del binario:

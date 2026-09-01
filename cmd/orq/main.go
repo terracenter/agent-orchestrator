@@ -123,7 +123,7 @@ Usage:
   orq route <task> [--capacity-file path] [--format json]
   orq record --task <task> --agent <agent> --model <model> --status <status> [--started-at RFC3339] [--finished-at RFC3339] [--duration-ms n] [--fallback-agent name] [--fallback-model name] [--tokens-in n] [--tokens-out n] [--notes text] [--ledger path]
   orq status [--ledger path]
-  orq run <task> [--dry-run] [--format json]
+  orq run <task> [--dry-run] [--execute] [--agent name] [--model name] [--timeout seconds] [--orq-agent-bin path] [--format json]
   orq guard --vault <path> [--format json]
   orq guard-collision --path <repo> [--format json]
   orq config [--config path] [--check-adapters] [--format json]
@@ -2380,27 +2380,142 @@ func cmdConfig(args []string) error {
 	return nil
 }
 
+type OrqAgentReceipt struct {
+	SchemaVersion  int      `json:"schema_version"`
+	CorrelationID  string   `json:"correlation_id"`
+	Agent          string   `json:"agent"`
+	Model          string   `json:"model"`
+	Command        []string `json:"command"`
+	Status         string   `json:"status"`
+	PolicyReason   string   `json:"policy_reason"`
+	StartedAtUnix  uint64   `json:"started_at_unix"`
+	DurationMS     uint64   `json:"duration_ms"`
+	TimeoutSeconds uint64   `json:"timeout_seconds"`
+	ExitCode       *int     `json:"exit_code"`
+	StdoutTail     string   `json:"stdout_tail"`
+	StderrTail     string   `json:"stderr_tail"`
+	SecretsRead    bool     `json:"secrets_read"`
+}
+
+func runOrqAgentExec(orqAgentBin, agent, model, taskText string, timeoutSeconds int64) (OrqAgentReceipt, error) {
+	if strings.TrimSpace(orqAgentBin) == "" {
+		return OrqAgentReceipt{}, fmt.Errorf("--orq-agent-bin is required")
+	}
+	if strings.TrimSpace(agent) == "" {
+		return OrqAgentReceipt{}, fmt.Errorf("agent is required for execution")
+	}
+	if strings.TrimSpace(model) == "" {
+		return OrqAgentReceipt{}, fmt.Errorf("model is required for execution")
+	}
+	if timeoutSeconds <= 0 {
+		return OrqAgentReceipt{}, fmt.Errorf("--timeout must be > 0")
+	}
+
+	tmp, err := os.CreateTemp("", "orq-run-task-*.md")
+	if err != nil {
+		return OrqAgentReceipt{}, err
+	}
+	taskPath := tmp.Name()
+	defer os.Remove(taskPath)
+	if _, err := tmp.WriteString(taskText); err != nil {
+		tmp.Close()
+		return OrqAgentReceipt{}, err
+	}
+	if err := tmp.Close(); err != nil {
+		return OrqAgentReceipt{}, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds+8)*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, orqAgentBin,
+		"exec",
+		"--agent", agent,
+		"--model", model,
+		"--task-file", taskPath,
+		"--timeout", strconv.FormatInt(timeoutSeconds, 10),
+		"--correlation-id", fmt.Sprintf("orq-run-%d", time.Now().UTC().UnixNano()),
+		"--format", "json",
+	)
+	output, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return OrqAgentReceipt{}, fmt.Errorf("orq-agent backend deadline exceeded")
+	}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return OrqAgentReceipt{}, fmt.Errorf("orq-agent backend failed: %s", strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return OrqAgentReceipt{}, err
+	}
+	var receipt OrqAgentReceipt
+	if err := json.Unmarshal(output, &receipt); err != nil {
+		return OrqAgentReceipt{}, fmt.Errorf("decode orq-agent receipt: %w", err)
+	}
+	return receipt, nil
+}
+
 func cmdRun(args []string) error {
 	format, remaining, err := extractStringFlag(args, "--format", "text")
 	if err != nil {
 		return err
 	}
-	dryRun, remaining := extractBoolFlag(remaining, "--dry-run", true)
-	task := strings.TrimSpace(strings.Join(remaining, " "))
-	if task == "" {
+	agentOverride, remaining, err := extractStringFlag(remaining, "--agent", "")
+	if err != nil {
+		return err
+	}
+	modelOverride, remaining, err := extractStringFlag(remaining, "--model", "")
+	if err != nil {
+		return err
+	}
+	timeoutValue, remaining, err := extractStringFlag(remaining, "--timeout", "120")
+	if err != nil {
+		return err
+	}
+	orqAgentBin, remaining, err := extractStringFlag(remaining, "--orq-agent-bin", "orq-agent")
+	if err != nil {
+		return err
+	}
+	execute, remaining := extractBoolFlag(remaining, "--execute", false)
+	dryRun, remaining := extractBoolFlag(remaining, "--dry-run", !execute)
+	taskText := strings.TrimSpace(strings.Join(remaining, " "))
+	if taskText == "" {
 		return fmt.Errorf("task is required")
 	}
-	decision := route.Decide(task)
+	decision := route.Decide(taskText)
+	agent := decision.RecommendedAgent
+	model := decision.RecommendedModel
+	if agentOverride != "" {
+		agent = agentOverride
+	}
+	if modelOverride != "" {
+		model = modelOverride
+	}
 	result := struct {
-		Task     string         `json:"task"`
-		Executed bool           `json:"executed"`
-		DryRun   bool           `json:"dry_run"`
-		Decision route.Decision `json:"decision"`
-	}{Task: task, Executed: false, DryRun: dryRun, Decision: decision}
+		Task     string           `json:"task"`
+		Executed bool             `json:"executed"`
+		DryRun   bool             `json:"dry_run"`
+		Decision route.Decision   `json:"decision"`
+		Receipt  *OrqAgentReceipt `json:"receipt,omitempty"`
+	}{Task: taskText, Executed: false, DryRun: dryRun, Decision: decision}
+	if execute && !dryRun {
+		timeoutSeconds, err := parseInt64Flag("--timeout", timeoutValue)
+		if err != nil {
+			return err
+		}
+		receipt, err := runOrqAgentExec(orqAgentBin, agent, model, taskText, timeoutSeconds)
+		if err != nil {
+			return err
+		}
+		result.Executed = receipt.Status == "succeeded"
+		result.Receipt = &receipt
+	}
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
-	fmt.Printf("dry-run=%t executed=false agent=%s model=%s\n", dryRun, decision.RecommendedAgent, decision.RecommendedModel)
+	if result.Receipt != nil {
+		fmt.Printf("dry-run=%t executed=%t agent=%s model=%s status=%s reason=%s\n", dryRun, result.Executed, agent, model, result.Receipt.Status, result.Receipt.PolicyReason)
+		return nil
+	}
+	fmt.Printf("dry-run=%t executed=%t agent=%s model=%s\n", dryRun, result.Executed, agent, model)
 	return nil
 }
 
