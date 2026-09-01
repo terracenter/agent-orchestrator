@@ -188,6 +188,59 @@ fn route_documentation_returns_qwen_flash_decision() {
 }
 
 #[test]
+fn route_uses_certificate_directory_for_exact_match() {
+    let runner = fake_runner(
+        "qwen-route-cert",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.6-flash'\n",
+    );
+    let cert_dir =
+        std::env::temp_dir().join(format!("orq-agent-route-certs-{}", std::process::id()));
+    fs::create_dir_all(&cert_dir).unwrap();
+    let output = cert_dir.join("qwen-docs.json");
+
+    let mut certify = Command::cargo_bin("orq-agent").unwrap();
+    certify
+        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .args([
+            "certify",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.6-flash",
+            "--task-kind",
+            "documentation",
+            "--timeout",
+            "5",
+            "--output",
+            output.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let mut route = Command::cargo_bin("orq-agent").unwrap();
+    route
+        .env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .args([
+            "route",
+            "--task-kind",
+            "documentation",
+            "--cert-dir",
+            cert_dir.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"certificate_store_used\": true"))
+        .stdout(predicate::str::contains(
+            "\"preferred_certificate\": \"cert-",
+        ))
+        .stdout(predicate::str::contains("certified:"));
+}
+
+#[test]
 fn route_supports_external_config() {
     let config =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/routing-matrix.json");
