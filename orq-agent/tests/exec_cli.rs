@@ -73,7 +73,32 @@ fn route_documentation_returns_qwen_flash_decision() {
         .stdout(predicate::str::contains(
             "\"default_model\": \"qwen3.6-flash\"",
         ))
-        .stdout(predicate::str::contains("\"secrets_read\": false"));
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains(
+            "\"config_source\": \"embedded:orq-agent/config/routing-matrix.json\"",
+        ));
+}
+
+#[test]
+fn route_supports_external_config() {
+    let config =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/routing-matrix.json");
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "route",
+        "--task-kind",
+        "documentation",
+        "--config",
+        config.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("routing-matrix.json"))
+    .stdout(predicate::str::contains(
+        "\"default_model\": \"qwen3.6-flash\"",
+    ));
 }
 
 #[test]

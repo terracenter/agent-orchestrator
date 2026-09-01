@@ -59,11 +59,14 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
-    /// Recommend an agent/model for a task kind using the consolidated routing matrix.
+    /// Recommend an agent/model for a task kind using a routing matrix config.
     Route {
-        /// Pre-classified task kind.
-        #[arg(long, value_enum)]
-        task_kind: route::TaskKind,
+        /// Task kind defined by the routing config.
+        #[arg(long)]
+        task_kind: String,
+        /// Optional routing config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        config: Option<String>,
         /// Allow gated agents/models after explicit human approval.
         #[arg(long, default_value_t = false)]
         allow_gated: bool,
@@ -129,9 +132,15 @@ async fn main() -> Result<()> {
         Commands::Models { agent, format } => print_json(format, &models::list(&agent)?),
         Commands::Route {
             task_kind,
+            config,
             allow_gated,
             format,
-        } => print_json(format, &route::decide(task_kind, allow_gated)),
+        } => {
+            let config_path = config.as_deref().map(std::path::Path::new);
+            let (routing_config, config_source) = route::load_config(config_path).await?;
+            let decision = route::decide(&routing_config, &task_kind, allow_gated, &config_source)?;
+            print_json(format, &decision)
+        }
         Commands::Smoke {
             agent,
             model,

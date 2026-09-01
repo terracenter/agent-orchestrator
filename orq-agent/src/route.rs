@@ -1,35 +1,36 @@
-use crate::adapters::AdapterStatus;
+use crate::adapters::{AdapterStatus, AgentDetection};
 use crate::detect;
 use crate::policy;
-use clap::ValueEnum;
-use serde::Serialize;
+use color_eyre::eyre::{eyre, Result, WrapErr};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ValueEnum)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskKind {
-    Mechanical,
-    Documentation,
-    SimpleReview,
-    WriteTests,
-    Debugging,
-    SmallRefactor,
-    LargeRefactor,
-    MonorepoLongContext,
-    Frontend,
-    Database,
-    SysadminLinux,
-    SimpleCybersecurity,
-    DeepCybersecurity,
-    Architecture,
-    DeepReasoning,
-    RealToolExecution,
-    ReadonlyAnalysis,
+const DEFAULT_ROUTING_CONFIG: &str = include_str!("../config/routing-matrix.json");
+const SUPPORTED_SCHEMA_VERSION: u8 = 1;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RoutingConfig {
+    pub schema_version: u8,
+    pub approval_required_model_patterns: Vec<String>,
+    pub routes: Vec<RouteRule>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RouteRule {
+    pub task_kind: String,
+    pub default_agent: String,
+    pub default_model: String,
+    pub cheap_sufficient: String,
+    pub escalate_to: String,
+    pub avoid: Vec<String>,
+    pub rationale: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RouteDecision {
     pub schema_version: u8,
-    pub task_kind: TaskKind,
+    pub task_kind: String,
     pub selected_agent: String,
     pub selected_model: String,
     pub selected_policy_reason: String,
@@ -41,74 +42,155 @@ pub struct RouteDecision {
     pub fallback_applied: bool,
     pub requires_confirmation: bool,
     pub secrets_read: bool,
+    pub config_source: String,
     pub rationale: String,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct RouteRule {
-    default_agent: &'static str,
-    default_model: &'static str,
-    cheap_sufficient: &'static str,
-    escalate_to: &'static str,
-    avoid: &'static [&'static str],
-    rationale: &'static str,
+pub fn load_default_config() -> Result<RoutingConfig> {
+    parse_config(DEFAULT_ROUTING_CONFIG)
 }
 
-pub fn decide(task_kind: TaskKind, allow_gated: bool) -> RouteDecision {
-    let rule = rule_for(task_kind);
-    let detected = detect::detect_agents();
-    let selected = select_route(rule, &detected.agents, allow_gated);
-
-    RouteDecision {
-        schema_version: 1,
-        task_kind,
-        selected_agent: selected.agent.to_string(),
-        selected_model: selected.model.to_string(),
-        selected_policy_reason: selected.policy_reason,
-        default_agent: rule.default_agent.to_string(),
-        default_model: rule.default_model.to_string(),
-        cheap_sufficient: rule.cheap_sufficient.to_string(),
-        escalate_to: rule.escalate_to.to_string(),
-        avoid: rule.avoid.iter().map(|item| (*item).to_string()).collect(),
-        fallback_applied: selected.fallback_applied,
-        requires_confirmation: selected.requires_confirmation
-            || default_requires_confirmation(rule),
-        secrets_read: detected.secrets_read,
-        rationale: rule.rationale.to_string(),
+pub async fn load_config(path: Option<&Path>) -> Result<(RoutingConfig, String)> {
+    match path {
+        Some(path) => {
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading routing config {}", path.display()))?;
+            Ok((parse_config(&content)?, path.display().to_string()))
+        }
+        None => Ok((
+            load_default_config()?,
+            "embedded:orq-agent/config/routing-matrix.json".to_string(),
+        )),
     }
 }
 
-struct SelectedRoute<'a> {
-    agent: &'a str,
-    model: &'a str,
+pub fn parse_config(content: &str) -> Result<RoutingConfig> {
+    let config: RoutingConfig =
+        serde_json::from_str(content).wrap_err("parsing routing config json")?;
+    validate_config(&config)?;
+    Ok(config)
+}
+
+fn validate_config(config: &RoutingConfig) -> Result<()> {
+    if config.schema_version != SUPPORTED_SCHEMA_VERSION {
+        return Err(eyre!(
+            "unsupported routing schema_version {}; expected {}",
+            config.schema_version,
+            SUPPORTED_SCHEMA_VERSION
+        ));
+    }
+    if config.approval_required_model_patterns.is_empty() {
+        return Err(eyre!(
+            "routing config must define approval_required_model_patterns"
+        ));
+    }
+    if config.routes.is_empty() {
+        return Err(eyre!("routing config must define at least one route"));
+    }
+
+    let mut seen = HashSet::new();
+    for route in &config.routes {
+        validate_non_empty("task_kind", &route.task_kind)?;
+        validate_non_empty("default_agent", &route.default_agent)?;
+        validate_non_empty("default_model", &route.default_model)?;
+        validate_non_empty("rationale", &route.rationale)?;
+        if !seen.insert(route.task_kind.as_str()) {
+            return Err(eyre!("duplicate route for task_kind {}", route.task_kind));
+        }
+        validate_route_expr("cheap_sufficient", &route.cheap_sufficient)?;
+        validate_route_expr("escalate_to", &route.escalate_to)?;
+    }
+    Ok(())
+}
+
+fn validate_non_empty(field: &str, value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(eyre!("routing field {field} cannot be empty"));
+    }
+    Ok(())
+}
+
+fn validate_route_expr(field: &str, value: &str) -> Result<()> {
+    if value == "none" || value.contains('/') {
+        Ok(())
+    } else {
+        Err(eyre!(
+            "routing field {field} must be 'agent/model' or 'none'"
+        ))
+    }
+}
+
+pub fn decide(
+    config: &RoutingConfig,
+    task_kind: &str,
+    allow_gated: bool,
+    config_source: &str,
+) -> Result<RouteDecision> {
+    let rule = config
+        .routes
+        .iter()
+        .find(|route| route.task_kind == task_kind)
+        .ok_or_else(|| eyre!("task_kind {task_kind} is not present in routing config"))?;
+    let detected = detect::detect_agents();
+    let selected = select_route(
+        rule,
+        &config.approval_required_model_patterns,
+        &detected.agents,
+        allow_gated,
+    );
+
+    Ok(RouteDecision {
+        schema_version: config.schema_version,
+        task_kind: rule.task_kind.clone(),
+        selected_agent: selected.agent,
+        selected_model: selected.model,
+        selected_policy_reason: selected.policy_reason,
+        default_agent: rule.default_agent.clone(),
+        default_model: rule.default_model.clone(),
+        cheap_sufficient: rule.cheap_sufficient.clone(),
+        escalate_to: rule.escalate_to.clone(),
+        avoid: rule.avoid.clone(),
+        fallback_applied: selected.fallback_applied,
+        requires_confirmation: selected.requires_confirmation
+            || route_requires_confirmation(rule, &config.approval_required_model_patterns),
+        secrets_read: detected.secrets_read,
+        config_source: config_source.to_string(),
+        rationale: rule.rationale.clone(),
+    })
+}
+
+struct SelectedRoute {
+    agent: String,
+    model: String,
     fallback_applied: bool,
     requires_confirmation: bool,
     policy_reason: String,
 }
 
-fn select_route<'a>(
-    rule: RouteRule,
-    detected: &[crate::adapters::AgentDetection],
+fn select_route(
+    rule: &RouteRule,
+    approval_patterns: &[String],
+    detected: &[AgentDetection],
     allow_gated: bool,
-) -> SelectedRoute<'a> {
+) -> SelectedRoute {
     let candidates = [
-        (rule.default_agent, rule.default_model, false),
-        split_route(rule.cheap_sufficient, true),
-        split_route(rule.escalate_to, true),
+        candidate_from_parts(&rule.default_agent, &rule.default_model, false),
+        candidate_from_expr(&rule.cheap_sufficient, true),
+        candidate_from_expr(&rule.escalate_to, true),
     ];
 
-    for (agent, model, fallback_applied) in candidates {
-        if agent == "none" || agent == "cualquier modelo con contexto <300K" {
-            continue;
-        }
-        if let Some(status) = detected_status(detected, agent) {
-            let policy = policy::evaluate(agent, model, status, allow_gated);
+    for candidate in candidates.into_iter().flatten() {
+        if let Some(status) = detected_status(detected, &candidate.agent) {
+            let policy = policy::evaluate(&candidate.agent, &candidate.model, status, allow_gated);
             if policy.allowed {
+                let requires_confirmation =
+                    requires_confirmation(status, &candidate.model, approval_patterns);
                 return SelectedRoute {
-                    agent,
-                    model,
-                    fallback_applied,
-                    requires_confirmation: requires_confirmation(status, model),
+                    agent: candidate.agent,
+                    model: candidate.model,
+                    fallback_applied: candidate.fallback_applied,
+                    requires_confirmation,
                     policy_reason: policy.reason,
                 };
             }
@@ -116,8 +198,8 @@ fn select_route<'a>(
     }
 
     SelectedRoute {
-        agent: rule.default_agent,
-        model: rule.default_model,
+        agent: rule.default_agent.clone(),
+        model: rule.default_model.clone(),
         fallback_applied: false,
         requires_confirmation: true,
         policy_reason: "no detected allowed route; returning default for explicit human review"
@@ -125,201 +207,102 @@ fn select_route<'a>(
     }
 }
 
-fn detected_status(
-    detected: &[crate::adapters::AgentDetection],
-    agent: &str,
-) -> Option<AdapterStatus> {
+struct Candidate {
+    agent: String,
+    model: String,
+    fallback_applied: bool,
+}
+
+fn candidate_from_parts(agent: &str, model: &str, fallback_applied: bool) -> Option<Candidate> {
+    if agent == "none" {
+        return None;
+    }
+    Some(Candidate {
+        agent: agent.to_string(),
+        model: model.to_string(),
+        fallback_applied,
+    })
+}
+
+fn candidate_from_expr(expr: &str, fallback_applied: bool) -> Option<Candidate> {
+    if expr == "none" {
+        return None;
+    }
+    let (agent, model) = expr.split_once('/')?;
+    candidate_from_parts(agent, model, fallback_applied)
+}
+
+fn detected_status(detected: &[AgentDetection], agent: &str) -> Option<AdapterStatus> {
     detected
         .iter()
         .find(|item| item.name == agent && item.detected)
         .map(|item| item.adapter)
 }
 
-fn requires_confirmation(status: AdapterStatus, model: &str) -> bool {
-    matches!(status, AdapterStatus::Gated)
-        || model.to_ascii_lowercase().contains("sonnet")
-        || model.to_ascii_lowercase().contains("opus")
+fn requires_confirmation(status: AdapterStatus, model: &str, approval_patterns: &[String]) -> bool {
+    matches!(status, AdapterStatus::Gated) || model_needs_approval(model, approval_patterns)
 }
 
-fn default_requires_confirmation(rule: RouteRule) -> bool {
-    rule.default_model.to_ascii_lowercase().contains("sonnet")
-        || rule.default_model.to_ascii_lowercase().contains("opus")
+fn route_requires_confirmation(rule: &RouteRule, approval_patterns: &[String]) -> bool {
+    model_needs_approval(&rule.default_model, approval_patterns)
 }
 
-fn split_route(route: &'static str, fallback_applied: bool) -> (&'static str, &'static str, bool) {
-    route
-        .split_once('/')
-        .map(|(agent, model)| (agent, model, fallback_applied))
-        .unwrap_or(("none", route, fallback_applied))
-}
-
-fn rule_for(task_kind: TaskKind) -> RouteRule {
-    match task_kind {
-        TaskKind::Mechanical => RouteRule {
-            default_agent: "claude-code",
-            default_model: "claude-haiku-4-5",
-            cheap_sufficient: "qwen-code/qwen3.6-flash",
-            escalate_to: "agy/gemini-3.6-flash-medium",
-            avoid: &[
-                "claude-code/claude-opus-5",
-                "claude-code/claude-fable-5",
-                "qwen-code/qwen3.8-max",
-            ],
-            rationale: "Deterministic repetitive work should use the cheapest sufficient route.",
-        },
-        TaskKind::Documentation => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3.6-flash",
-            cheap_sufficient: "agy/gemini-3.5-flash-low",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["claude-code/claude-fable-5", "claude-code/claude-opus-5"],
-            rationale: "Long vault notes fit Qwen/AGY context without spending Claude quota.",
-        },
-        TaskKind::SimpleReview => RouteRule {
-            default_agent: "agy",
-            default_model: "gemini-3.6-flash-medium",
-            cheap_sufficient: "qwen-code/qwen3.6-flash",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["claude-code/claude-opus-5", "qwen-code/qwen3.8-max"],
-            rationale: "Diff and lint review rarely requires deep reasoning.",
-        },
-        TaskKind::WriteTests => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3-coder-plus",
-            cheap_sufficient: "claude-code/claude-haiku-4-5",
-            escalate_to: "agy/gemini-3.7-flash-high",
-            avoid: &["claude-code/claude-opus-5", "claude-code/claude-fable-5"],
-            rationale: "Large context helps generate complete suites.",
-        },
-        TaskKind::Debugging => RouteRule {
-            default_agent: "agy",
-            default_model: "gemini-3.7-flash-high",
-            cheap_sufficient: "qwen-code/qwen3.6-flash",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["qwen-code/qwen3-coder-next"],
-            rationale: "Use thinking plus real execution for root-cause isolation.",
-        },
-        TaskKind::SmallRefactor => RouteRule {
-            default_agent: "agy",
-            default_model: "gemini-3.6-flash-high",
-            cheap_sufficient: "qwen-code/qwen3.6-flash",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["claude-code/claude-opus-5"],
-            rationale: "Atomic edits with verification do not require top-tier models.",
-        },
-        TaskKind::LargeRefactor => RouteRule {
-            default_agent: "claude-code",
-            default_model: "claude-sonnet-5",
-            cheap_sufficient: "agy/gemini-3.1-pro-high",
-            escalate_to: "claude-code/claude-opus-5",
-            avoid: &["qwen-code/qwen3-coder-next", "qwen-code/glm-4.7"],
-            rationale: "Large multi-file invariants need engineering-grade review.",
-        },
-        TaskKind::MonorepoLongContext => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3-coder-plus",
-            cheap_sufficient: "agy/gemini-3.7-flash-medium",
-            escalate_to: "qwen-code/qwen3.8-max",
-            avoid: &["context_lt_300k"],
-            rationale: "1M context avoids truncating large repositories.",
-        },
-        TaskKind::Frontend => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3.6-plus",
-            cheap_sufficient: "agy/gemini-3.5-flash-medium",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["qwen-code/qwen3-coder-plus"],
-            rationale: "Frontend may need multimodal/mockup understanding.",
-        },
-        TaskKind::Database => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3-coder-plus",
-            cheap_sufficient: "agy/gemini-3.6-flash-medium",
-            escalate_to: "qwen-code/qwen3.8-max",
-            avoid: &["qwen-code/glm-5"],
-            rationale: "Large context can include schema and queries together.",
-        },
-        TaskKind::SysadminLinux => RouteRule {
-            default_agent: "agy",
-            default_model: "gemini-3.7-flash-high",
-            cheap_sufficient: "qwen-code/qwen3.6-flash",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["agents_without_real_tools"],
-            rationale: "Sysadmin tasks require real tools and strict sudo policy.",
-        },
-        TaskKind::SimpleCybersecurity => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3.6-flash",
-            cheap_sufficient: "agy/gemini-3.5-flash-medium",
-            escalate_to: "agy/gemini-3.7-flash-high",
-            avoid: &["qwen-code/qwen3.8-max"],
-            rationale: "Routine dependency/lint security checks do not need flagship models.",
-        },
-        TaskKind::DeepCybersecurity => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3.8-max",
-            cheap_sufficient: "agy/gemini-3.1-pro-high",
-            escalate_to: "claude-code/claude-opus-5",
-            avoid: &["models_without_thinking_or_short_context"],
-            rationale: "Deep threat analysis needs formal reasoning and long context.",
-        },
-        TaskKind::Architecture => RouteRule {
-            default_agent: "claude-code",
-            default_model: "claude-opus-5",
-            cheap_sufficient: "agy/gemini-3.1-pro-high",
-            escalate_to: "none",
-            avoid: &["gemini-3.5-flash-*", "qwen-code/qwen3-coder-next"],
-            rationale: "Architecture uses scarce top-tier models only with explicit evidence.",
-        },
-        TaskKind::DeepReasoning => RouteRule {
-            default_agent: "agy",
-            default_model: "gemini-3.1-pro-high",
-            cheap_sufficient: "qwen-code/qwen3.8-max",
-            escalate_to: "claude-code/claude-opus-5",
-            avoid: &["qwen-code/qwen3-coder-plus"],
-            rationale: "Use shared AGY quota before scarce Claude quota.",
-        },
-        TaskKind::RealToolExecution => RouteRule {
-            default_agent: "agy",
-            default_model: "gemini-3.6-flash-medium",
-            cheap_sufficient: "claude-code/claude-haiku-4-5",
-            escalate_to: "claude-code/claude-sonnet-5",
-            avoid: &["pi", "readonly_runners"],
-            rationale: "Real execution requires tool-capable agents and receipts.",
-        },
-        TaskKind::ReadonlyAnalysis => RouteRule {
-            default_agent: "qwen-code",
-            default_model: "qwen3.6-flash",
-            cheap_sufficient: "agy/gemini-3.5-flash-low",
-            escalate_to: "qwen-code/glm-5",
-            avoid: &["claude-code/claude-opus-5", "claude-code/claude-fable-5"],
-            rationale: "Passive analysis should not spend expensive quotas.",
-        },
-    }
+fn model_needs_approval(model: &str, approval_patterns: &[String]) -> bool {
+    let model = model.to_ascii_lowercase();
+    approval_patterns
+        .iter()
+        .map(|pattern| pattern.to_ascii_lowercase())
+        .any(|pattern| model.contains(&pattern))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{decide, rule_for, TaskKind};
+    use super::{decide, load_default_config, parse_config};
 
     #[test]
-    fn documentation_defaults_to_qwen_flash() {
-        let rule = rule_for(TaskKind::Documentation);
-        assert_eq!(rule.default_agent, "qwen-code");
-        assert_eq!(rule.default_model, "qwen3.6-flash");
+    fn default_config_loads_documentation_route() {
+        let config = load_default_config().unwrap();
+        let route = config
+            .routes
+            .iter()
+            .find(|route| route.task_kind == "documentation")
+            .unwrap();
+        assert_eq!(route.default_agent, "qwen-code");
+        assert_eq!(route.default_model, "qwen3.6-flash");
     }
 
     #[test]
-    fn deep_security_reserves_qwen_max() {
-        let rule = rule_for(TaskKind::DeepCybersecurity);
-        assert_eq!(rule.default_model, "qwen3.8-max");
-        assert!(rule.rationale.contains("Deep threat"));
+    fn invalid_schema_is_rejected() {
+        let err = parse_config(
+            r#"{"schema_version":2,"approval_required_model_patterns":["opus"],"routes":[]}"#,
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("unsupported routing schema_version"));
     }
 
     #[test]
-    fn architecture_requires_confirmation_without_gated_approval() {
-        let decision = decide(TaskKind::Architecture, false);
+    fn route_expression_must_be_agent_model_or_none() {
+        let err = parse_config(
+            r#"{"schema_version":1,"approval_required_model_patterns":["opus"],"routes":[{"task_kind":"x","default_agent":"a","default_model":"m","cheap_sufficient":"bad","escalate_to":"none","avoid":[],"rationale":"r"}]}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("agent/model"));
+    }
+
+    #[test]
+    fn architecture_requires_confirmation_from_config() {
+        let config = load_default_config().unwrap();
+        let decision = decide(&config, "architecture", false, "test").unwrap();
         assert!(decision.requires_confirmation);
         assert_eq!(decision.secrets_read, false);
+    }
+
+    #[test]
+    fn missing_task_kind_is_an_error() {
+        let config = load_default_config().unwrap();
+        let err = decide(&config, "unknown_kind", false, "test").unwrap_err();
+        assert!(err.to_string().contains("not present in routing config"));
     }
 }
