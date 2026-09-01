@@ -169,7 +169,11 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let cli = Cli::parse();
-    match cli.command {
+    run_command(cli.command).await
+}
+
+async fn run_command(command: Commands) -> Result<()> {
+    match command {
         Commands::Detect {
             adapters_config,
             format,
