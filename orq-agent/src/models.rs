@@ -1,4 +1,4 @@
-use crate::adapters::{find_adapter, AdapterStatus};
+use crate::adapters::{find_adapter_in_registry, AdapterStatus, AdaptersRegistry};
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -90,8 +90,14 @@ fn validate_catalog(catalog: &ModelsCatalog) -> Result<()> {
     Ok(())
 }
 
-pub fn list(agent: &str, catalog: &ModelsCatalog, config_source: &str) -> Result<ModelsReport> {
-    let adapter = find_adapter(agent).ok_or_else(|| eyre!("unknown agent adapter: {agent}"))?;
+pub fn list(
+    agent: &str,
+    catalog: &ModelsCatalog,
+    adapters_registry: &AdaptersRegistry,
+    config_source: &str,
+) -> Result<ModelsReport> {
+    let adapter = find_adapter_in_registry(agent, adapters_registry)
+        .ok_or_else(|| eyre!("unknown agent adapter: {agent}"))?;
     let detected = adapter.binary_path().is_some();
     let models = catalog
         .agents
@@ -123,7 +129,8 @@ mod tests {
     #[test]
     fn default_catalog_reports_qwen_flash() {
         let catalog = default_catalog().unwrap();
-        let report = list("qwen-code", &catalog, "test").unwrap();
+        let adapters_registry = crate::adapters::default_registry().unwrap();
+        let report = list("qwen-code", &catalog, &adapters_registry, "test").unwrap();
         assert!(report
             .models
             .iter()

@@ -121,18 +121,29 @@ fn validate_route_expr(field: &str, value: &str) -> Result<()> {
     }
 }
 
+#[allow(dead_code)]
 pub fn decide(
     config: &RoutingConfig,
     task_kind: &str,
     allow_gated: bool,
     config_source: &str,
 ) -> Result<RouteDecision> {
+    let detected = detect::detect_agents();
+    decide_with_detected(config, task_kind, allow_gated, config_source, &detected)
+}
+
+pub fn decide_with_detected(
+    config: &RoutingConfig,
+    task_kind: &str,
+    allow_gated: bool,
+    config_source: &str,
+    detected: &detect::DetectReport,
+) -> Result<RouteDecision> {
     let rule = config
         .routes
         .iter()
         .find(|route| route.task_kind == task_kind)
         .ok_or_else(|| eyre!("task_kind {task_kind} is not present in routing config"))?;
-    let detected = detect::detect_agents();
     let selected = select_route(
         rule,
         &config.approval_required_model_patterns,

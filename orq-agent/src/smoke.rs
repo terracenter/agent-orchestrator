@@ -1,3 +1,4 @@
+use crate::adapters::AdaptersRegistry;
 use crate::exec::{self, ExecRequest};
 use crate::policy::PolicyConfig;
 use crate::receipt::ExecReceipt;
@@ -11,6 +12,7 @@ pub async fn run(
     allow_gated: bool,
     correlation_id: Option<String>,
     policy_config: PolicyConfig,
+    adapters_registry: AdaptersRegistry,
 ) -> Result<ExecReceipt> {
     let marker = format!("ORQ_SMOKE_OK agent={agent} model={model}");
     let task_file = write_smoke_task(&agent, &model, &marker).await?;
@@ -22,6 +24,7 @@ pub async fn run(
         allow_gated,
         correlation_id,
         policy_config,
+        adapters_registry,
     })
     .await;
     let _ = tokio::fs::remove_file(&task_file).await;

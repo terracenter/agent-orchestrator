@@ -1,4 +1,4 @@
-use crate::adapters::find_adapter;
+use crate::adapters::{find_adapter_in_registry, AdaptersRegistry};
 use crate::policy;
 use crate::receipt::{now_unix, tail_sanitized, ExecReceipt, ExecStatus};
 use color_eyre::eyre::Result;
@@ -22,6 +22,7 @@ pub struct ExecRequest {
     pub allow_gated: bool,
     pub correlation_id: Option<String>,
     pub policy_config: policy::PolicyConfig,
+    pub adapters_registry: AdaptersRegistry,
 }
 
 pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
@@ -45,7 +46,7 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         ));
     }
 
-    let Some(adapter) = find_adapter(&request.agent) else {
+    let Some(adapter) = find_adapter_in_registry(&request.agent, &request.adapters_registry) else {
         return Ok(invalid_receipt(
             &request,
             correlation_id,
