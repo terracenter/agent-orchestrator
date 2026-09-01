@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "approval_required_model_patterns": ["sonnet", "opus"],
+  "blocked_adapter_statuses": ["deprecated_or_quarantine"],
+  "gated_adapter_statuses": ["gated"]
+}

@@ -21,6 +21,7 @@ pub struct ExecRequest {
     pub timeout_seconds: u64,
     pub allow_gated: bool,
     pub correlation_id: Option<String>,
+    pub policy_config: policy::PolicyConfig,
 }
 
 pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
@@ -59,6 +60,7 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         &request.model,
         adapter.status(),
         request.allow_gated,
+        &request.policy_config,
     );
 
     if !policy.allowed {

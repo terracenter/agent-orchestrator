@@ -15,6 +15,45 @@ fn fake_runner(name: &str, body: &str) -> String {
 }
 
 #[test]
+fn exec_supports_external_policy_config() {
+    let runner = fake_runner("qwen-policy", "#!/usr/bin/env bash\necho should-not-run\n");
+    let task =
+        std::env::temp_dir().join(format!("orq-agent-policy-task-{}.md", std::process::id()));
+    fs::write(&task, "hello policy").unwrap();
+    let policy = std::env::temp_dir().join(format!("orq-agent-policy-{}.json", std::process::id()));
+    fs::write(
+        &policy,
+        r#"{"schema_version":1,"approval_required_model_patterns":["max"],"blocked_adapter_statuses":["deprecated_or_quarantine"],"gated_adapter_statuses":["gated"]}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.8-max",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--policy-config",
+            policy.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"blocked\""))
+        .stdout(predicate::str::contains(
+            "model qwen3.8-max requires explicit human approval",
+        ))
+        .stdout(predicate::str::contains("should-not-run").not());
+}
+
+#[test]
 fn exec_qwen_fake_succeeds_with_receipt() {
     let runner = fake_runner("qwen-ok", "#!/usr/bin/env bash\necho fake-qwen-ok\n");
     let task = std::env::temp_dir().join(format!("orq-agent-task-{}.md", std::process::id()));
