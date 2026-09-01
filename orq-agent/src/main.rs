@@ -58,6 +58,9 @@ enum Commands {
         /// Agent adapter name.
         #[arg(long)]
         agent: String,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -139,7 +142,15 @@ async fn main() -> Result<()> {
             .await?;
             print_json(format, &receipt)
         }
-        Commands::Models { agent, format } => print_json(format, &models::list(&agent)?),
+        Commands::Models {
+            agent,
+            config,
+            format,
+        } => {
+            let config_path = config.as_deref().map(std::path::Path::new);
+            let (catalog, config_source) = models::load_catalog(config_path).await?;
+            print_json(format, &models::list(&agent, &catalog, &config_source)?)
+        }
         Commands::Route {
             task_kind,
             config,

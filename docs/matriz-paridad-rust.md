@@ -52,6 +52,7 @@ Antes de considerar reemplazar `orq` Go por Rust, deben estar cubiertos:
 5. `record/status`: ledger compatible con Observer.
 6. `route`: decisiones equivalentes para tareas mecánicas, código, documentación y críticas. La matriz vive en config JSON versionada y puede reemplazarse con `--config`.
 7. `policy`: reglas de aprobación/bloqueo viven en `orq-agent/config/policy.json`; `exec` y `smoke` aceptan `--policy-config`.
+8. `models`: catálogo de modelos vive en `orq-agent/config/models-catalog.json`; `models` acepta `--config`.
 7. `policy`: bloqueo de Sonnet/Opus sin aprobación explícita.
 8. `models/smoke`: validación runtime de modelos, incluyendo 404/model_not_found.
 
@@ -66,6 +67,7 @@ orq-agent smoke --agent pi --model nvidia/openai/gpt-oss-20b --format json
 orq-agent exec --agent pi --model nvidia/openai/gpt-oss-20b --task-file task.md --timeout 120 --format json
 orq-agent route --task-kind documentation --config orq-agent/config/routing-matrix.json --format json
 orq-agent exec --agent qwen-code --model qwen3.6-flash --task-file /tmp/task.md --policy-config orq-agent/config/policy.json --format json
+orq-agent models --agent qwen-code --config orq-agent/config/models-catalog.json --format json
 orq-agent adapters propose --agent hermes --format json
 ```
 
