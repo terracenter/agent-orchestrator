@@ -54,6 +54,7 @@ Antes de considerar reemplazar `orq` Go por Rust, deben estar cubiertos:
 7. `policy`: reglas de aprobación/bloqueo viven en `orq-agent/config/policy.json`; `exec` y `smoke` aceptan `--policy-config`.
 8. `models`: catálogo de modelos vive en `orq-agent/config/models-catalog.json`; `models` acepta `--config`.
 9. `adapters`: metadata de adapters detectables vive en `orq-agent/config/adapters-registry.json`; `detect`, `exec`, `models`, `route` y `smoke` aceptan `--adapters-config`.
+10. `certify`: MVP genera certificado JSON versionado desde smoke acotado para `(agent, model, task_kind)`.
 7. `policy`: bloqueo de Sonnet/Opus sin aprobación explícita.
 8. `models/smoke`: validación runtime de modelos, incluyendo 404/model_not_found.
 
@@ -70,6 +71,7 @@ orq-agent route --task-kind documentation --config orq-agent/config/routing-matr
 orq-agent exec --agent qwen-code --model qwen3.6-flash --task-file /tmp/task.md --policy-config orq-agent/config/policy.json --format json
 orq-agent models --agent qwen-code --config orq-agent/config/models-catalog.json --format json
 orq-agent detect --adapters-config orq-agent/config/adapters-registry.json --format json
+orq-agent certify --agent qwen-code --model qwen3.6-flash --task-kind documentation --output /tmp/orq-cert.json --format json
 orq-agent adapters propose --agent hermes --format json
 ```
 
