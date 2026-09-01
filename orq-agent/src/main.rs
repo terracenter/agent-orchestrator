@@ -233,23 +233,14 @@ async fn run_command(command: Commands) -> Result<()> {
             cert_dir,
             format,
         } => {
-            let config_path = config.as_deref().map(std::path::Path::new);
-            let (routing_config, config_source) = route::load_config(config_path).await?;
-            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
-            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
-            let cert_store = match cert_dir.as_deref().map(std::path::Path::new) {
-                Some(path) => Some(certstore::CertificateStore::load_dir(path)?),
-                None => None,
-            };
-            let detected = detect::detect_agents_from_registry(&adapters_registry);
-            let decision = route::decide_with_detected(
-                &routing_config,
-                &task_kind,
+            let decision = commands::route::run(commands::route::RouteArgs {
+                task_kind,
+                config,
                 allow_gated,
-                &config_source,
-                &detected,
-                cert_store.as_ref(),
-            )?;
+                adapters_config,
+                cert_dir,
+            })
+            .await?;
             print_json(format, &decision)
         }
         Commands::Certify {
