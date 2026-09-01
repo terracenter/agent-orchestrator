@@ -46,6 +46,9 @@ enum Commands {
         /// Correlation id propagated from Orq legacy/Observer.
         #[arg(long)]
         correlation_id: Option<String>,
+        /// Optional policy config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        policy_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -91,6 +94,9 @@ enum Commands {
         /// Correlation id propagated from Orq legacy/Observer.
         #[arg(long)]
         correlation_id: Option<String>,
+        /// Optional policy config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        policy_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -116,8 +122,11 @@ async fn main() -> Result<()> {
             timeout,
             allow_gated,
             correlation_id,
+            policy_config,
             format,
         } => {
+            let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
+            let (policy_config, _) = policy::load_config(policy_config_path).await?;
             let receipt = exec::run(exec::ExecRequest {
                 agent,
                 model,
@@ -125,6 +134,7 @@ async fn main() -> Result<()> {
                 timeout_seconds: timeout,
                 allow_gated,
                 correlation_id,
+                policy_config,
             })
             .await?;
             print_json(format, &receipt)
@@ -147,9 +157,20 @@ async fn main() -> Result<()> {
             timeout,
             allow_gated,
             correlation_id,
+            policy_config,
             format,
         } => {
-            let receipt = smoke::run(agent, model, timeout, allow_gated, correlation_id).await?;
+            let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
+            let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let receipt = smoke::run(
+                agent,
+                model,
+                timeout,
+                allow_gated,
+                correlation_id,
+                policy_config,
+            )
+            .await?;
             print_json(format, &receipt)
         }
     }

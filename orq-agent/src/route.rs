@@ -182,7 +182,19 @@ fn select_route(
 
     for candidate in candidates.into_iter().flatten() {
         if let Some(status) = detected_status(detected, &candidate.agent) {
-            let policy = policy::evaluate(&candidate.agent, &candidate.model, status, allow_gated);
+            let policy_config = policy::PolicyConfig {
+                schema_version: 1,
+                approval_required_model_patterns: approval_patterns.to_vec(),
+                blocked_adapter_statuses: vec!["deprecated_or_quarantine".to_string()],
+                gated_adapter_statuses: vec!["gated".to_string()],
+            };
+            let policy = policy::evaluate(
+                &candidate.agent,
+                &candidate.model,
+                status,
+                allow_gated,
+                &policy_config,
+            );
             if policy.allowed {
                 let requires_confirmation =
                     requires_confirmation(status, &candidate.model, approval_patterns);
@@ -248,11 +260,7 @@ fn route_requires_confirmation(rule: &RouteRule, approval_patterns: &[String]) -
 }
 
 fn model_needs_approval(model: &str, approval_patterns: &[String]) -> bool {
-    let model = model.to_ascii_lowercase();
-    approval_patterns
-        .iter()
-        .map(|pattern| pattern.to_ascii_lowercase())
-        .any(|pattern| model.contains(&pattern))
+    policy::model_needs_approval(model, approval_patterns)
 }
 
 #[cfg(test)]
