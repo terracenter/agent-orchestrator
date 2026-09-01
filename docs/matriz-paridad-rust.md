@@ -21,7 +21,7 @@ ADR relacionado: [`adr-migracion-rust.md`](adr-migracion-rust.md)
 
 | Capacidad Go actual | Estado actual | Prioridad Rust | Acción propuesta |
 |---|---:|---:|---|
-| `orq route` | Slice Rust inicial implementado: lookup determinista por `--task-kind`, intersección con agentes detectados y policy gating. Pendiente config versionada/snapshots. | Alta | Completar extracción de matriz a config versionada y agregar certificados/capacidad. |
+| `orq route` | Usa matriz JSON versionada en `orq-agent/config/routing-matrix.json`, soporta `--config`, lookup dinámico por `--task-kind`, intersección con agentes detectados y policy gating. Pendiente snapshots/certificados. | Alta | Agregar certificados/capacidad y eliminar policy hardcoded restante en slices posteriores. |
 | `orq task` | Registry/estados; útil pero con pares agente/modelo rígidos | Alta | Portar tipos de estado y transiciones; corregir soporte dinámico de agentes. |
 | `orq agents detect` | Detecta binarios/configs sin secretos | Crítica | Primer comando MVP: `orq-agent detect --format json`. |
 | `orq agents configure` | Documentado, pero binario actual no lo acepta correctamente | Media | Replantear en Rust con dry-run obligatorio; no tocar configs sin confirmación. |
@@ -50,7 +50,7 @@ Antes de considerar reemplazar `orq` Go por Rust, deben estar cubiertos:
 3. `receipt`: schema estable y validador.
 4. `task`: estados y transiciones sin pares agente/modelo rígidos.
 5. `record/status`: ledger compatible con Observer.
-6. `route`: decisiones equivalentes para tareas mecánicas, código, documentación y críticas. Slice inicial cubre la matriz multiagente consolidada; falta config externa versionada.
+6. `route`: decisiones equivalentes para tareas mecánicas, código, documentación y críticas. La matriz vive en config JSON versionada y puede reemplazarse con `--config`.
 7. `policy`: bloqueo de Sonnet/Opus sin aprobación explícita.
 8. `models/smoke`: validación runtime de modelos, incluyendo 404/model_not_found.
 
@@ -63,7 +63,7 @@ orq-agent detect --format json
 orq-agent models --agent pi --format json
 orq-agent smoke --agent pi --model nvidia/openai/gpt-oss-20b --format json
 orq-agent exec --agent pi --model nvidia/openai/gpt-oss-20b --task-file task.md --timeout 120 --format json
-orq-agent route --task-kind documentation --format json
+orq-agent route --task-kind documentation --config orq-agent/config/routing-matrix.json --format json
 orq-agent adapters propose --agent hermes --format json
 ```
 
