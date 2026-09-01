@@ -1,8 +1,8 @@
-name: Go test
+name: CI
 
 on:
   push:
-    branches: [main, "dev-*"]
+    branches: [main, "dev-*", "rust-*"]
   pull_request:
     branches: [main]
 
@@ -23,3 +23,35 @@ jobs:
           cache: true
       - name: Test
         run: go test ./...
+
+  rust-test:
+    name: Rust test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: orq-agent
+      - name: Test
+        run: cargo test --manifest-path orq-agent/Cargo.toml
+
+  rust-clippy:
+    name: Rust clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: orq-agent
+      - name: Clippy
+        run: cargo clippy --manifest-path orq-agent/Cargo.toml -- -D warnings
