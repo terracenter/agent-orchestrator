@@ -119,7 +119,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Print(`orq — local-first agent/model orchestrator
+	fmt.Print(`orq — local-first agent/model orchestrator (Go legacy bridge; Rust-first CLI is orq-agent/orq from orq-agent crate)
 
 Usage:
   orq classify <task>

@@ -19,7 +19,7 @@
 
 | Área | Estado |
 |---|---|
-| Clasificación y routing | MVP operativo con `orq classify` y `orq route` |
+| Clasificación y routing | Go legacy mantiene comandos amplios; Rust `orq-agent route` ya usa config/certificados |
 | Evidencia | Ledger JSONL + receipts verificables |
 | Observer LLM | Sincronización best-effort y snapshots de capacidad |
 | Control de presupuesto | Guardrails de compactación y rutas de bajo costo |
@@ -62,7 +62,7 @@ cd orq-agent && rtk cargo build --bins
 ./target/debug/orq models --agent qwen-code --format json
 ```
 
-Instalación local del binario:
+Instalación local del binario legacy Go:
 
 ```bash
 rtk docker compose run --rm dev make build
@@ -70,6 +70,8 @@ mkdir -p ~/.local/bin
 install -m 0755 bin/orq ~/.local/bin/orq
 orq --help
 ```
+
+> ⚠️ Transición CLI: `scripts/install.sh` todavía instala el `orq` Go legacy. El crate Rust ya compila `orq-agent` y alias `orq`, pero el reemplazo de PATH será un slice separado para no romper comandos Go pendientes (`task`, `handoff`, `inbox`, `observer`, etc.).
 
 Instalador simple con modo seguro:
 
