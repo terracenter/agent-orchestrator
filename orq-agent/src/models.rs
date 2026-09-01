@@ -1,6 +1,17 @@
 use crate::adapters::{find_adapter, AdapterStatus};
-use color_eyre::eyre::{eyre, Result};
-use serde::Serialize;
+use color_eyre::eyre::{eyre, Result, WrapErr};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+const DEFAULT_MODELS_CATALOG: &str = include_str!("../config/models-catalog.json");
+const SUPPORTED_SCHEMA_VERSION: u8 = 1;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ModelsCatalog {
+    pub schema_version: u8,
+    pub agents: BTreeMap<String, Vec<ModelCandidate>>,
+}
 
 #[derive(Debug, Serialize)]
 pub struct ModelsReport {
@@ -10,100 +21,129 @@ pub struct ModelsReport {
     pub status: AdapterStatus,
     pub models: Vec<ModelCandidate>,
     pub discovery: DiscoveryStatus,
+    pub config_source: String,
     pub secrets_read: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ModelCandidate {
-    pub id: &'static str,
-    pub source: &'static str,
-    pub confidence: &'static str,
-    pub notes: &'static str,
+    pub id: String,
+    pub source: String,
+    pub confidence: String,
+    pub notes: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscoveryStatus {
-    StaticCatalog,
+    ConfigCatalog,
     Unsupported,
 }
 
-pub fn list(agent: &str) -> Result<ModelsReport> {
+pub fn default_catalog() -> Result<ModelsCatalog> {
+    parse_catalog(DEFAULT_MODELS_CATALOG)
+}
+
+pub async fn load_catalog(path: Option<&Path>) -> Result<(ModelsCatalog, String)> {
+    match path {
+        Some(path) => {
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading models catalog {}", path.display()))?;
+            Ok((parse_catalog(&content)?, path.display().to_string()))
+        }
+        None => Ok((
+            default_catalog()?,
+            "embedded:orq-agent/config/models-catalog.json".to_string(),
+        )),
+    }
+}
+
+pub fn parse_catalog(content: &str) -> Result<ModelsCatalog> {
+    let catalog: ModelsCatalog =
+        serde_json::from_str(content).wrap_err("parsing models catalog json")?;
+    validate_catalog(&catalog)?;
+    Ok(catalog)
+}
+
+fn validate_catalog(catalog: &ModelsCatalog) -> Result<()> {
+    if catalog.schema_version != SUPPORTED_SCHEMA_VERSION {
+        return Err(eyre!(
+            "unsupported models catalog schema_version {}; expected {}",
+            catalog.schema_version,
+            SUPPORTED_SCHEMA_VERSION
+        ));
+    }
+    if catalog.agents.is_empty() {
+        return Err(eyre!("models catalog must define at least one agent"));
+    }
+    for (agent, models) in &catalog.agents {
+        if agent.trim().is_empty() {
+            return Err(eyre!("models catalog agent name cannot be empty"));
+        }
+        for model in models {
+            if model.id.trim().is_empty() {
+                return Err(eyre!("models catalog entry for {agent} has empty id"));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn list(agent: &str, catalog: &ModelsCatalog, config_source: &str) -> Result<ModelsReport> {
     let adapter = find_adapter(agent).ok_or_else(|| eyre!("unknown agent adapter: {agent}"))?;
     let detected = adapter.binary_path().is_some();
-    let models = static_models(adapter.name());
+    let models = catalog
+        .agents
+        .get(adapter.name())
+        .cloned()
+        .unwrap_or_default();
     let discovery = if models.is_empty() {
         DiscoveryStatus::Unsupported
     } else {
-        DiscoveryStatus::StaticCatalog
+        DiscoveryStatus::ConfigCatalog
     };
 
     Ok(ModelsReport {
-        schema_version: 1,
+        schema_version: catalog.schema_version,
         agent: adapter.name().to_string(),
         detected,
         status: adapter.status(),
         models,
         discovery,
+        config_source: config_source.to_string(),
         secrets_read: false,
     })
 }
 
-fn static_models(agent: &str) -> Vec<ModelCandidate> {
-    match agent {
-        "qwen-code" => vec![
-            ModelCandidate {
-                id: "qwen3-coder-next",
-                source: "workspace_qwen_policy",
-                confidence: "candidate_preferred_cheap",
-                notes:
-                    "preferred for mechanical code reviews and small coding tasks before escalating",
-            },
-            ModelCandidate {
-                id: "glm-4.7",
-                source: "workspace_qwen_policy",
-                confidence: "candidate_preferred_cheap",
-                notes: "cheap second-opinion route for simple mechanical reviews",
-            },
-            ModelCandidate {
-                id: "MiniMax-M2.5",
-                source: "workspace_qwen_policy",
-                confidence: "candidate_preferred_cheap",
-                notes: "cheap agent route for simple multi-step tasks with low QPM",
-            },
-            ModelCandidate {
-                id: "qwen3.6-flash",
-                source: "workspace_qwen_policy",
-                confidence: "candidate_daily_driver",
-                notes: "daily coding workhorse; use before flagship for edit-test-fix tasks",
-            },
-            ModelCandidate {
-                id: "qwen3-coder-plus",
-                source: "workspace_qwen_policy",
-                confidence: "candidate_large_repo",
-                notes: "large-repo/refactor coding route with 1M context",
-            },
-            ModelCandidate {
-                id: "qwen3.8-max",
-                source: "observed_cli_usage",
-                confidence: "candidate_expensive_gated",
-                notes:
-                    "flagship/costly; reserve for deep security, architecture, or hard reasoning",
-            },
-        ],
-        "pi" => vec![ModelCandidate {
-            id: "nvidia/openai/gpt-oss-20b",
-            source: "workspace_policy",
-            confidence: "candidate",
-            notes: "NVIDIA stays under Pi until a separate local runner exists",
-        }],
-        "claude-code" => vec![ModelCandidate {
-            id: "claude-haiku-4-5",
-            source: "observed_cli_usage",
-            confidence: "candidate_gated",
-            notes: "cheap Claude route; Sonnet/Opus remain human-gated",
-        }],
-        "hermes" => vec![],
-        _ => vec![],
+#[cfg(test)]
+mod tests {
+    use super::{default_catalog, list, parse_catalog};
+
+    #[test]
+    fn default_catalog_reports_qwen_flash() {
+        let catalog = default_catalog().unwrap();
+        let report = list("qwen-code", &catalog, "test").unwrap();
+        assert!(report
+            .models
+            .iter()
+            .any(|model| model.id == "qwen3.6-flash"));
+    }
+
+    #[test]
+    fn rejects_invalid_schema() {
+        let err = parse_catalog(r#"{"schema_version":2,"agents":{}}"#).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("unsupported models catalog schema_version"));
+    }
+
+    #[test]
+    fn rejects_empty_model_id() {
+        let err = parse_catalog(
+            r#"{"schema_version":1,"agents":{"qwen-code":[{"id":"","source":"s","confidence":"c","notes":"n"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("empty id"));
     }
 }

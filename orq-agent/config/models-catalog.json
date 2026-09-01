@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "agents": {
+    "qwen-code": [
+      {"id":"qwen3-coder-next","source":"workspace_qwen_policy","confidence":"candidate_preferred_cheap","notes":"preferred for mechanical code reviews and small coding tasks before escalating"},
+      {"id":"glm-4.7","source":"workspace_qwen_policy","confidence":"candidate_preferred_cheap","notes":"cheap second-opinion route for simple mechanical reviews"},
+      {"id":"MiniMax-M2.5","source":"workspace_qwen_policy","confidence":"candidate_preferred_cheap","notes":"cheap agent route for simple multi-step tasks with low QPM"},
+      {"id":"qwen3.6-flash","source":"workspace_qwen_policy","confidence":"candidate_daily_driver","notes":"daily coding workhorse; use before flagship for edit-test-fix tasks"},
+      {"id":"qwen3-coder-plus","source":"workspace_qwen_policy","confidence":"candidate_large_repo","notes":"large-repo/refactor coding route with 1M context"},
+      {"id":"qwen3.8-max","source":"observed_cli_usage","confidence":"candidate_expensive_gated","notes":"flagship/costly; reserve for deep security, architecture, or hard reasoning"}
+    ],
+    "pi": [
+      {"id":"nvidia/openai/gpt-oss-20b","source":"workspace_policy","confidence":"candidate","notes":"NVIDIA stays under Pi until a separate local runner exists"}
+    ],
+    "claude-code": [
+      {"id":"claude-haiku-4-5","source":"observed_cli_usage","confidence":"candidate_gated","notes":"cheap Claude route; Sonnet/Opus remain human-gated"}
+    ],
+    "hermes": [],
+    "openclaw": [],
+    "agy": []
+  }
+}
