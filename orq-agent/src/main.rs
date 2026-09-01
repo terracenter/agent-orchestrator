@@ -5,6 +5,7 @@ use serde::Serialize;
 mod adapters;
 mod certify;
 mod certstore;
+mod commands;
 mod detect;
 mod exec;
 mod models;
@@ -178,12 +179,9 @@ async fn run_command(command: Commands) -> Result<()> {
             adapters_config,
             format,
         } => {
-            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
-            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
-            print_json(
-                format,
-                &detect::detect_agents_from_registry(&adapters_registry),
-            )
+            let report =
+                commands::detect::run(commands::detect::DetectArgs { adapters_config }).await?;
+            print_json(format, &report)
         }
         Commands::Exec {
             agent,
