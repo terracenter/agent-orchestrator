@@ -22,6 +22,9 @@ struct Cli {
 enum Commands {
     /// Detect local agent runners without reading secrets.
     Detect {
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -49,6 +52,9 @@ enum Commands {
         /// Optional policy config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         policy_config: Option<String>,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -61,6 +67,9 @@ enum Commands {
         /// Optional models catalog JSON path. Uses bundled config when omitted.
         #[arg(long)]
         config: Option<String>,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -76,6 +85,9 @@ enum Commands {
         /// Allow gated agents/models after explicit human approval.
         #[arg(long, default_value_t = false)]
         allow_gated: bool,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -100,6 +112,9 @@ enum Commands {
         /// Optional policy config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         policy_config: Option<String>,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -117,7 +132,17 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Detect { format } => print_json(format, &detect::detect_agents()),
+        Commands::Detect {
+            adapters_config,
+            format,
+        } => {
+            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
+            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            print_json(
+                format,
+                &detect::detect_agents_from_registry(&adapters_registry),
+            )
+        }
         Commands::Exec {
             agent,
             model,
@@ -126,10 +151,13 @@ async fn main() -> Result<()> {
             allow_gated,
             correlation_id,
             policy_config,
+            adapters_config,
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
             let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
+            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
             let receipt = exec::run(exec::ExecRequest {
                 agent,
                 model,
@@ -138,6 +166,7 @@ async fn main() -> Result<()> {
                 allow_gated,
                 correlation_id,
                 policy_config,
+                adapters_registry,
             })
             .await?;
             print_json(format, &receipt)
@@ -145,21 +174,37 @@ async fn main() -> Result<()> {
         Commands::Models {
             agent,
             config,
+            adapters_config,
             format,
         } => {
             let config_path = config.as_deref().map(std::path::Path::new);
             let (catalog, config_source) = models::load_catalog(config_path).await?;
-            print_json(format, &models::list(&agent, &catalog, &config_source)?)
+            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
+            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            print_json(
+                format,
+                &models::list(&agent, &catalog, &adapters_registry, &config_source)?,
+            )
         }
         Commands::Route {
             task_kind,
             config,
             allow_gated,
+            adapters_config,
             format,
         } => {
             let config_path = config.as_deref().map(std::path::Path::new);
             let (routing_config, config_source) = route::load_config(config_path).await?;
-            let decision = route::decide(&routing_config, &task_kind, allow_gated, &config_source)?;
+            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
+            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let detected = detect::detect_agents_from_registry(&adapters_registry);
+            let decision = route::decide_with_detected(
+                &routing_config,
+                &task_kind,
+                allow_gated,
+                &config_source,
+                &detected,
+            )?;
             print_json(format, &decision)
         }
         Commands::Smoke {
@@ -169,10 +214,13 @@ async fn main() -> Result<()> {
             allow_gated,
             correlation_id,
             policy_config,
+            adapters_config,
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
             let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
+            let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
             let receipt = smoke::run(
                 agent,
                 model,
@@ -180,6 +228,7 @@ async fn main() -> Result<()> {
                 allow_gated,
                 correlation_id,
                 policy_config,
+                adapters_registry,
             )
             .await?;
             print_json(format, &receipt)

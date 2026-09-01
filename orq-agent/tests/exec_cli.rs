@@ -15,6 +15,75 @@ fn fake_runner(name: &str, body: &str) -> String {
 }
 
 #[test]
+fn detect_supports_external_adapters_registry() {
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-adapters-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"custom-agent","binary":"custom-agent-bin","status":"available","argv":["--model","$MODEL","--prompt","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "detect",
+        "--adapters-config",
+        registry.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("custom-agent"))
+    .stdout(predicate::str::contains("qwen-code").not())
+    .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn exec_supports_external_adapters_registry() {
+    let runner = fake_runner(
+        "custom-runner",
+        "#!/usr/bin/env bash\necho custom-runner-ok\n",
+    );
+    let task =
+        std::env::temp_dir().join(format!("orq-agent-custom-task-{}.md", std::process::id()));
+    fs::write(&task, "hello custom").unwrap();
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-custom-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"custom-agent","binary":"custom-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_CUSTOM_AGENT", runner)
+        .args([
+            "exec",
+            "--agent",
+            "custom-agent",
+            "--model",
+            "custom-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"succeeded\""))
+        .stdout(predicate::str::contains("custom-runner-ok"));
+}
+
+#[test]
 fn exec_supports_external_policy_config() {
     let runner = fake_runner("qwen-policy", "#!/usr/bin/env bash\necho should-not-run\n");
     let task =

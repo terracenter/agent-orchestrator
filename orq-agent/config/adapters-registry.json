@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "adapters": [
+    {"name":"pi","binary":"pi","status":"available","argv":["--model","$MODEL","--print","$TASK"]},
+    {"name":"openclaw","binary":"openclaw","status":"available","argv":["--model","$MODEL","--prompt","$TASK"]},
+    {"name":"agy","binary":"agy","status":"available","argv":["--model","$MODEL","--prompt","$TASK"]},
+    {"name":"qwen-code","binary":"qwen","status":"available","argv":["--safe-mode","-m","$MODEL","-p","$TASK","--output-format","text"]},
+    {"name":"hermes","binary":"hermes","status":"deprecated_or_quarantine","argv":["--model","$MODEL","--prompt","$TASK"]},
+    {"name":"claude-code","binary":"claude","status":"gated","argv":["--model","$MODEL","--print","--","$TASK"]}
+  ]
+}
