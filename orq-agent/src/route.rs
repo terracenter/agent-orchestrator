@@ -1,4 +1,5 @@
 use crate::adapters::{AdapterStatus, AgentDetection};
+use crate::certstore::{is_certified, is_failed, CertificateStore};
 use crate::detect;
 use crate::policy;
 use color_eyre::eyre::{eyre, Result, WrapErr};
@@ -43,6 +44,9 @@ pub struct RouteDecision {
     pub requires_confirmation: bool,
     pub secrets_read: bool,
     pub config_source: String,
+    pub certificate_store_used: bool,
+    pub certificate_store_ignored_files: usize,
+    pub preferred_certificate: Option<String>,
     pub rationale: String,
 }
 
@@ -129,7 +133,14 @@ pub fn decide(
     config_source: &str,
 ) -> Result<RouteDecision> {
     let detected = detect::detect_agents();
-    decide_with_detected(config, task_kind, allow_gated, config_source, &detected)
+    decide_with_detected(
+        config,
+        task_kind,
+        allow_gated,
+        config_source,
+        &detected,
+        None,
+    )
 }
 
 pub fn decide_with_detected(
@@ -138,6 +149,7 @@ pub fn decide_with_detected(
     allow_gated: bool,
     config_source: &str,
     detected: &detect::DetectReport,
+    certificate_store: Option<&CertificateStore>,
 ) -> Result<RouteDecision> {
     let rule = config
         .routes
@@ -149,6 +161,7 @@ pub fn decide_with_detected(
         &config.approval_required_model_patterns,
         &detected.agents,
         allow_gated,
+        certificate_store,
     );
 
     Ok(RouteDecision {
@@ -167,6 +180,11 @@ pub fn decide_with_detected(
             || route_requires_confirmation(rule, &config.approval_required_model_patterns),
         secrets_read: detected.secrets_read,
         config_source: config_source.to_string(),
+        certificate_store_used: certificate_store.is_some(),
+        certificate_store_ignored_files: certificate_store
+            .map(CertificateStore::ignored_files)
+            .unwrap_or(0),
+        preferred_certificate: selected.preferred_certificate,
         rationale: rule.rationale.clone(),
     })
 }
@@ -177,6 +195,7 @@ struct SelectedRoute {
     fallback_applied: bool,
     requires_confirmation: bool,
     policy_reason: String,
+    preferred_certificate: Option<String>,
 }
 
 fn select_route(
@@ -184,6 +203,7 @@ fn select_route(
     approval_patterns: &[String],
     detected: &[AgentDetection],
     allow_gated: bool,
+    certificate_store: Option<&CertificateStore>,
 ) -> SelectedRoute {
     let candidates = [
         candidate_from_parts(&rule.default_agent, &rule.default_model, false),
@@ -192,31 +212,30 @@ fn select_route(
     ];
 
     for candidate in candidates.into_iter().flatten() {
-        if let Some(status) = detected_status(detected, &candidate.agent) {
-            let policy_config = policy::PolicyConfig {
-                schema_version: 1,
-                approval_required_model_patterns: approval_patterns.to_vec(),
-                blocked_adapter_statuses: vec!["deprecated_or_quarantine".to_string()],
-                gated_adapter_statuses: vec!["gated".to_string()],
-            };
-            let policy = policy::evaluate(
-                &candidate.agent,
-                &candidate.model,
-                status,
-                allow_gated,
-                &policy_config,
-            );
-            if policy.allowed {
-                let requires_confirmation =
-                    requires_confirmation(status, &candidate.model, approval_patterns);
-                return SelectedRoute {
-                    agent: candidate.agent,
-                    model: candidate.model,
-                    fallback_applied: candidate.fallback_applied,
-                    requires_confirmation,
-                    policy_reason: policy.reason,
-                };
+        if let Some(certificate) = certificate_store
+            .and_then(|store| store.lookup(&candidate.agent, &candidate.model, &rule.task_kind))
+        {
+            if is_failed(certificate) {
+                continue;
             }
+            if is_certified(certificate) {
+                if let Some(selected) = select_allowed_candidate(
+                    candidate,
+                    approval_patterns,
+                    detected,
+                    allow_gated,
+                    Some(certificate.certificate_id.clone()),
+                ) {
+                    return selected;
+                }
+                continue;
+            }
+        }
+
+        if let Some(selected) =
+            select_allowed_candidate(candidate, approval_patterns, detected, allow_gated, None)
+        {
+            return selected;
         }
     }
 
@@ -227,7 +246,47 @@ fn select_route(
         requires_confirmation: true,
         policy_reason: "no detected allowed route; returning default for explicit human review"
             .to_string(),
+        preferred_certificate: None,
     }
+}
+
+fn select_allowed_candidate(
+    candidate: Candidate,
+    approval_patterns: &[String],
+    detected: &[AgentDetection],
+    allow_gated: bool,
+    preferred_certificate: Option<String>,
+) -> Option<SelectedRoute> {
+    let status = detected_status(detected, &candidate.agent)?;
+    let policy_config = policy::PolicyConfig {
+        schema_version: 1,
+        approval_required_model_patterns: approval_patterns.to_vec(),
+        blocked_adapter_statuses: vec!["deprecated_or_quarantine".to_string()],
+        gated_adapter_statuses: vec!["gated".to_string()],
+    };
+    let policy = policy::evaluate(
+        &candidate.agent,
+        &candidate.model,
+        status,
+        allow_gated,
+        &policy_config,
+    );
+    if !policy.allowed {
+        return None;
+    }
+    let requires_confirmation = requires_confirmation(status, &candidate.model, approval_patterns);
+    let policy_reason = match &preferred_certificate {
+        Some(certificate_id) => format!("certified:{certificate_id}; {}", policy.reason),
+        None => policy.reason,
+    };
+    Some(SelectedRoute {
+        agent: candidate.agent,
+        model: candidate.model,
+        fallback_applied: candidate.fallback_applied,
+        requires_confirmation,
+        policy_reason,
+        preferred_certificate,
+    })
 }
 
 struct Candidate {

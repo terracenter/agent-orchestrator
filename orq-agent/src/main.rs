@@ -4,6 +4,7 @@ use serde::Serialize;
 
 mod adapters;
 mod certify;
+mod certstore;
 mod detect;
 mod exec;
 mod models;
@@ -89,6 +90,9 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional certificate directory for routing preferences.
+        #[arg(long)]
+        cert_dir: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -225,12 +229,17 @@ async fn main() -> Result<()> {
             config,
             allow_gated,
             adapters_config,
+            cert_dir,
             format,
         } => {
             let config_path = config.as_deref().map(std::path::Path::new);
             let (routing_config, config_source) = route::load_config(config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let cert_store = match cert_dir.as_deref().map(std::path::Path::new) {
+                Some(path) => Some(certstore::CertificateStore::load_dir(path)?),
+                None => None,
+            };
             let detected = detect::detect_agents_from_registry(&adapters_registry);
             let decision = route::decide_with_detected(
                 &routing_config,
@@ -238,6 +247,7 @@ async fn main() -> Result<()> {
                 allow_gated,
                 &config_source,
                 &detected,
+                cert_store.as_ref(),
             )?;
             print_json(format, &decision)
         }

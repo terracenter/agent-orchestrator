@@ -3,7 +3,7 @@ use crate::policy::PolicyConfig;
 use crate::receipt::{now_unix, ExecReceipt, ExecStatus};
 use crate::smoke;
 use color_eyre::eyre::{Result, WrapErr};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -20,7 +20,8 @@ pub struct CertifyRequest {
     pub adapters_registry: AdaptersRegistry,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Certificate {
     pub schema_version: u8,
     pub certificate_id: String,
@@ -35,7 +36,7 @@ pub struct Certificate {
     pub secrets_read: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CertificateStatus {
     Certified,
@@ -53,9 +54,7 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
         request.adapters_registry,
     )
     .await?;
-    let receipt_json =
-        serde_json::to_vec(&receipt).wrap_err("serializing certification receipt")?;
-    let receipt_sha256 = hex_sha256(&receipt_json);
+    let receipt_sha256 = receipt_sha256(&receipt)?;
     let created_at_unix = now_unix();
     let certificate_id = format!(
         "cert-{created_at_unix}-{}-{}-{}",
@@ -100,6 +99,11 @@ async fn write_certificate(path: &Path, certificate: &Certificate) -> Result<()>
     tokio::fs::write(path, content)
         .await
         .wrap_err_with(|| format!("writing certificate {}", path.display()))
+}
+
+pub fn receipt_sha256(receipt: &ExecReceipt) -> Result<String> {
+    let receipt_json = serde_json::to_vec(receipt).wrap_err("serializing certification receipt")?;
+    Ok(hex_sha256(&receipt_json))
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
