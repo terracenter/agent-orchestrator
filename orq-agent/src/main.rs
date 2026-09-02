@@ -75,6 +75,9 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -111,6 +114,9 @@ enum Commands {
         /// Optional certificate directory for routing preferences.
         #[arg(long)]
         cert_dir: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -144,6 +150,9 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -176,6 +185,9 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -250,6 +262,7 @@ async fn run_command(command: Commands) -> Result<()> {
             correlation_id,
             policy_config,
             adapters_config,
+            db_path,
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
@@ -267,6 +280,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_registry,
             })
             .await?;
+            record_exec_breaker_outcome(db_path.as_deref(), &receipt);
             print_json(format, &receipt)
         }
         Commands::Models {
@@ -289,6 +303,7 @@ async fn run_command(command: Commands) -> Result<()> {
             allow_gated,
             adapters_config,
             cert_dir,
+            db_path,
             format,
         } => {
             let decision = commands::route::run(commands::route::RouteArgs {
@@ -297,6 +312,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 allow_gated,
                 adapters_config,
                 cert_dir,
+                db_path,
             })
             .await?;
             print_json(format, &decision)
@@ -311,6 +327,7 @@ async fn run_command(command: Commands) -> Result<()> {
             output,
             policy_config,
             adapters_config,
+            db_path,
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
@@ -329,6 +346,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_registry,
             })
             .await?;
+            record_exec_breaker_outcome(db_path.as_deref(), &certificate.receipt);
             print_json(format, &certificate)
         }
         Commands::State { command } => match command {
@@ -348,6 +366,7 @@ async fn run_command(command: Commands) -> Result<()> {
             correlation_id,
             policy_config,
             adapters_config,
+            db_path,
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
@@ -364,9 +383,52 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_registry,
             )
             .await?;
+            record_exec_breaker_outcome(db_path.as_deref(), &receipt);
             print_json(format, &receipt)
         }
     }
+}
+
+fn record_exec_breaker_outcome(db_path: Option<&str>, receipt: &receipt::ExecReceipt) {
+    let Some(outcome) = map_receipt_to_breaker_outcome(receipt) else {
+        return;
+    };
+    let path = db_path.map(std::path::Path::new);
+    let Ok(store) = state::open(path) else {
+        return;
+    };
+    if let Err(err) = store.record_breaker_outcome(&receipt.agent, &receipt.model, outcome) {
+        eprintln!("warning: failed to record circuit breaker outcome: {err}");
+    }
+}
+
+fn map_receipt_to_breaker_outcome(receipt: &receipt::ExecReceipt) -> Option<state::BreakerOutcome> {
+    match receipt.status {
+        receipt::ExecStatus::Succeeded => Some(state::BreakerOutcome::Success),
+        receipt::ExecStatus::TimedOut => Some(state::BreakerOutcome::TimedOut),
+        receipt::ExecStatus::Failed | receipt::ExecStatus::SpawnFailed => {
+            let is_auth =
+                is_auth_failure(&receipt.stderr_tail) || is_auth_failure(&receipt.stdout_tail);
+            if is_auth {
+                Some(state::BreakerOutcome::Auth401)
+            } else {
+                Some(state::BreakerOutcome::AdapterError)
+            }
+        }
+        receipt::ExecStatus::Blocked | receipt::ExecStatus::InvalidRequest => None,
+    }
+}
+
+fn is_auth_failure(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("401")
+        || lower.contains("unauthorized")
+        || lower.contains("authentication")
+        || lower.contains("auth error")
+        || lower.contains("auth failed")
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+        || lower.contains("permission_denied")
 }
 
 fn print_json<T: Serialize>(format: OutputFormat, value: &T) -> Result<()> {

@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
@@ -56,6 +57,26 @@ pub struct ModelRecord {
     pub metadata_json: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BreakerOutcome {
+    Success,
+    TimedOut,
+    #[allow(dead_code)]
+    CommandAborted,
+    Auth401,
+    AdapterError,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CircuitBreakerRecord {
+    pub agent_id: String,
+    pub model_id: String,
+    pub state: String,
+    pub failure_streak: i64,
+    pub opened_until_unix: Option<u64>,
+    pub updated_at_unix: u64,
+}
+
 pub fn default_db_path() -> Result<PathBuf> {
     if let Some(value) = std::env::var_os(STATE_DB_ENV) {
         return Ok(PathBuf::from(value));
@@ -90,6 +111,24 @@ pub fn open(path: Option<&Path>) -> Result<StateStore> {
     let store = StateStore { conn, path };
     store.migrate()?;
     Ok(store)
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn backoff_seconds(outcome: BreakerOutcome, failure_streak: i64) -> u64 {
+    let base = match outcome {
+        BreakerOutcome::Success => 0,
+        BreakerOutcome::TimedOut | BreakerOutcome::CommandAborted => 60,
+        BreakerOutcome::Auth401 => 3600,
+        BreakerOutcome::AdapterError => 300,
+    };
+    let exponent = failure_streak.clamp(1, 6) as u32 - 1;
+    base * 2_u64.saturating_pow(exponent)
 }
 
 fn configure(conn: &Connection) -> Result<()> {
@@ -222,6 +261,97 @@ impl StateStore {
     }
 
     #[allow(dead_code)]
+    pub fn record_breaker_outcome(
+        &self,
+        agent_id: &str,
+        model_id: &str,
+        outcome: BreakerOutcome,
+    ) -> Result<()> {
+        let now = now_unix();
+        match outcome {
+            BreakerOutcome::Success => {
+                self.conn
+                    .execute(
+                        "INSERT INTO circuit_breakers(agent_id, model_id, state, failure_streak, opened_until_unix, updated_at_unix)
+                         VALUES (?1, ?2, 'closed', 0, NULL, ?3)
+                         ON CONFLICT(agent_id, model_id) DO UPDATE SET state='closed', failure_streak=0,
+                         opened_until_unix=NULL, updated_at_unix=excluded.updated_at_unix",
+                        params![agent_id, model_id, now],
+                    )
+                    .map_err(|source| StoreError::Sqlite {
+                        context: "record successful breaker outcome",
+                        source,
+                    })?;
+            }
+            failure => {
+                let current_streak = self
+                    .breaker_record(agent_id, model_id)?
+                    .map(|record| record.failure_streak)
+                    .unwrap_or(0);
+                let failure_streak = current_streak.saturating_add(1);
+                let opened_until = now.saturating_add(backoff_seconds(failure, failure_streak));
+                self.conn
+                    .execute(
+                        "INSERT INTO circuit_breakers(agent_id, model_id, state, failure_streak, opened_until_unix, updated_at_unix)
+                         VALUES (?1, ?2, 'open', ?3, ?4, ?5)
+                         ON CONFLICT(agent_id, model_id) DO UPDATE SET state='open',
+                         failure_streak=excluded.failure_streak, opened_until_unix=excluded.opened_until_unix,
+                         updated_at_unix=excluded.updated_at_unix",
+                        params![agent_id, model_id, failure_streak, opened_until, now],
+                    )
+                    .map_err(|source| StoreError::Sqlite {
+                        context: "record failed breaker outcome",
+                        source,
+                    })?;
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn breaker_record(
+        &self,
+        agent_id: &str,
+        model_id: &str,
+    ) -> Result<Option<CircuitBreakerRecord>> {
+        self.conn
+            .query_row(
+                "SELECT agent_id, model_id, state, failure_streak, opened_until_unix, updated_at_unix
+                 FROM circuit_breakers WHERE agent_id=?1 AND model_id=?2",
+                params![agent_id, model_id],
+                |row| {
+                    Ok(CircuitBreakerRecord {
+                        agent_id: row.get(0)?,
+                        model_id: row.get(1)?,
+                        state: row.get(2)?,
+                        failure_streak: row.get(3)?,
+                        opened_until_unix: row.get(4)?,
+                        updated_at_unix: row.get(5)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|source| StoreError::Sqlite {
+                context: "read circuit breaker",
+                source,
+            })
+    }
+
+    #[allow(dead_code)]
+    pub fn breaker_allows_model(&self, agent_id: &str, model_id: &str) -> Result<bool> {
+        let Some(record) = self.breaker_record(agent_id, model_id)? else {
+            return Ok(true);
+        };
+        if record.state != "open" {
+            return Ok(true);
+        }
+        Ok(record
+            .opened_until_unix
+            .map(|opened_until| opened_until <= now_unix())
+            .unwrap_or(true))
+    }
+
+    #[allow(dead_code)]
     pub fn find_model(
         &self,
         agent_id: &str,
@@ -240,6 +370,28 @@ impl StateStore {
                 metadata_json: row.get(5)?,
             }),
         ).optional().map_err(|source| StoreError::Sqlite { context: "find model", source })
+    }
+
+    #[cfg(test)]
+    pub fn force_open_breaker_until(
+        &self,
+        agent_id: &str,
+        model_id: &str,
+        opened_until_unix: u64,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO circuit_breakers(agent_id, model_id, state, failure_streak, opened_until_unix, updated_at_unix)
+                 VALUES (?1, ?2, 'open', 1, ?3, ?3)
+                 ON CONFLICT(agent_id, model_id) DO UPDATE SET state='open', failure_streak=1,
+                 opened_until_unix=excluded.opened_until_unix, updated_at_unix=excluded.updated_at_unix",
+                params![agent_id, model_id, opened_until_unix],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "force open circuit breaker",
+                source,
+            })?;
+        Ok(())
     }
 
     fn schema_version(&self) -> Result<i64> {
@@ -429,5 +581,100 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_circuit_breaker_timeout_opens_cooldown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        store
+            .record_breaker_outcome("agent-1", "model-1", BreakerOutcome::TimedOut)
+            .expect("record timeout");
+
+        let record = store
+            .breaker_record("agent-1", "model-1")
+            .expect("fetch record")
+            .expect("record present");
+
+        assert_eq!(record.state, "open");
+        assert_eq!(record.failure_streak, 1);
+        assert!(record.opened_until_unix.is_some());
+        assert!(record.opened_until_unix.unwrap() >= now_unix() + 50);
+
+        let allowed = store
+            .breaker_allows_model("agent-1", "model-1")
+            .expect("allows model check");
+        assert!(!allowed);
+    }
+
+    #[test]
+    fn test_circuit_breaker_success_resets_streak_and_closes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        store
+            .record_breaker_outcome("agent-1", "model-1", BreakerOutcome::TimedOut)
+            .expect("record timeout");
+        store
+            .record_breaker_outcome("agent-1", "model-1", BreakerOutcome::Success)
+            .expect("record success");
+
+        let record = store
+            .breaker_record("agent-1", "model-1")
+            .expect("fetch record")
+            .expect("record present");
+
+        assert_eq!(record.state, "closed");
+        assert_eq!(record.failure_streak, 0);
+        assert!(record.opened_until_unix.is_none());
+
+        let allowed = store
+            .breaker_allows_model("agent-1", "model-1")
+            .expect("allows model check");
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_circuit_breaker_auth401_applies_long_backoff() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        store
+            .record_breaker_outcome("agent-1", "model-1", BreakerOutcome::Auth401)
+            .expect("record 401");
+
+        let record = store
+            .breaker_record("agent-1", "model-1")
+            .expect("fetch record")
+            .expect("record present");
+
+        assert_eq!(record.state, "open");
+        assert_eq!(record.failure_streak, 1);
+        assert!(record.opened_until_unix.unwrap() >= now_unix() + 3500);
+    }
+
+    #[test]
+    fn test_circuit_breaker_streak_exponential_backoff() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        store
+            .record_breaker_outcome("agent-1", "model-1", BreakerOutcome::TimedOut)
+            .expect("first timeout");
+        let r1 = store.breaker_record("agent-1", "model-1").unwrap().unwrap();
+        assert_eq!(r1.failure_streak, 1);
+
+        store
+            .record_breaker_outcome("agent-1", "model-1", BreakerOutcome::TimedOut)
+            .expect("second timeout");
+        let r2 = store.breaker_record("agent-1", "model-1").unwrap().unwrap();
+        assert_eq!(r2.failure_streak, 2);
+        // Streak 2 backoff = 60 * 2^(2-1) = 120s
+        assert!(r2.opened_until_unix.unwrap() >= now_unix() + 110);
     }
 }
