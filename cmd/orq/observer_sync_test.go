@@ -17,8 +17,11 @@ func TestObserverEventFromLedgerHasStableID(t *testing.T) {
 	if first.EventID == "" || first.EventID != second.EventID {
 		t.Fatalf("event ID is not stable: first=%q second=%q", first.EventID, second.EventID)
 	}
-	if first.Agent != event.Agent || first.Model != event.Model || first.EventType != "orq_record" {
+	if first.Agent != event.Agent || first.Model != event.Model || first.EventType != "orq_delegation" {
 		t.Fatalf("unexpected observer event: %+v", first)
+	}
+	if first.TokensIn != 0 || first.TokensOut != 0 || first.CostEstimated != 0 {
+		t.Fatalf("orq coordination events must not report model usage: %+v", first)
 	}
 }
 
