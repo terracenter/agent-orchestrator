@@ -795,6 +795,11 @@ func emitObserverRecord(event ledger.Event) {
 	if event.DurationMs > 0 {
 		meta["duration_ms"] = event.DurationMs
 	}
+	if event.TokensIn > 0 || event.TokensOut > 0 {
+		meta["reported_tokens_in"] = event.TokensIn
+		meta["reported_tokens_out"] = event.TokensOut
+		meta["telemetry_note"] = "orq coordination event only; real model usage must be emitted by the agent observer client"
+	}
 	if event.FallbackAgent != "" {
 		meta["fallback_agent"] = event.FallbackAgent
 		meta["fallback_model"] = event.FallbackModel
@@ -803,7 +808,7 @@ func emitObserverRecord(event ledger.Event) {
 		meta["notes"] = event.Notes
 	}
 	raw, _ := json.Marshal(meta)
-	obsEvent := observer.NewEvent("agent-orchestrator", event.Agent, event.Model, "orq-ledger", "orq_record", event.TokensIn, event.TokensOut, "orq record", string(raw))
+	obsEvent := observer.NewEvent("agent-orchestrator", event.Agent, event.Model, "orq-ledger", "orq_delegation", 0, 0, "orq record", string(raw))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if _, err := client.Ingest(ctx, []observer.Event{obsEvent}); err != nil {
@@ -1800,11 +1805,15 @@ func observerEventFromLedger(ev ledger.Event) observer.Event {
 	if created.IsZero() {
 		created = time.Now().UTC()
 	}
-	raw, _ := json.Marshal(map[string]string{"task": ev.Task, "status": ev.Status})
+	raw, _ := json.Marshal(map[string]string{
+		"task":           ev.Task,
+		"status":         ev.Status,
+		"telemetry_note": "orq coordination event only; real model usage must be emitted by the agent observer client",
+	})
 	seed := fmt.Sprintf("%s|%s|%s|%s|%s", created.UTC().Format(time.RFC3339Nano), ev.Task, ev.Agent, ev.Model, ev.Status)
 	sum := sha256.Sum256([]byte(seed))
 	host, _ := os.Hostname()
-	return observer.Event{EventID: "orq-ledger-" + hex.EncodeToString(sum[:])[:24], Host: host, Agent: ev.Agent, Model: ev.Model, Project: "agent-orchestrator", SessionID: "orq-ledger", EventType: "orq_record", CreatedAt: created.UTC(), SourcePath: "orq ledger", Raw: string(raw)}
+	return observer.Event{EventID: "orq-ledger-" + hex.EncodeToString(sum[:])[:24], Host: host, Agent: ev.Agent, Model: ev.Model, Project: "agent-orchestrator", SessionID: "orq-ledger", EventType: "orq_delegation", CreatedAt: created.UTC(), SourcePath: "orq ledger", Raw: string(raw)}
 }
 
 func readObserverSyncState(path string) (observerSyncState, error) {
