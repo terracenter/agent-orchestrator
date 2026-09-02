@@ -7,6 +7,7 @@ mod certify;
 mod certstore;
 mod commands;
 mod detect;
+mod discover;
 mod exec;
 mod models;
 mod policy;
@@ -29,6 +30,21 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Discover local agents/models and persist the catalog into SQLite state.
+    Discover {
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -209,6 +225,20 @@ async fn run_command(command: Commands) -> Result<()> {
         } => {
             let report =
                 commands::detect::run(commands::detect::DetectArgs { adapters_config }).await?;
+            print_json(format, &report)
+        }
+        Commands::Discover {
+            adapters_config,
+            models_config,
+            db_path,
+            format,
+        } => {
+            let report = discover::run(discover::DiscoverRequest {
+                adapters_config: adapters_config.as_deref().map(std::path::Path::new),
+                models_config: models_config.as_deref().map(std::path::Path::new),
+                state_db_path: db_path.as_deref().map(std::path::Path::new),
+            })
+            .await?;
             print_json(format, &report)
         }
         Commands::Exec {

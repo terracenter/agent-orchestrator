@@ -195,6 +195,35 @@ fn state_status_creates_temp_db_without_secrets() {
 }
 
 #[test]
+fn discover_reports_sources_and_writes_temp_state_without_secrets() {
+    let dir = std::env::temp_dir().join(format!("orq-agent-discover-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "discover",
+        "--db-path",
+        db.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"config_source\""))
+    .stdout(predicate::str::contains("\"state_source\""))
+    .stdout(predicate::str::contains("\"secrets_read\": false"))
+    .stdout(predicate::str::contains(
+        "orq-agent/config/adapters-registry.json",
+    ))
+    .stdout(predicate::str::contains(
+        "orq-agent/config/models-catalog.json",
+    ));
+
+    assert!(db.exists());
+}
+
+#[test]
 fn route_default_config_reports_documentation_without_secrets() {
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args(["route", "--task-kind", "documentation", "--format", "json"])
