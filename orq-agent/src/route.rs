@@ -2,6 +2,7 @@ use crate::adapters::{AdapterStatus, AgentDetection};
 use crate::certstore::{is_certified, is_failed, CertificateStore};
 use crate::detect;
 use crate::policy;
+use crate::state::StateStore;
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -48,6 +49,8 @@ pub struct RouteDecision {
     pub certificate_store_used: bool,
     pub certificate_store_ignored_files: usize,
     pub preferred_certificate: Option<String>,
+    pub circuit_breaker_used: bool,
+    pub circuit_breaker_filtered: usize,
     pub rationale: String,
 }
 
@@ -151,6 +154,7 @@ pub fn decide(
         config_source,
         &detected,
         None,
+        None,
     )
 }
 
@@ -161,6 +165,7 @@ pub fn decide_with_detected(
     config_source: &str,
     detected: &detect::DetectReport,
     certificate_store: Option<&CertificateStore>,
+    state_store: Option<&StateStore>,
 ) -> Result<RouteDecision> {
     let rule = config
         .routes
@@ -173,6 +178,7 @@ pub fn decide_with_detected(
         &detected.agents,
         allow_gated,
         certificate_store,
+        state_store,
     );
 
     Ok(RouteDecision {
@@ -196,6 +202,8 @@ pub fn decide_with_detected(
             .map(CertificateStore::ignored_files)
             .unwrap_or(0),
         preferred_certificate: selected.preferred_certificate,
+        circuit_breaker_used: state_store.is_some(),
+        circuit_breaker_filtered: selected.circuit_breaker_filtered,
         rationale: rule.rationale.clone(),
     })
 }
@@ -207,6 +215,7 @@ struct SelectedRoute {
     requires_confirmation: bool,
     policy_reason: String,
     preferred_certificate: Option<String>,
+    circuit_breaker_filtered: usize,
 }
 
 fn select_route(
@@ -215,6 +224,7 @@ fn select_route(
     detected: &[AgentDetection],
     allow_gated: bool,
     certificate_store: Option<&CertificateStore>,
+    state_store: Option<&StateStore>,
 ) -> SelectedRoute {
     let candidates = [
         candidate_from_parts(&rule.default_agent, &rule.default_model, false),
@@ -222,7 +232,21 @@ fn select_route(
         candidate_from_expr(&rule.escalate_to, true),
     ];
 
+    let mut circuit_breaker_filtered = 0usize;
     for candidate in candidates.into_iter().flatten() {
+        if let Some(store) = state_store {
+            match store.breaker_allows_model(&candidate.agent, &candidate.model) {
+                Ok(true) => {}
+                Ok(false) => {
+                    circuit_breaker_filtered += 1;
+                    continue;
+                }
+                Err(_) => {
+                    circuit_breaker_filtered += 1;
+                    continue;
+                }
+            }
+        }
         if let Some(certificate) = certificate_store
             .and_then(|store| store.lookup(&candidate.agent, &candidate.model, &rule.task_kind))
         {
@@ -237,7 +261,10 @@ fn select_route(
                     allow_gated,
                     Some(certificate.certificate_id.clone()),
                 ) {
-                    return selected;
+                    return SelectedRoute {
+                        circuit_breaker_filtered,
+                        ..selected
+                    };
                 }
                 continue;
             }
@@ -246,7 +273,10 @@ fn select_route(
         if let Some(selected) =
             select_allowed_candidate(candidate, approval_patterns, detected, allow_gated, None)
         {
-            return selected;
+            return SelectedRoute {
+                circuit_breaker_filtered,
+                ..selected
+            };
         }
     }
 
@@ -258,6 +288,7 @@ fn select_route(
         policy_reason: "no detected allowed route; returning default for explicit human review"
             .to_string(),
         preferred_certificate: None,
+        circuit_breaker_filtered,
     }
 }
 
@@ -297,6 +328,7 @@ fn select_allowed_candidate(
         requires_confirmation,
         policy_reason,
         preferred_certificate,
+        circuit_breaker_filtered: 0,
     })
 }
 
@@ -349,6 +381,7 @@ mod tests {
     use super::{decide, decide_with_detected, load_default_config, parse_config};
     use crate::adapters::{AdapterStatus, AgentDetection};
     use crate::detect::DetectReport;
+    use crate::state::BreakerOutcome;
 
     #[test]
     fn default_config_loads_documentation_route() {
@@ -402,9 +435,16 @@ mod tests {
             }],
             secrets_read: false,
         };
-        let decision =
-            decide_with_detected(&config, &route.task_kind, false, "test", &detected, None)
-                .unwrap();
+        let decision = decide_with_detected(
+            &config,
+            &route.task_kind,
+            false,
+            "test",
+            &detected,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(decision.selected_agent, route.default_agent);
         assert_eq!(decision.selected_model, route.default_model);
         assert!(!decision.requires_confirmation);
@@ -416,5 +456,194 @@ mod tests {
         let config = load_default_config().unwrap();
         let err = decide(&config, "unknown_kind", false, "test").unwrap_err();
         assert!(err.to_string().contains("not present in routing config"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_timeout_skips_default_model_and_uses_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "code",
+                    "default_agent": "primary-agent",
+                    "default_model": "primary-model",
+                    "cheap_sufficient": "fallback-agent/fallback-model",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing fallback under breaker cooldown"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "primary-agent".to_string(),
+                    binary: "primary-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("primary-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "fallback-agent".to_string(),
+                    binary: "fallback-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("fallback-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        store
+            .record_breaker_outcome("primary-agent", "primary-model", BreakerOutcome::TimedOut)
+            .unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "code",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "fallback-agent");
+        assert_eq!(decision.selected_model, "fallback-model");
+        assert!(decision.fallback_applied);
+        assert!(decision.circuit_breaker_used);
+        assert_eq!(decision.circuit_breaker_filtered, 1);
+    }
+
+    #[test]
+    fn test_circuit_breaker_allow_gated_true_still_skips_gated_model_in_cooldown() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["gated-model"],
+                "routes": [{
+                    "task_kind": "security",
+                    "default_agent": "gated-agent",
+                    "default_model": "gated-model",
+                    "cheap_sufficient": "healthy-agent/healthy-model",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing gated agent with breaker cooldown"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "gated-agent".to_string(),
+                    binary: "gated-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("gated-runner".to_string()),
+                    adapter: AdapterStatus::Gated,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "healthy-agent".to_string(),
+                    binary: "healthy-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("healthy-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        store
+            .record_breaker_outcome("gated-agent", "gated-model", BreakerOutcome::TimedOut)
+            .unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "security",
+            true,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "healthy-agent");
+        assert_eq!(decision.selected_model, "healthy-model");
+        assert!(decision.fallback_applied);
+        assert_eq!(decision.circuit_breaker_filtered, 1);
+    }
+
+    #[test]
+    fn test_circuit_breaker_cooldown_expired_allows_default_model_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "code",
+                    "default_agent": "primary-agent",
+                    "default_model": "primary-model",
+                    "cheap_sufficient": "fallback-agent/fallback-model",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing expired cooldown"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![AgentDetection {
+                name: "primary-agent".to_string(),
+                binary: "primary-runner".to_string(),
+                detected: true,
+                binary_path: Some("primary-runner".to_string()),
+                adapter: AdapterStatus::Available,
+                secrets_read: false,
+            }],
+            secrets_read: false,
+        };
+
+        store
+            .force_open_breaker_until("primary-agent", "primary-model", 100)
+            .unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "code",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "primary-agent");
+        assert_eq!(decision.selected_model, "primary-model");
+        assert!(!decision.fallback_applied);
+        assert_eq!(decision.circuit_breaker_filtered, 0);
     }
 }
