@@ -1,4 +1,5 @@
-use crate::certify::{receipt_sha256, Certificate, CertificateStatus};
+use crate::certify::{Certificate, CertificateStatus};
+use crate::receipt::receipt_sha256;
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use std::collections::HashMap;
 use std::path::Path;
@@ -112,8 +113,8 @@ pub fn is_failed(certificate: &Certificate) -> bool {
 #[cfg(test)]
 mod tests {
     use super::CertificateStore;
-    use crate::certify::{receipt_sha256, Certificate, CertificateStatus};
-    use crate::receipt::{ExecReceipt, ExecStatus};
+    use crate::certify::{Certificate, CertificateStatus};
+    use crate::receipt::{receipt_sha256, ExecReceipt, ExecStatus};
     use std::fs;
 
     #[test]
