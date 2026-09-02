@@ -13,6 +13,7 @@ mod policy;
 mod receipt;
 mod route;
 mod smoke;
+mod state;
 
 #[derive(Debug, Parser)]
 #[command(about = "Real local dispatcher for Orq agents")]
@@ -131,6 +132,11 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
+    /// Manage the local SQLite state store.
+    State {
+        #[command(subcommand)]
+        command: StateCommand,
+    },
     /// Execute a bounded real smoke task and emit a receipt.
     Smoke {
         /// Agent adapter name.
@@ -163,6 +169,28 @@ enum Commands {
 #[derive(Clone, Debug, ValueEnum)]
 enum OutputFormat {
     Json,
+}
+
+#[derive(Debug, Subcommand)]
+enum StateCommand {
+    /// Apply SQLite state migrations.
+    Migrate {
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Report SQLite state status.
+    Status {
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
 #[tokio::main]
@@ -273,6 +301,15 @@ async fn run_command(command: Commands) -> Result<()> {
             .await?;
             print_json(format, &certificate)
         }
+        Commands::State { command } => match command {
+            StateCommand::Migrate { db_path, format }
+            | StateCommand::Status { db_path, format } => {
+                let path = db_path.as_deref().map(std::path::Path::new);
+                let store = state::open(path)?;
+                let status = store.status()?;
+                print_json(format, &status)
+            }
+        },
         Commands::Smoke {
             agent,
             model,
