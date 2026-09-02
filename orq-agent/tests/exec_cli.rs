@@ -172,6 +172,29 @@ fn orq_binary_alias_supports_models_command() {
 }
 
 #[test]
+fn state_status_creates_temp_db_without_secrets() {
+    let dir = std::env::temp_dir().join(format!("orq-agent-state-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "state",
+        "status",
+        "--db-path",
+        db.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"schema_version\": 1"))
+    .stdout(predicate::str::contains("\"secrets_read\": false"))
+    .stdout(predicate::str::contains("agents"))
+    .stdout(predicate::str::contains("models"));
+}
+
+#[test]
 fn route_default_config_reports_documentation_without_secrets() {
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args(["route", "--task-kind", "documentation", "--format", "json"])
@@ -179,7 +202,9 @@ fn route_default_config_reports_documentation_without_secrets() {
         .success()
         .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains("orq-agent/config/routing-matrix.json"));
+        .stdout(predicate::str::contains(
+            "orq-agent/config/routing-matrix.json",
+        ));
 }
 
 #[test]
