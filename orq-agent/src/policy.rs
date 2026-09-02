@@ -3,8 +3,9 @@ use color_eyre::eyre::{eyre, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-const DEFAULT_POLICY_CONFIG: &str = include_str!("../config/policy.json");
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
+const DEFAULT_POLICY_CONFIG_PATH: &str = "config/policy.json";
+const POLICY_CONFIG_ENV: &str = "ORQ_POLICY_CONFIG";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PolicyConfig {
@@ -20,23 +21,33 @@ pub struct PolicyDecision {
     pub reason: String,
 }
 
+#[allow(dead_code)]
 pub fn default_config() -> Result<PolicyConfig> {
-    parse_config(DEFAULT_POLICY_CONFIG)
+    let path = default_config_path(POLICY_CONFIG_ENV, DEFAULT_POLICY_CONFIG_PATH);
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
+    parse_config(&content)
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<(PolicyConfig, String)> {
-    match path {
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
-            Ok((parse_config(&content)?, path.display().to_string()))
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(POLICY_CONFIG_ENV, DEFAULT_POLICY_CONFIG_PATH);
+            path_buf.as_path()
         }
-        None => Ok((
-            default_config()?,
-            "embedded:orq-agent/config/policy.json".to_string(),
-        )),
-    }
+    };
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
+    Ok((parse_config(&content)?, path.display().to_string()))
+}
+
+fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
+    std::env::var_os(env_name)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
 }
 
 pub fn parse_config(content: &str) -> Result<PolicyConfig> {

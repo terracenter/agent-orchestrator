@@ -407,7 +407,11 @@ func cmdAudit(args []string) error {
 		if len(remaining) > 0 {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 		}
-		report := audit.AuditModels()
+		profiles, err := agentpkg.LoadProfiles()
+		if err != nil {
+			return err
+		}
+		report := audit.AuditModels(profiles)
 		if format == "json" {
 			return json.NewEncoder(os.Stdout).Encode(report)
 		}
@@ -969,10 +973,14 @@ func cmdAgents(args []string) error {
 	if len(remaining) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 	}
-	if format == "json" {
-		return json.NewEncoder(os.Stdout).Encode(agentpkg.DefaultProfiles)
+	profiles, err := agentpkg.LoadProfiles()
+	if err != nil {
+		return err
 	}
-	for _, profile := range agentpkg.DefaultProfiles {
+	if format == "json" {
+		return json.NewEncoder(os.Stdout).Encode(profiles)
+	}
+	for _, profile := range profiles {
 		fmt.Printf("agent=%s provider=%s model=%s cost=%d verified=%t review_only=%t use_for=%s\n", profile.Agent, profile.Provider, profile.Model, profile.CostLevel, profile.Verified, profile.ReviewOnly, profile.UseFor)
 	}
 	return nil
@@ -986,7 +994,11 @@ func cmdModels(args []string) error {
 	if len(remaining) != 1 || remaining[0] != "snapshot" {
 		return fmt.Errorf("usage: orq models snapshot [--format json]")
 	}
-	snapshots := agentpkg.CapabilitySnapshots(time.Now().UTC())
+	profiles, err := agentpkg.LoadProfiles()
+	if err != nil {
+		return err
+	}
+	snapshots := agentpkg.CapabilitySnapshots(profiles, time.Now().UTC())
 	if format == "json" {
 		return json.NewEncoder(os.Stdout).Encode(snapshots)
 	}
@@ -2159,7 +2171,11 @@ func cmdTask(args []string) error {
 		if len(rem) != 1 {
 			return fmt.Errorf("task id is required")
 		}
-		profile, err := agentpkg.Find(agent, model)
+		profiles, err := agentpkg.LoadProfiles()
+		if err != nil {
+			return err
+		}
+		profile, err := agentpkg.Find(profiles, agent, model)
 		if err != nil {
 			return err
 		}

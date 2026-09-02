@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
-const DEFAULT_ROUTING_CONFIG: &str = include_str!("../config/routing-matrix.json");
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
+const DEFAULT_ROUTING_CONFIG_PATH: &str = "config/routing-matrix.json";
+const ROUTING_CONFIG_ENV: &str = "ORQ_ROUTING_CONFIG";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RoutingConfig {
@@ -50,23 +51,33 @@ pub struct RouteDecision {
     pub rationale: String,
 }
 
+#[allow(dead_code)]
 pub fn load_default_config() -> Result<RoutingConfig> {
-    parse_config(DEFAULT_ROUTING_CONFIG)
+    let path = default_config_path(ROUTING_CONFIG_ENV, DEFAULT_ROUTING_CONFIG_PATH);
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading routing config {}", path.display()))?;
+    parse_config(&content)
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<(RoutingConfig, String)> {
-    match path {
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading routing config {}", path.display()))?;
-            Ok((parse_config(&content)?, path.display().to_string()))
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(ROUTING_CONFIG_ENV, DEFAULT_ROUTING_CONFIG_PATH);
+            path_buf.as_path()
         }
-        None => Ok((
-            load_default_config()?,
-            "embedded:orq-agent/config/routing-matrix.json".to_string(),
-        )),
-    }
+    };
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .wrap_err_with(|| format!("reading routing config {}", path.display()))?;
+    Ok((parse_config(&content)?, path.display().to_string()))
+}
+
+fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
+    std::env::var_os(env_name)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
 }
 
 pub fn parse_config(content: &str) -> Result<RoutingConfig> {
@@ -132,7 +143,7 @@ pub fn decide(
     allow_gated: bool,
     config_source: &str,
 ) -> Result<RouteDecision> {
-    let detected = detect::detect_agents();
+    let detected = detect::detect_agents()?;
     decide_with_detected(
         config,
         task_kind,
@@ -335,7 +346,9 @@ fn model_needs_approval(model: &str, approval_patterns: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{decide, load_default_config, parse_config};
+    use super::{decide, decide_with_detected, load_default_config, parse_config};
+    use crate::adapters::{AdapterStatus, AgentDetection};
+    use crate::detect::DetectReport;
 
     #[test]
     fn default_config_loads_documentation_route() {
@@ -370,10 +383,31 @@ mod tests {
     }
 
     #[test]
-    fn architecture_requires_confirmation_from_config() {
+    fn configured_architecture_default_does_not_require_gated_approval() {
         let config = load_default_config().unwrap();
-        let decision = decide(&config, "architecture", false, "test").unwrap();
-        assert!(decision.requires_confirmation);
+        let route = config
+            .routes
+            .iter()
+            .find(|route| route.task_kind == "architecture")
+            .unwrap();
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![AgentDetection {
+                name: route.default_agent.clone(),
+                binary: "test-runner".to_string(),
+                detected: true,
+                binary_path: Some("test-runner".to_string()),
+                adapter: AdapterStatus::Available,
+                secrets_read: false,
+            }],
+            secrets_read: false,
+        };
+        let decision =
+            decide_with_detected(&config, &route.task_kind, false, "test", &detected, None)
+                .unwrap();
+        assert_eq!(decision.selected_agent, route.default_agent);
+        assert_eq!(decision.selected_model, route.default_model);
+        assert!(!decision.requires_confirmation);
         assert_eq!(decision.secrets_read, false);
     }
 

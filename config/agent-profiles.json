@@ -1,0 +1,200 @@
+[
+  {
+    "agent": "pi",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "cost_level": 2,
+    "use_for": "orquestacion principal y sintesis de decisiones",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "pi",
+    "provider": "openai",
+    "model": "cheap-or-fast",
+    "cost_level": 1,
+    "use_for": "alias de menor costo suficiente para tareas mecanicas/documentales",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "nvidia-api",
+    "provider": "nvidia",
+    "model": "openai/gpt-oss-20b",
+    "cost_level": 0,
+    "use_for": "smoke tests, clasificacion barata y tareas mecanicas con API NVIDIA",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "nvidia-api",
+    "provider": "nvidia",
+    "model": "openai/gpt-oss-120b",
+    "cost_level": 0,
+    "use_for": "validacion barata y razonamiento hospedado con API NVIDIA",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "pi",
+    "provider": "nvidia",
+    "model": "free-or-low-cost",
+    "cost_level": 0,
+    "use_for": "tareas mecanicas, resumen y clasificacion cuando el provider este disponible",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "claude-3-5-haiku-20241022",
+    "cost_level": 1,
+    "use_for": "tareas mecanicas con instrucciones cerradas cuando se quiere usar Claude barato; modelo exacto Anthropic",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "haiku",
+    "cost_level": 1,
+    "use_for": "alias humano; no usar en validaciones criticas",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "agy",
+    "provider": "google",
+    "model": "gemini-3.5-flash-low",
+    "cost_level": 1,
+    "use_for": "tareas mecanicas, clasificacion y validaciones baratas",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "agy",
+    "provider": "google",
+    "model": "gemini-3.5-flash-medium",
+    "cost_level": 1,
+    "use_for": "tareas rapidas, resumenes y documentacion",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "agy",
+    "provider": "google",
+    "model": "gemini-3.7-flash-high",
+    "cost_level": 1,
+    "use_for": "implementacion de codigo y analisis tecnico medio",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "agy",
+    "provider": "google",
+    "model": "gemini-3.1-pro-low",
+    "cost_level": 2,
+    "use_for": "analisis tecnico fuerte y refutacion antes de escalar a Claude",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "agy",
+    "provider": "open-model",
+    "model": "gpt-oss-120b-medium",
+    "cost_level": 0,
+    "use_for": "validacion barata de prompts, resumenes y tareas mecanicas cuando AGY lo expone",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "agy",
+    "provider": "nvidia",
+    "model": "free-or-low-cost",
+    "cost_level": 0,
+    "use_for": "tareas mecanicas y validaciones baratas si AGY lo expone",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "qwen-code",
+    "provider": "bailian",
+    "model": "qwen3.8-max",
+    "cost_level": 1,
+    "use_for": "codigo, busqueda en repos, shell/git/docker y tareas tecnicas medianas bajo plan Standard reportado por runtime",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "qwen-code",
+    "provider": "bailian",
+    "model": "qwen3.5",
+    "cost_level": 1,
+    "use_for": "modelo disponible reportado por Qwen Code; validar empiricamente antes de asignacion critica",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "qwen-code",
+    "provider": "bailian",
+    "model": "qwen3.6",
+    "cost_level": 1,
+    "use_for": "modelo disponible reportado por Qwen Code; validar empiricamente antes de asignacion critica",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "qwen-code",
+    "provider": "bailian",
+    "model": "qwen3.7-plus",
+    "cost_level": 1,
+    "use_for": "modelo disponible reportado por Qwen Code; validar empiricamente antes de asignacion critica",
+    "review_only": false,
+    "verified": false
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5-20250929",
+    "cost_level": 3,
+    "use_for": "codigo, revision critica, seguridad, bloqueos y refutacion de decisiones; modelo exacto Anthropic",
+    "review_only": true,
+    "verified": true
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "sonnet",
+    "cost_level": 3,
+    "use_for": "alias humano; no usar en validaciones criticas",
+    "review_only": true,
+    "verified": true
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "claude-opus-4-1-20250805",
+    "cost_level": 4,
+    "use_for": "arquitectura compleja, auditoria critica o decision mayor; modelo exacto Anthropic",
+    "review_only": true,
+    "verified": true
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "opus",
+    "cost_level": 4,
+    "use_for": "alias humano; no usar en validaciones criticas",
+    "review_only": true,
+    "verified": true
+  },
+  {
+    "agent": "claude-code",
+    "provider": "anthropic",
+    "model": "fable",
+    "cost_level": 2,
+    "use_for": "modelo Claude pendiente de clasificar; usar solo si la CLI lo expone y hay confirmacion operativa",
+    "review_only": true,
+    "verified": false
+  }
+]

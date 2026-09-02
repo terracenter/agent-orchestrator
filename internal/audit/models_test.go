@@ -1,9 +1,18 @@
 package audit
 
-import "testing"
+import (
+	"testing"
+
+	agentpkg "github.com/terracenter/agent-orchestrator/internal/agent"
+)
 
 func TestAuditModelsMarksUnverifiedNotAssignable(t *testing.T) {
-	report := AuditModels()
+	profiles := []agentpkg.Profile{
+		{Agent: "pi", Provider: "openai", Model: "gpt-5.5", CostLevel: 2, UseFor: "orquestacion", Verified: true},
+		{Agent: "agy", Provider: "google", Model: "gemini-3.5-flash-low", CostLevel: 1, UseFor: "test", Verified: false},
+		{Agent: "claude-code", Provider: "anthropic", Model: "claude-sonnet", CostLevel: 3, UseFor: "review", ReviewOnly: true, Verified: true},
+	}
+	report := AuditModels(profiles)
 	var sawUnverified bool
 	for _, model := range report.Models {
 		if !model.Verified {

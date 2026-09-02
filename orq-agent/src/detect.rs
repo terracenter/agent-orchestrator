@@ -1,4 +1,5 @@
 use crate::adapters::{adapters_from_registry, known_adapters, AdaptersRegistry, AgentDetection};
+use color_eyre::eyre::Result;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -9,17 +10,17 @@ pub struct DetectReport {
 }
 
 #[allow(dead_code)]
-pub fn detect_agents() -> DetectReport {
-    let agents = known_adapters()
+pub fn detect_agents() -> Result<DetectReport> {
+    let agents = known_adapters()?
         .into_iter()
         .map(|adapter| adapter.detect())
         .collect();
 
-    DetectReport {
+    Ok(DetectReport {
         schema_version: 1,
         agents,
         secrets_read: false,
-    }
+    })
 }
 
 pub fn detect_agents_from_registry(registry: &AdaptersRegistry) -> DetectReport {
@@ -41,7 +42,7 @@ mod tests {
 
     #[test]
     fn detect_report_never_reads_secrets() {
-        let report = detect_agents();
+        let report = detect_agents().unwrap();
         assert!(!report.secrets_read);
     }
 }

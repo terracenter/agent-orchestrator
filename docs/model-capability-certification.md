@@ -125,11 +125,43 @@ La certificación debe basarse en:
 - `orq route` puede explicar por qué eligió un agente/modelo usando evidencia previa.
 - Toda nueva idea de routing/policy queda registrada como doc, issue, ADR o receipt.
 
+## Pipeline de certificación: fuentes, snapshots y persistencia
+
+El catálogo de agentes/modelos se alimenta de dos capas: catálogo estático versionado (`orq-agent/config/models-catalog.json`) y discovery runtime (`orq-agent models --agent <agent> --format json`). El catálogo declara candidatos; discovery confirma disponibilidad real sin leer secretos. Cuando ambas fuentes divergen, el modelo queda como `candidate`, `deprecated_or_quarantine` o `needs_review` hasta smoke/certify.
+
+Cada fuente externa usada para añadir o modificar un modelo debe conservar snapshot auditable: URI/origen, fecha, `sha256`, versión de formato y extracto sanitizado. Los extractos no guardan secretos, prompts completos ni stdout/stderr crudo; solo estado, exit code, duración, marcadores operativos, errores acotados y rutas de receipts.
+
+Antes de entrar en routing automático, todo par `agent/model` pasa por *proposal gate*:
+
+1. `orq-agent smoke` genera receipt mínimo.
+2. `orq-agent certify --task-kind <kind> --receipt <receipt.json>` vincula evidencia con un tipo de tarea.
+3. Si el agente/modelo coincide con patrones gated (`sonnet`, `opus`, `claude-code` u otros definidos en política), queda bloqueado hasta aprobación humana explícita.
+4. Solo veredictos aprobados alimentan routing certificado.
+
+El circuit-breaker/backoff forma parte de la certificación. Un timeout o fallo repetido abre circuito para ese par agente/modelo; mientras esté abierto, `orq route` debe omitirlo aunque aparezca en catálogo. La reapertura requiere smoke/certify nuevo y receipt exitoso. Ejemplos actuales de cuarentena: `qwen-code/qwen3.8-max` para deep reasoning, `qwen-code/deepseek-v4-flash-0731` por timeout, y `openclaw/default` por adapter roto.
+
+La persistencia es obligatoria y múltiple:
+
+- **Receipts JSON**: evidencia primaria y transferible.
+- **Engram/memoria**: aprendizaje operacional entre sesiones.
+- **Vault Obsidian**: decisiones humanas, notas y contexto durable.
+- **`vg`/Kuzu**: grafo `agent -> model -> task_kind -> receipt -> snapshot` para consultas relacionales.
+- **Roadmap/docs/config**: contrato público y configuración ejecutable.
+
+No basta con que la decisión exista en el chat. Antes de cambiar routing se consulta Engram/memoria, Vault/`vg` y receipts; después de validar se sincroniza a Engram/memoria, Vault, Roadmap/docs/config y `vg`.
+
 ## Estado inicial conocido
 
-- `qwen-code/qwen3.8-max`: usable por ejecución directa; smoke real exitoso en `/tmp/orq-agent-smoke-qwen-real-v4.json`, pendiente integrar al registry Orq.
-- `claude-haiku-4-5`: usable para revisión barata; reemplaza rutas viejas `claude-3-5-haiku-*`.
+- `qwen-code/qwen3.6-flash`: validado como candidato medio para documentación, mecánica simple y `doc_watcher` corto.
+- `agy/gemini-3.6-flash-medium`: validado como default fuerte para `simple_review`, `short_text_review` y ejecución real acotada.
+- `agy/gemini-3.1-pro-high`: validado como default para arquitectura/deep reasoning mientras Claude esté gated.
+- `pi/nvidia/openai/gpt-oss-20b`: validado solo para juez corto y texto breve; no usar en tareas largas.
+- `qwen-code/qwen3.8-flash`: ejecuta tareas mecánicas, pero requiere alineación de catálogo/certificación antes de promoverlo.
+- `qwen-code/qwen3.8-max`: en cuarentena para deep reasoning por timeout reciente; no rutear automáticamente.
+- `qwen-code/deepseek-v4-flash-0731`: en cuarentena por timeout reciente.
+- `qwen-code/glm-5.2`: requiere certificación adicional; no promover como estable para readonly.
+- `claude-haiku-4-5`: usable solo con aprobación explícita y `--allow-gated`; reemplaza rutas viejas `claude-3-5-haiku-*`.
 - `claude-3-5-haiku-20241022` y `claude-3-5-haiku-latest`: deprecated/EOL, no deben rutearse automáticamente.
 - `hermes`: presente localmente, pero `deprecated_or_quarantine`.
-- `openclaw`: presente como gateway Node; pendiente validar costo/cuenta Claude Pro.
+- `openclaw/default`: bloqueado hasta corregir adapter; receipt reciente falló con `Unknown command: openclaw default`.
 - `pi`: presente; NVIDIA se mantiene bajo Pi por ahora.

@@ -19,9 +19,9 @@ type ModelStatus struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-func AuditModels() ModelAudit {
+func AuditModels(profiles []agentpkg.Profile) ModelAudit {
 	report := ModelAudit{}
-	for _, profile := range agentpkg.DefaultProfiles {
+	for _, profile := range profiles {
 		status := ModelStatus{Agent: profile.Agent, Provider: profile.Provider, Model: profile.Model, CostLevel: profile.CostLevel, UseFor: profile.UseFor, ReviewOnly: profile.ReviewOnly, Verified: profile.Verified, Assignable: profile.Verified && !profile.ReviewOnly}
 		if !profile.Verified {
 			status.Reason = "modelo no verificado; no asignable"

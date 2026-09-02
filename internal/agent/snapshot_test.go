@@ -7,9 +7,14 @@ import (
 
 func TestCapabilitySnapshotsPreserveProfileIdentityAndEvidence(t *testing.T) {
 	capturedAt := time.Date(2026, 8, 31, 16, 0, 0, 0, time.UTC)
-	snapshots := CapabilitySnapshots(capturedAt)
-	if len(snapshots) != len(DefaultProfiles) {
-		t.Fatalf("expected %d snapshots, got %d", len(DefaultProfiles), len(snapshots))
+	testProfiles := []Profile{
+		{Agent: "pi", Provider: "openai", Model: "gpt-5.5", CostLevel: 2, UseFor: "orquestacion", Verified: true},
+		{Agent: "qwen-code", Provider: "bailian", Model: "qwen3.8-max", CostLevel: 1, UseFor: "codigo", Verified: true},
+	}
+
+	snapshots := CapabilitySnapshots(testProfiles, capturedAt)
+	if len(snapshots) != len(testProfiles) {
+		t.Fatalf("expected %d snapshots, got %d", len(testProfiles), len(snapshots))
 	}
 
 	var foundQwen bool
@@ -22,6 +27,9 @@ func TestCapabilitySnapshotsPreserveProfileIdentityAndEvidence(t *testing.T) {
 		}
 		if len(snapshot.Evidence) == 0 {
 			t.Fatalf("expected evidence for %+v", snapshot)
+		}
+		if snapshot.Evidence[0].Source != "config/agent-profiles.json" {
+			t.Fatalf("expected evidence source config/agent-profiles.json, got %s", snapshot.Evidence[0].Source)
 		}
 		if snapshot.SecurityNote == "" {
 			t.Fatalf("expected security note for %+v", snapshot)
