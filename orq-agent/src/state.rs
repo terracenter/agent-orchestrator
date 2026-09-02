@@ -159,6 +159,10 @@ impl StateStore {
         Ok(())
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     pub fn status(&self) -> Result<StateStatus> {
         Ok(StateStatus {
             path: self.path.display().to_string(),
@@ -181,6 +185,28 @@ impl StateStore {
             params![agent.agent_id, agent.display_name, agent.adapter_status, agent.metadata_json],
         ).map_err(|source| StoreError::Sqlite { context: "upsert agent", source })?;
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn find_agent(&self, agent_id: &str) -> Result<Option<AgentRecord>> {
+        self.conn
+            .query_row(
+                "SELECT agent_id, display_name, adapter_status, metadata_json FROM agents WHERE agent_id=?1",
+                params![agent_id],
+                |row| {
+                    Ok(AgentRecord {
+                        agent_id: row.get(0)?,
+                        display_name: row.get(1)?,
+                        adapter_status: row.get(2)?,
+                        metadata_json: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|source| StoreError::Sqlite {
+                context: "find agent",
+                source,
+            })
     }
 
     #[allow(dead_code)]
