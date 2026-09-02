@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-const DEFAULT_MODELS_CATALOG: &str = include_str!("../config/models-catalog.json");
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
+const DEFAULT_MODELS_CATALOG_PATH: &str = "config/models-catalog.json";
+const MODELS_CATALOG_ENV: &str = "ORQ_MODELS_CATALOG";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ModelsCatalog {
@@ -40,23 +41,33 @@ pub enum DiscoveryStatus {
     Unsupported,
 }
 
+#[allow(dead_code)]
 pub fn default_catalog() -> Result<ModelsCatalog> {
-    parse_catalog(DEFAULT_MODELS_CATALOG)
+    let path = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading models catalog {}", path.display()))?;
+    parse_catalog(&content)
 }
 
 pub async fn load_catalog(path: Option<&Path>) -> Result<(ModelsCatalog, String)> {
-    match path {
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading models catalog {}", path.display()))?;
-            Ok((parse_catalog(&content)?, path.display().to_string()))
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf.as_path()
         }
-        None => Ok((
-            default_catalog()?,
-            "embedded:orq-agent/config/models-catalog.json".to_string(),
-        )),
-    }
+    };
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .wrap_err_with(|| format!("reading models catalog {}", path.display()))?;
+    Ok((parse_catalog(&content)?, path.display().to_string()))
+}
+
+fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
+    std::env::var_os(env_name)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
 }
 
 pub fn parse_catalog(content: &str) -> Result<ModelsCatalog> {

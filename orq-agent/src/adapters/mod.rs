@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
-const DEFAULT_ADAPTERS_REGISTRY: &str = include_str!("../../config/adapters-registry.json");
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
+const DEFAULT_ADAPTERS_REGISTRY_PATH: &str = "config/adapters-registry.json";
+const ADAPTERS_REGISTRY_ENV: &str = "ORQ_ADAPTERS_REGISTRY";
 
 pub trait AgentAdapter: Send + Sync {
     fn name(&self) -> &str;
@@ -106,22 +107,31 @@ impl AgentAdapter for ConfiguredAdapter {
 }
 
 pub fn default_registry() -> Result<AdaptersRegistry> {
-    parse_registry(DEFAULT_ADAPTERS_REGISTRY)
+    let path = default_config_path(ADAPTERS_REGISTRY_ENV, DEFAULT_ADAPTERS_REGISTRY_PATH);
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
+    parse_registry(&content)
 }
 
 pub async fn load_registry(path: Option<&Path>) -> Result<(AdaptersRegistry, String)> {
-    match path {
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
-            Ok((parse_registry(&content)?, path.display().to_string()))
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(ADAPTERS_REGISTRY_ENV, DEFAULT_ADAPTERS_REGISTRY_PATH);
+            path_buf.as_path()
         }
-        None => Ok((
-            default_registry()?,
-            "embedded:orq-agent/config/adapters-registry.json".to_string(),
-        )),
-    }
+    };
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
+    Ok((parse_registry(&content)?, path.display().to_string()))
+}
+
+fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
+    std::env::var_os(env_name)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
 }
 
 pub fn parse_registry(content: &str) -> Result<AdaptersRegistry> {
@@ -177,9 +187,9 @@ fn validate_registry(registry: &AdaptersRegistry) -> Result<()> {
 }
 
 #[allow(dead_code)]
-pub fn known_adapters() -> Vec<Box<dyn AgentAdapter>> {
-    let registry = default_registry().expect("embedded adapters registry must be valid");
-    adapters_from_registry(&registry)
+pub fn known_adapters() -> Result<Vec<Box<dyn AgentAdapter>>> {
+    let registry = default_registry()?;
+    Ok(adapters_from_registry(&registry))
 }
 
 pub fn adapters_from_registry(registry: &AdaptersRegistry) -> Vec<Box<dyn AgentAdapter>> {

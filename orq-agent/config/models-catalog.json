@@ -17,6 +17,14 @@
     ],
     "hermes": [],
     "openclaw": [],
-    "agy": []
+    "agy": [
+      {"id":"gemini-3.6-flash-medium","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipts for simple_review, short_text_review, real_tool_execution proposals and documentation synthesis"},
+      {"id":"gemini-3.1-pro-high","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipts for architecture, deep_reasoning and bounded large_refactor while Claude remains gated"},
+      {"id":"gemini-3.7-flash-high","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipts for debugging, sysadmin_linux, write_tests and database review fit; referenced by routing-matrix for practical non-gated defaults"},
+      {"id":"gemini-3.6-flash-high","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt for small_refactor fit"},
+      {"id":"gemini-3.6-flash-low","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt as cheap documentation replacement for invalid gemini-3.5-flash-low alias"},
+      {"id":"gemini-3.7-flash-low","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt for cheap doc_watcher classification"},
+      {"id":"gemini-3.7-flash-medium","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt for monorepo_long_context readonly planning and doc_watcher escalation"}
+    ]
   }
 }

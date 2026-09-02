@@ -25,9 +25,9 @@ type CapabilitySource struct {
 	Description string `json:"description"`
 }
 
-func CapabilitySnapshots(capturedAt time.Time) []CapabilitySnapshot {
-	snapshots := make([]CapabilitySnapshot, 0, len(DefaultProfiles))
-	for _, profile := range DefaultProfiles {
+func CapabilitySnapshots(profiles []Profile, capturedAt time.Time) []CapabilitySnapshot {
+	snapshots := make([]CapabilitySnapshot, 0, len(profiles))
+	for _, profile := range profiles {
 		snapshots = append(snapshots, CapabilitySnapshot{
 			Agent:        profile.Agent,
 			Provider:     profile.Provider,
@@ -85,7 +85,7 @@ func modesFor(profile Profile) []string {
 }
 
 func evidenceFor(profile Profile) []CapabilitySource {
-	evidence := []CapabilitySource{{Kind: "registry", Source: "internal/agent/registry.go", Description: "perfil operativo declarado en Orq"}}
+	evidence := []CapabilitySource{{Kind: "registry", Source: "config/agent-profiles.json", Description: "perfil operativo declarado en Orq"}}
 	if profile.Agent == "qwen-code" {
 		evidence = append(evidence, CapabilitySource{Kind: "empirical", Source: "github issue #81", Description: "primer runtime Qwen Code reportado por usuario; qwen3.8-max verificado, otros modelos pendientes"})
 	}
