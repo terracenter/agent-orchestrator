@@ -1,10 +1,9 @@
 use crate::adapters::AdaptersRegistry;
 use crate::policy::PolicyConfig;
-use crate::receipt::{now_unix, ExecReceipt, ExecStatus};
+use crate::receipt::{now_unix, receipt_sha256, ExecReceipt, ExecStatus};
 use crate::smoke;
 use color_eyre::eyre::{Result, WrapErr};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 
 #[derive(Debug)]
@@ -62,12 +61,9 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
         safe_id(&request.model),
         safe_id(&request.task_kind)
     );
-    let status = if receipt.status == ExecStatus::Succeeded && !receipt.secrets_read {
-        CertificateStatus::Certified
-    } else {
-        CertificateStatus::Failed
-    };
+    let status = certificate_status_for_receipt(&receipt);
     let output_path = request.output.clone();
+    let secrets_read = receipt.secrets_read;
     let certificate = Certificate {
         schema_version: 1,
         certificate_id,
@@ -79,7 +75,7 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
         receipt_sha256,
         receipt,
         output_path,
-        secrets_read: false,
+        secrets_read,
     };
 
     if let Some(path) = &request.output {
@@ -101,14 +97,12 @@ async fn write_certificate(path: &Path, certificate: &Certificate) -> Result<()>
         .wrap_err_with(|| format!("writing certificate {}", path.display()))
 }
 
-pub fn receipt_sha256(receipt: &ExecReceipt) -> Result<String> {
-    let receipt_json = serde_json::to_vec(receipt).wrap_err("serializing certification receipt")?;
-    Ok(hex_sha256(&receipt_json))
-}
-
-fn hex_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+pub fn certificate_status_for_receipt(receipt: &ExecReceipt) -> CertificateStatus {
+    if receipt.status == ExecStatus::Succeeded && !receipt.secrets_read {
+        CertificateStatus::Certified
+    } else {
+        CertificateStatus::Failed
+    }
 }
 
 fn safe_id(value: &str) -> String {
@@ -120,13 +114,31 @@ fn safe_id(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{hex_sha256, safe_id};
+    use super::{certificate_status_for_receipt, safe_id};
+    use crate::receipt::{ExecReceipt, ExecStatus};
 
     #[test]
-    fn hash_is_sha256_hex() {
+    fn receipt_with_secrets_read_is_not_certified_positive() {
+        let receipt = ExecReceipt {
+            schema_version: 1,
+            correlation_id: "secret-receipt".to_string(),
+            agent: "test-agent".to_string(),
+            model: "test-model".to_string(),
+            command: vec!["runner".to_string()],
+            status: ExecStatus::Succeeded,
+            policy_reason: "allowed".to_string(),
+            started_at_unix: 1,
+            duration_ms: 1,
+            timeout_seconds: 5,
+            exit_code: Some(0),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            secrets_read: true,
+        };
+
         assert_eq!(
-            hex_sha256(b"orq"),
-            "dd9c259677362f1c9bb63eb4cdfdb8a123506fea50c6f4d5c22ecdb36c2f0b52"
+            certificate_status_for_receipt(&receipt),
+            super::CertificateStatus::Failed
         );
     }
 

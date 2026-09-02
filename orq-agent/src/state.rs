@@ -1,3 +1,4 @@
+use crate::receipt::{receipt_sha256, ExecReceipt};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -5,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 1;
+const LATEST_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -22,6 +23,12 @@ pub enum StoreError {
         context: &'static str,
         #[source]
         source: rusqlite::Error,
+    },
+    #[error("serialization error at {context}: {source}")]
+    Serialization {
+        context: &'static str,
+        #[source]
+        source: serde_json::Error,
     },
 }
 
@@ -65,6 +72,20 @@ pub enum BreakerOutcome {
     CommandAborted,
     Auth401,
     AdapterError,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StoredReceipt {
+    pub correlation_id: String,
+    pub agent_id: String,
+    pub model_id: String,
+    pub task_kind: String,
+    pub status: String,
+    pub duration_ms: u128,
+    pub secrets_read: bool,
+    pub receipt_hash: String,
+    pub receipt: ExecReceipt,
+    pub created_at_unix: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,11 +212,65 @@ impl StateStore {
             })?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (1, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "record initial migration",
+                source,
+            })?;
+        self.ensure_receipts_hash_column()?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
             .map_err(|source| StoreError::Sqlite { context: "record migration", source })?;
         Ok(())
+    }
+
+    fn ensure_receipts_hash_column(&self) -> Result<()> {
+        if self.table_has_column("receipts", "receipt_hash")? {
+            return Ok(());
+        }
+        self.conn
+            .execute(
+                "ALTER TABLE receipts ADD COLUMN receipt_hash TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "add receipts receipt_hash column",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn table_has_column(&self, table: &str, column: &str) -> Result<bool> {
+        let quoted_table = quote_sql_identifier(table)?;
+        let sql = format!("PRAGMA table_info({quoted_table})");
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare table info query",
+                source,
+            })?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|source| StoreError::Sqlite {
+                context: "query table info",
+                source,
+            })?;
+        for row in rows {
+            let name = row.map_err(|source| StoreError::Sqlite {
+                context: "read table info row",
+                source,
+            })?;
+            if name == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn path(&self) -> &Path {
@@ -211,6 +286,116 @@ impl StateStore {
             migrations_applied: self.migrations_applied()?,
             secrets_read: false,
         })
+    }
+
+    #[allow(dead_code)]
+    pub fn insert_receipt(&self, receipt: &ExecReceipt, task_kind: &str) -> Result<StoredReceipt> {
+        let receipt_hash = receipt_sha256(receipt)
+            .map_err(|error| StoreError::Config(format!("hash receipt: {error}")))?;
+        let receipt_json =
+            serde_json::to_string(receipt).map_err(|source| StoreError::Serialization {
+                context: "serialize receipt",
+                source,
+            })?;
+        let duration_ms = i64::try_from(receipt.duration_ms).map_err(|_| {
+            StoreError::Config("receipt duration_ms exceeds SQLite INTEGER range".to_string())
+        })?;
+        let created_at_unix = now_unix();
+        let created_at_i64 = i64::try_from(created_at_unix).map_err(|_| {
+            StoreError::Config("receipt created_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+        let status = receipt_status_label(receipt)?;
+        let secrets_read = i64::from(receipt.secrets_read);
+
+        self.conn
+            .execute(
+                "INSERT INTO receipts(correlation_id, agent_id, model_id, task_kind, status,
+                 duration_ms, secrets_read, receipt_json, created_at_unix, receipt_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    receipt.correlation_id,
+                    receipt.agent,
+                    receipt.model,
+                    task_kind,
+                    status,
+                    duration_ms,
+                    secrets_read,
+                    receipt_json,
+                    created_at_i64,
+                    receipt_hash,
+                ],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "insert receipt",
+                source,
+            })?;
+
+        Ok(StoredReceipt {
+            correlation_id: receipt.correlation_id.clone(),
+            agent_id: receipt.agent.clone(),
+            model_id: receipt.model.clone(),
+            task_kind: task_kind.to_string(),
+            status,
+            duration_ms: receipt.duration_ms,
+            secrets_read: receipt.secrets_read,
+            receipt_hash,
+            receipt: receipt.clone(),
+            created_at_unix,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn find_receipt(&self, correlation_id: &str) -> Result<Option<StoredReceipt>> {
+        self.conn
+            .query_row(
+                "SELECT correlation_id, agent_id, model_id, task_kind, status, duration_ms,
+                 secrets_read, receipt_json, created_at_unix, receipt_hash
+                 FROM receipts WHERE correlation_id=?1",
+                params![correlation_id],
+                |row| {
+                    let duration_ms_i64: i64 = row.get(5)?;
+                    let created_at_i64: i64 = row.get(8)?;
+                    let receipt_json: String = row.get(7)?;
+                    let receipt = serde_json::from_str(&receipt_json).map_err(|source| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            7,
+                            rusqlite::types::Type::Text,
+                            Box::new(source),
+                        )
+                    })?;
+                    let duration_ms = u128::try_from(duration_ms_i64).map_err(|source| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            5,
+                            rusqlite::types::Type::Integer,
+                            Box::new(source),
+                        )
+                    })?;
+                    let created_at_unix = u64::try_from(created_at_i64).map_err(|source| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            8,
+                            rusqlite::types::Type::Integer,
+                            Box::new(source),
+                        )
+                    })?;
+                    Ok(StoredReceipt {
+                        correlation_id: row.get(0)?,
+                        agent_id: row.get(1)?,
+                        model_id: row.get(2)?,
+                        task_kind: row.get(3)?,
+                        status: row.get(4)?,
+                        duration_ms,
+                        secrets_read: row.get::<_, i64>(6)? != 0,
+                        receipt,
+                        created_at_unix,
+                        receipt_hash: row.get(9)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|source| StoreError::Sqlite {
+                context: "find receipt",
+                source,
+            })
     }
 
     #[allow(dead_code)]
@@ -445,6 +630,31 @@ fn collect_rows<T>(
         .map_err(|source| StoreError::Sqlite { context, source })
 }
 
+fn receipt_status_label(receipt: &ExecReceipt) -> Result<String> {
+    let value =
+        serde_json::to_value(&receipt.status).map_err(|source| StoreError::Serialization {
+            context: "serialize receipt status",
+            source,
+        })?;
+    value
+        .as_str()
+        .map(ToString::to_string)
+        .ok_or_else(|| StoreError::Config("receipt status did not serialize as string".to_string()))
+}
+
+fn quote_sql_identifier(identifier: &str) -> Result<String> {
+    if identifier.is_empty()
+        || !identifier
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        return Err(StoreError::Config(format!(
+            "invalid sqlite identifier: {identifier}"
+        )));
+    }
+    Ok(format!("\"{identifier}\""))
+}
+
 const INITIAL_MIGRATION: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
@@ -483,7 +693,8 @@ CREATE TABLE IF NOT EXISTS receipts (
     duration_ms INTEGER NOT NULL DEFAULT 0,
     secrets_read INTEGER NOT NULL DEFAULT 0,
     receipt_json TEXT NOT NULL,
-    created_at_unix INTEGER NOT NULL
+    created_at_unix INTEGER NOT NULL,
+    receipt_hash TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS certifications (
     certificate_id TEXT PRIMARY KEY,
@@ -523,6 +734,33 @@ CREATE INDEX IF NOT EXISTS idx_route_scores_agent_model_task ON route_scores(age
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::receipt::{ExecReceipt, ExecStatus};
+
+    fn test_receipt(
+        correlation_id: &str,
+        secrets_read: bool,
+        status: ExecStatus,
+        exit_code: Option<i32>,
+        duration_ms: u128,
+        timeout_seconds: u64,
+    ) -> ExecReceipt {
+        ExecReceipt {
+            schema_version: 1,
+            correlation_id: correlation_id.to_string(),
+            agent: "test-agent".to_string(),
+            model: "test-model".to_string(),
+            command: vec!["runner".to_string()],
+            status,
+            policy_reason: "allowed".to_string(),
+            started_at_unix: 1,
+            duration_ms,
+            timeout_seconds,
+            exit_code,
+            stdout_tail: "stdout".to_string(),
+            stderr_tail: "stderr".to_string(),
+            secrets_read,
+        }
+    }
 
     #[test]
     fn migrates_temp_database_and_reports_status() {
@@ -530,7 +768,7 @@ mod tests {
         let path = dir.path().join("state.sqlite");
         let store = open(Some(&path)).expect("open state");
         let status = store.status().expect("status");
-        assert_eq!(status.schema_version, 1);
+        assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
         assert_eq!(status.secrets_read, false);
         assert!(status.tables_present.contains(&"agents".to_string()));
         assert!(status.tables_present.contains(&"models".to_string()));
@@ -566,6 +804,77 @@ mod tests {
         assert_eq!(found.agent_id, "test-agent");
         assert_eq!(found.model_id, "test-model");
         assert!(found.active);
+    }
+
+    #[test]
+    fn receipt_store_inserts_and_verifies_hash() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+        let receipt = test_receipt("receipt-hash", false, ExecStatus::Succeeded, Some(0), 42, 9);
+
+        let stored = store
+            .insert_receipt(&receipt, "database")
+            .expect("insert receipt");
+        assert_eq!(stored.receipt_hash, receipt_sha256(&receipt).expect("hash"));
+        assert_eq!(stored.task_kind, "database");
+
+        let found = store
+            .find_receipt("receipt-hash")
+            .expect("find receipt")
+            .expect("receipt exists");
+        assert_eq!(found.receipt_hash, stored.receipt_hash);
+        assert_eq!(found.receipt, receipt);
+    }
+
+    #[test]
+    fn receipt_store_preserves_status_exit_duration_and_timeout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+        let receipt = test_receipt(
+            "receipt-fields",
+            false,
+            ExecStatus::TimedOut,
+            None,
+            1234,
+            99,
+        );
+
+        store
+            .insert_receipt(&receipt, "debugging")
+            .expect("insert receipt");
+        let found = store
+            .find_receipt("receipt-fields")
+            .expect("find receipt")
+            .expect("receipt exists");
+
+        assert_eq!(found.receipt.status, ExecStatus::TimedOut);
+        assert_eq!(found.receipt.exit_code, None);
+        assert_eq!(found.receipt.duration_ms, 1234);
+        assert_eq!(found.receipt.timeout_seconds, 99);
+    }
+
+    #[test]
+    fn receipt_store_rejects_duration_overflow() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+        let receipt = test_receipt(
+            "receipt-overflow",
+            false,
+            ExecStatus::Succeeded,
+            Some(0),
+            u128::MAX,
+            9,
+        );
+
+        let error = store
+            .insert_receipt(&receipt, "database")
+            .expect_err("overflow should fail");
+        assert!(error
+            .to_string()
+            .contains("duration_ms exceeds SQLite INTEGER range"));
     }
 
     #[cfg(unix)]

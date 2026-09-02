@@ -280,6 +280,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_registry,
             })
             .await?;
+            persist_exec_receipt(db_path.as_deref(), &receipt, "exec");
             record_exec_breaker_outcome(db_path.as_deref(), &receipt);
             print_json(format, &receipt)
         }
@@ -346,6 +347,11 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_registry,
             })
             .await?;
+            persist_exec_receipt(
+                db_path.as_deref(),
+                &certificate.receipt,
+                &certificate.task_kind,
+            );
             record_exec_breaker_outcome(db_path.as_deref(), &certificate.receipt);
             print_json(format, &certificate)
         }
@@ -383,9 +389,20 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_registry,
             )
             .await?;
+            persist_exec_receipt(db_path.as_deref(), &receipt, "smoke");
             record_exec_breaker_outcome(db_path.as_deref(), &receipt);
             print_json(format, &receipt)
         }
+    }
+}
+
+fn persist_exec_receipt(db_path: Option<&str>, receipt: &receipt::ExecReceipt, task_kind: &str) {
+    let path = db_path.map(std::path::Path::new);
+    let Ok(store) = state::open(path) else {
+        return;
+    };
+    if let Err(err) = store.insert_receipt(receipt, task_kind) {
+        eprintln!("warning: failed to persist execution receipt: {err}");
     }
 }
 

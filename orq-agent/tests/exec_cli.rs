@@ -188,7 +188,7 @@ fn state_status_creates_temp_db_without_secrets() {
     ])
     .assert()
     .success()
-    .stdout(predicate::str::contains("\"schema_version\": 1"))
+    .stdout(predicate::str::contains("\"schema_version\": 2"))
     .stdout(predicate::str::contains("\"secrets_read\": false"))
     .stdout(predicate::str::contains("agents"))
     .stdout(predicate::str::contains("models"));
