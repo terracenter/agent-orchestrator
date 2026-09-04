@@ -18,13 +18,13 @@ mod state;
 
 #[derive(Debug, Parser)]
 #[command(about = "Real local dispatcher for Orq agents")]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    pub command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
-enum Commands {
+pub enum Commands {
     /// Detect local agent runners without reading secrets.
     Detect {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
@@ -195,12 +195,12 @@ enum Commands {
 }
 
 #[derive(Clone, Debug, ValueEnum)]
-enum OutputFormat {
+pub enum OutputFormat {
     Json,
 }
 
 #[derive(Debug, Subcommand)]
-enum StateCommand {
+pub enum StateCommand {
     /// Apply SQLite state migrations.
     Migrate {
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
@@ -221,15 +221,14 @@ enum StateCommand {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run_cli() -> Result<()> {
     color_eyre::install()?;
 
     let cli = Cli::parse();
     run_command(cli.command).await
 }
 
-async fn run_command(command: Commands) -> Result<()> {
+pub async fn run_command(command: Commands) -> Result<()> {
     match command {
         Commands::Detect {
             adapters_config,

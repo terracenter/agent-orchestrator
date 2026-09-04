@@ -5,13 +5,16 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Real local dispatcher for Orq agents"
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "orq-agent"
-path = "src/main.rs"
+path = "src/bin/orq_agent.rs"
 
 [[bin]]
 name = "orq"
-path = "src/main.rs"
+path = "src/bin/orq.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
