@@ -151,7 +151,7 @@ func BuildHermesCommand(opts PlanOptions, decision route.Decision) string {
 		printInstruction = "Olvida el historial anterior."
 	}
 
-	return fmt.Sprintf("cd %s\nrtk hermes --model %s --prompt=%q",
+	return fmt.Sprintf("cd %s\nrtk hermes -m %s -z %q",
 		workspace,
 		model,
 		printInstruction,

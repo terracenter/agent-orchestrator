@@ -199,10 +199,10 @@ func TestBuildHermesCommandDocRoutingModel(t *testing.T) {
 		t.Fatalf("PlanWithOptions failed: %v", err)
 	}
 
-	if !strings.Contains(res.AutonomousCommand, "--model deepseek-v4-flash") {
+	if !strings.Contains(res.AutonomousCommand, "-m deepseek-v4-flash") {
 		t.Errorf("expected deepseek-v4-flash for documentation routing: %s", res.AutonomousCommand)
 	}
-	if !strings.Contains(res.AutonomousCommand, `--prompt="Olvida el historial anterior. ordenar documentacion del vault"`) {
+	if !strings.Contains(res.AutonomousCommand, `-z "Olvida el historial anterior. ordenar documentacion del vault"`) {
 		t.Errorf("expected task in prompt instruction: %s", res.AutonomousCommand)
 	}
 }
@@ -223,10 +223,10 @@ func TestBuildHermesCommand(t *testing.T) {
 	if !strings.HasPrefix(res.AutonomousCommand, "cd /custom/workspace\nrtk hermes") {
 		t.Errorf("expected hermes command to start with workspace cd and rtk hermes: %s", res.AutonomousCommand)
 	}
-	if !strings.Contains(res.AutonomousCommand, "--model deepseek-v4-pro") {
+	if !strings.Contains(res.AutonomousCommand, "-m deepseek-v4-pro") {
 		t.Errorf("expected custom model deepseek-v4-pro: %s", res.AutonomousCommand)
 	}
-	if !strings.Contains(res.AutonomousCommand, `--prompt="Olvida el historial anterior. Lee y ejecuta /custom/handoff.md"`) {
+	if !strings.Contains(res.AutonomousCommand, `-z "Olvida el historial anterior. Lee y ejecuta /custom/handoff.md"`) {
 		t.Errorf("expected handoff prompt instruction: %s", res.AutonomousCommand)
 	}
 }
