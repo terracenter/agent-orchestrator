@@ -5,6 +5,7 @@ use serde::Serialize;
 mod adapters;
 mod certify;
 mod certstore;
+pub mod compliance;
 mod commands;
 mod detect;
 mod discover;
@@ -198,11 +199,45 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
+    /// Audit agent compliance for workspace rules (rtk, engram, vg).
+    Compliance {
+        /// Optional path to log file or directory to scan for raw command usage.
+        #[arg(long)]
+        log: Option<String>,
+        /// Project name for engram session_summary verification.
+        #[arg(long)]
+        project: Option<String>,
+        /// Optional vault directory path for vg-sync check. Resolved only from --vault-path or ORQ_VAULT_PATH / VAULT_PATH env vars.
+        #[arg(long)]
+        vault_path: Option<String>,
+        /// Optional kuzu db path or sync marker path. Resolved only from --kuzu-path or ORQ_KUZU_PATH / KUZU_PATH env vars.
+        #[arg(long)]
+        kuzu_path: Option<String>,
+        /// Optional custom engram binary path (for testing or overrides). Defaults to ORQ_ENGRAM_BIN or engram.
+        #[arg(long)]
+        engram_bin: Option<String>,
+        /// Enable only rtk-usage check.
+        #[arg(long, default_value_t = false)]
+        rtk_usage: bool,
+        /// Enable only engram-summary check.
+        #[arg(long, default_value_t = false)]
+        engram_summary: bool,
+        /// Enable only vg-sync check.
+        #[arg(long, default_value_t = false)]
+        vg_sync: bool,
+        /// Optional agent name being audited.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
 enum OutputFormat {
     Json,
+    Text,
 }
 
 #[derive(Debug, Subcommand)]
@@ -497,7 +532,84 @@ async fn run_command(command: Commands) -> Result<()> {
             record_exec_breaker_outcome(db_path.as_deref(), &receipt);
             print_json(format, &receipt)
         }
+        Commands::Compliance {
+            log,
+            project,
+            vault_path,
+            kuzu_path,
+            engram_bin,
+            rtk_usage,
+            engram_summary,
+            vg_sync,
+            agent,
+            format,
+        } => {
+            let report = commands::compliance::run(compliance::ComplianceArgs {
+                log,
+                project,
+                vault_path,
+                kuzu_path,
+                engram_bin,
+                rtk_usage,
+                engram_summary,
+                vg_sync,
+                agent,
+            })
+            .await?;
+
+            print_compliance_report(format, &report)?;
+            if report.exit_code != 0 {
+                std::process::exit(report.exit_code);
+            }
+            Ok(())
+        }
     }
+}
+
+fn print_compliance_report(
+    format: OutputFormat,
+    report: &compliance::ComplianceReport,
+) -> Result<()> {
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(report)?);
+        }
+        OutputFormat::Text => {
+            println!("=== Agent Compliance Report ===");
+            if let Some(ref agent) = report.agent {
+                println!("Agent:       {}", agent);
+            }
+            println!("Status:      {:?}", report.status);
+            println!("Exit Code:   {}", report.exit_code);
+            println!("Summary:     {}", report.summary);
+            println!("--------------------------------");
+            if let Some(ref r) = report.checks.rtk_usage {
+                println!(
+                    "[rtk-usage]      Status: {:?} | Raw Invocations: {} | {}",
+                    r.status, r.raw_invocations_count, r.message
+                );
+                for v in &r.violations {
+                    println!(
+                        "  - {}:{} | Binary: {} | Command: {}",
+                        v.file, v.line, v.binary, v.raw_command
+                    );
+                }
+            }
+            if let Some(ref e) = report.checks.engram_summary {
+                println!(
+                    "[engram-summary] Status: {:?} | Target Date: {} | Project: {} | Summaries: {} | {}",
+                    e.status, e.target_date, e.project, e.session_summaries_count, e.message
+                );
+            }
+            if let Some(ref v) = report.checks.vg_sync {
+                println!(
+                    "[vg-sync]        Status: {:?} | Fresh: {} | {}",
+                    v.status, v.is_fresh, v.message
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn persist_exec_receipt(db_path: Option<&str>, receipt: &receipt::ExecReceipt, task_kind: &str) {
@@ -554,7 +666,7 @@ fn is_auth_failure(text: &str) -> bool {
 
 fn print_json<T: Serialize>(format: OutputFormat, value: &T) -> Result<()> {
     match format {
-        OutputFormat::Json => {
+        OutputFormat::Json | OutputFormat::Text => {
             println!("{}", serde_json::to_string_pretty(value)?);
         }
     }
