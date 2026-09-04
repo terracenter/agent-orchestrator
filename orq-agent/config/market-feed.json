@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "feed_source": "https://support.claude.com/en/articles/15910845-claude-code-may-august-2026-weekly-limits-promotion",
+  "fetched_at": "2026-09-04T00:00:00Z",
+  "agents": {
+    "claude-code": [
+      {
+        "id": "claude-opus-4-1-20250805",
+        "promo": "claude-code +50% weekly usage limit through 2026-09-13T23:59-07:00 (Pro/Max/Team + legacy Enterprise seats; weekly only, 5h unchanged)",
+        "status": "active",
+        "notes": "Anthropic promo extended to Sep 13 2026; source support.claude.com article 15910845"
+      },
+      {
+        "id": "claude-sonnet-4-5-20250929",
+        "promo": "claude-code +50% weekly usage limit through 2026-09-13T23:59-07:00 (Pro/Max/Team + legacy Enterprise seats; weekly only, 5h unchanged)",
+        "status": "active",
+        "notes": "Anthropic promo extended to Sep 13 2026"
+      }
+    ]
+  }
+}
