@@ -18,13 +18,13 @@ mod state;
 
 #[derive(Debug, Parser)]
 #[command(about = "Real local dispatcher for Orq agents")]
-pub struct Cli {
+struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum Commands {
+enum Commands {
     /// Detect local agent runners without reading secrets.
     Detect {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
@@ -195,12 +195,12 @@ pub enum Commands {
 }
 
 #[derive(Clone, Debug, ValueEnum)]
-pub enum OutputFormat {
+enum OutputFormat {
     Json,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum StateCommand {
+enum StateCommand {
     /// Apply SQLite state migrations.
     Migrate {
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
@@ -228,7 +228,7 @@ pub async fn run_cli() -> Result<()> {
     run_command(cli.command).await
 }
 
-pub async fn run_command(command: Commands) -> Result<()> {
+async fn run_command(command: Commands) -> Result<()> {
     match command {
         Commands::Detect {
             adapters_config,
