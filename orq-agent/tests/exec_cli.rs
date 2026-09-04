@@ -1212,8 +1212,53 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
-    record_cmd
+    // Default AGY is exhausted
+    let mut record_agy = Command::cargo_bin("orq-agent").unwrap();
+    record_agy
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "agy",
+            "--scope",
+            "gemini-five-hour",
+            "--remaining-pct",
+            "0.0",
+            "--status",
+            "exhausted",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    // Cheap Qwen is also exhausted
+    let mut record_qwen = Command::cargo_bin("orq-agent").unwrap();
+    record_qwen
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "qwen",
+            "--scope",
+            "general",
+            "--remaining-pct",
+            "0.0",
+            "--status",
+            "exhausted",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    // Gated Claude has healthy weekly quota
+    let mut record_claude = Command::cargo_bin("orq-agent").unwrap();
+    record_claude
         .args([
             "quota",
             "record",
