@@ -2,9 +2,31 @@
 
 Este documento registra los resultados de la inspección de capacidades de agentes y modelos detectados en el sistema de desarrollo local, basándose en la salida de las herramientas del orquestador (`orq`).
 
+## 0. Principio operativo: agentes y modelos son dinámicos
+
+Los agentes, sus binarios y los modelos disponibles **no forman un catálogo estático**: cambian con la instalación local, la disponibilidad del proveedor, la deprecación/EOL y la evidencia de ejecución. Todo listado de agentes/modelos en este repo es **evidencia de inspección o bootstrap reproducible**, nunca una fuente de verdad congelada. La doctrina operativa:
+
+1. **JSON = bootstrap/export (no es la fuente de verdad).** Los archivos `orq-agent/config/*.json` (`models-catalog.json`, `routing-matrix.json`, `policy.json`, `adapters-registry.json`) son semilla versionada y reproducible: declaran candidatos, matriz de ruteo, política y adaptadores conocidos para onboarding y auditoría.
+2. **SQLite = fuente operativa viva.** El state DB de `orq-agent` (`ORQ_STATE_DB`) persiste el estado real: agentes, modelos (flags `gated`/`active`), certifications, receipts (hash `sha256` en `receipt_hash`), `route_scores` y `circuit_breakers`. Default: `~/.local/state/orq-agent/orq-state.sqlite`. El CLI `orq` (Go) mantiene su propia telemetría JSONL en `~/.local/state/orq/` (`ledger.jsonl`, `tasks.jsonl`); no confundir con el state DB de `orq-agent`.
+3. **Descubrimiento runtime.** `orq-agent detect` / `discover` / `models --agent <agent>` consultan al runner real sin leer secretos (`secrets_read=false`) y confirman disponibilidad; `discover` persiste el catálogo confirmado en SQLite.
+4. **Cuarentena = evidencia histórica, nunca default.** Un par agente/modelo en `deprecated_or_quarantine` o `needs_review` documenta un hallazgo (deprecación/EOL, timeout, adapter roto) para revisión humana, y no participa del ruteo automático: `policy.json` define `blocked_adapter_statuses: ["deprecated_or_quarantine"]` y un circuito abierto hace que `route` omita el par aunque siga presente en el JSON de bootstrap.
+5. **Seguridad.** Ni los docs ni los JSON de config contienen secretos (los runners nunca se consultan con credenciales); el state DB SQLite se crea con permisos `0600` automáticos; los receipts se persisten hasheados (`sha256`) y los snapshots externos guardan extracto sanitizado con su `sha256`.
+
+### Variables de entorno (`orq-agent`)
+
+| Variable | Rol | Default |
+|---|---|---|
+| `ORQ_STATE_DB` | Ruta del state DB SQLite vivo (agentes, modelos, certifications, receipts, circuit breakers). Permisos `0600` automáticos. | `~/.local/state/orq-agent/orq-state.sqlite` |
+| `ORQ_ROUTING_CONFIG` | Config de ruteo: matriz `task_kind` → `default_agent`/`default_model`, `cheap_sufficient`, `escalate_to`, `avoid`. | `orq-agent/config/routing-matrix.json` |
+| `ORQ_MODELS_CATALOG` | Catálogo de candidatos (bootstrap/export): modelos conocidos por agente, con `source`, `confidence` y `notes`. | `orq-agent/config/models-catalog.json` |
+| `ORQ_POLICY_CONFIG` | Política: patrones de modelos con aprobación requerida (`sonnet`, `opus`) y estados de adapter bloqueados/gated. | `orq-agent/config/policy.json` |
+| `ORQ_ADAPTERS_REGISTRY` | Registro de adaptadores: binario, estado (`available`, `missing`, `deprecated_or_quarantine`, `gated`) y `argv`. | `orq-agent/config/adapters-registry.json` |
+
+Las tablas de las secciones siguientes son **instantáneas de inspección fechadas**, no catálogo operativo: para conocer el estado vivo se consulta el state DB SQLite o el discovery runtime.
+
 ## 1. Agentes Configurados y Modelos
 
-A continuación se detallan los agentes registrados y sus configuraciones de modelos obtenidas mediante `rtk orq agents --format json`:
+A continuación se detallan los agentes registrados y sus configuraciones de modelos obtenidas mediante `rtk orq agents --format json` (instantánea de inspección de la sección 0; el estado vivo está en SQLite y en el runtime):
 
 | Agente | Proveedor | Modelo | Nivel de Costo | Propósito de Uso | Verificado |
 |--------|-----------|--------|----------------|------------------|------------|
