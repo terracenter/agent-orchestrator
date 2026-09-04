@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(decision.selected_agent, route.default_agent);
         assert_eq!(decision.selected_model, route.default_model);
         assert!(!decision.requires_confirmation);
-        assert_eq!(decision.secrets_read, false);
+        assert!(!decision.secrets_read);
     }
 
     #[test]
