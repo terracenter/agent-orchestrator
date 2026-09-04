@@ -815,8 +815,6 @@ fn quota_cli_record_manual_and_report() {
             "gemini-weekly",
             "--remaining-pct",
             "47.17",
-            "--db-path",
-            db.to_str().unwrap(),
             "--format",
             "json",
         ])
@@ -830,22 +828,52 @@ fn quota_cli_record_manual_and_report() {
     let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
     report_cmd
         .env("ORQ_STATE_DB", &db)
-        .args([
-            "quota",
-            "report",
-            "--provider",
-            "agy",
-            "--db-path",
-            db.to_str().unwrap(),
-            "--format",
-            "json",
-        ])
+        .args(["quota", "report", "--provider", "agy", "--format", "json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"provider\": \"agy\""))
         .stdout(predicate::str::contains("\"gemini-weekly\""))
         .stdout(predicate::str::contains("47.17"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn quota_cli_manual_record_without_percentages_derives_quota_unknown() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    // Manual record without percentages or status override
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "qwen",
+            "--scope",
+            "general",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"scope\": \"general\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
+        .stdout(predicate::str::contains("\"remaining_pct\": null"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+
+    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    report_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args(["quota", "report", "--provider", "qwen", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
+        .stdout(predicate::str::contains("\"scope\": \"general\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""));
 }
 
 #[test]
@@ -857,16 +885,15 @@ fn quota_cli_record_json_array_and_report_with_resets() {
         {"provider": "agy", "scope": "gemini-weekly", "remaining_pct": 47.17},
         {"provider": "agy", "scope": "gemini-five-hour", "remaining_pct": 96.48},
         {"provider": "agy", "scope": "claude-gpt-weekly", "remaining_pct": 62.69},
-        {"provider": "agy", "scope": "claude-gpt-five-hour", "remaining_pct": 0.0, "reset_in_seconds": 9180, "status": "exhausted"},
+        {"provider": "agy", "scope": "claude-gpt-five-hour", "remaining_pct": 0.0, "captured_at_unix": 1700000000, "reset_in_seconds": 9180, "status": "exhausted"},
         {"provider": "claude-code", "scope": "session", "used_pct": 30.0},
         {"provider": "claude-code", "scope": "weekly", "used_pct": 3.0, "metadata": {"promo": "+50% until Sep 13"}},
-        {"provider": "codex", "scope": "short-term", "remaining_pct": 22.0, "reset_in_seconds": 14760},
-        {"provider": "codex", "scope": "long-term", "remaining_pct": 80.0, "reset_in_seconds": 440640}
+        {"provider": "codex", "scope": "short-term", "remaining_pct": 22.0, "captured_at_unix": 1700000000, "reset_in_seconds": 14760},
+        {"provider": "codex", "scope": "long-term", "remaining_pct": 80.0, "captured_at_unix": 1700000000, "reset_in_seconds": 440640}
     ]"#;
 
     let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
     record_cmd
-        .env("ORQ_STATE_DB", &db)
         .args([
             "quota",
             "record",
@@ -884,7 +911,6 @@ fn quota_cli_record_json_array_and_report_with_resets() {
 
     let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
     report_cmd
-        .env("ORQ_STATE_DB", &db)
         .args([
             "quota",
             "report",
@@ -901,7 +927,78 @@ fn quota_cli_record_json_array_and_report_with_resets() {
         .stdout(predicate::str::contains("\"provider\": \"qwen\""))
         .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
         .stdout(predicate::str::contains("claude-gpt-five-hour"))
+        .stdout(predicate::str::contains("\"reset_at_unix\": 1700009180"))
+        .stdout(predicate::str::contains("\"reset_at_unix\": 1700014760"))
+        .stdout(predicate::str::contains("\"reset_at_unix\": 1700440640"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn quota_cli_normalizes_provider_case_and_aggregates_partial_unknown() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    // Record scope 1 with uppercase provider "AGY"
+    let mut record_cmd1 = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd1
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "AGY",
+            "--scope",
+            "gemini-weekly",
+            "--remaining-pct",
+            "80.0",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"agy\""));
+
+    // Record scope 2 with lowercase provider and no percentages -> quota_unknown
+    let mut record_cmd2 = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd2
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "agy",
+            "--scope",
+            "custom-unknown",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"agy\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""));
+
+    // Report filtering with uppercase "AGY" -> should match lowercase "agy",
+    // and since one scope is quota_unknown, aggregate status must be quota_unknown
+    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    report_cmd
+        .args([
+            "quota",
+            "report",
+            "--provider",
+            "AGY",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"agy\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
+        .stdout(predicate::str::contains("\"scope\": \"gemini-weekly\""))
+        .stdout(predicate::str::contains("\"scope\": \"custom-unknown\""));
 }
 
 #[test]
@@ -911,7 +1008,6 @@ fn quota_cli_qwen_without_detector_reports_quota_unknown() {
 
     let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
     report_cmd
-        .env("ORQ_STATE_DB", &db)
         .args([
             "quota",
             "report",
@@ -931,6 +1027,69 @@ fn quota_cli_qwen_without_detector_reports_quota_unknown() {
 }
 
 #[test]
+fn quota_cli_db_path_precedence_over_env_var() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let env_db = state_dir.path().join("env_state.sqlite");
+    let override_db = state_dir.path().join("override_state.sqlite");
+
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .env("ORQ_STATE_DB", &env_db)
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "agy",
+            "--scope",
+            "gemini-weekly",
+            "--remaining-pct",
+            "99.0",
+            "--db-path",
+            override_db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    // Verify record was written to override_db, not env_db
+    assert!(override_db.exists(), "override_db must exist");
+
+    let mut report_override = Command::cargo_bin("orq-agent").unwrap();
+    report_override
+        .args([
+            "quota",
+            "report",
+            "--provider",
+            "agy",
+            "--db-path",
+            override_db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("99.0"));
+
+    // If we query env_db (which shouldn't have any records), agy will have empty scopes
+    let mut report_env = Command::cargo_bin("orq-agent").unwrap();
+    report_env
+        .args([
+            "quota",
+            "report",
+            "--provider",
+            "agy",
+            "--db-path",
+            env_db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"scopes\": []"));
+}
+
+#[test]
 fn quota_cli_migration_idempotent_on_existing_db() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -938,7 +1097,6 @@ fn quota_cli_migration_idempotent_on_existing_db() {
     // Open first time (migrates to version 3)
     let mut status_cmd = Command::cargo_bin("orq-agent").unwrap();
     status_cmd
-        .env("ORQ_STATE_DB", &db)
         .args([
             "state",
             "status",
@@ -955,7 +1113,6 @@ fn quota_cli_migration_idempotent_on_existing_db() {
     // Migrate again explicitly
     let mut migrate_cmd = Command::cargo_bin("orq-agent").unwrap();
     migrate_cmd
-        .env("ORQ_STATE_DB", &db)
         .args([
             "state",
             "migrate",

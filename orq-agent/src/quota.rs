@@ -70,7 +70,7 @@ pub fn now_unix() -> u64 {
 }
 
 pub fn normalize_snapshot_input(raw: RawSnapshotInput) -> Result<QuotaSnapshotInput> {
-    let provider = raw.provider.trim().to_string();
+    let provider = raw.provider.trim().to_lowercase();
     if provider.is_empty() {
         bail!("provider must not be empty");
     }
@@ -195,6 +195,8 @@ pub fn parse_raw_snapshots_from_json(json_str: &str) -> Result<Vec<RawSnapshotIn
 }
 
 pub fn generate_report(store: &StateStore, provider_filter: Option<&str>) -> Result<QuotaReport> {
+    let filter_owned = provider_filter.map(|p| p.trim().to_lowercase());
+    let provider_filter = filter_owned.as_deref().filter(|s| !s.is_empty());
     let snapshots = store.latest_quota_snapshots(provider_filter)?;
 
     let mut provider_scopes: BTreeMap<String, Vec<QuotaScopeSummary>> = BTreeMap::new();
@@ -230,15 +232,14 @@ pub fn generate_report(store: &StateStore, provider_filter: Option<&str>) -> Res
         let scopes = provider_scopes.remove(&provider).unwrap_or_default();
         let status = if scopes.is_empty() {
             "quota_unknown".to_string()
-        } else if scopes
-            .iter()
-            .any(|s| s.status == "exhausted" || s.remaining_pct == Some(0.0))
-        {
+        } else if scopes.iter().any(|s| {
+            s.status == "exhausted" || s.status == "exceeded" || s.remaining_pct == Some(0.0)
+        }) {
             "exhausted".to_string()
-        } else if scopes.iter().all(|s| s.status == "quota_unknown") {
-            "quota_unknown".to_string()
         } else if scopes.iter().any(|s| s.status == "warning") {
             "warning".to_string()
+        } else if scopes.iter().any(|s| s.status == "quota_unknown") {
+            "quota_unknown".to_string()
         } else {
             "ok".to_string()
         };
@@ -265,7 +266,7 @@ mod tests {
     #[test]
     fn normalizes_valid_remaining_pct_and_calculates_used() {
         let raw = RawSnapshotInput {
-            provider: "agy".to_string(),
+            provider: "AGY".to_string(),
             scope: "gemini-weekly".to_string(),
             remaining_pct: Some(47.17),
             used_pct: None,
@@ -288,7 +289,7 @@ mod tests {
     #[test]
     fn normalizes_quota_unknown_when_no_percentages() {
         let raw = RawSnapshotInput {
-            provider: "qwen".to_string(),
+            provider: "QWEN".to_string(),
             scope: "general".to_string(),
             remaining_pct: None,
             used_pct: None,
@@ -307,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_json_array_and_calculates_resets() {
+    fn parses_json_array_and_calculates_exact_resets() {
         let json = r#"[
             {"provider": "agy", "scope": "gemini-weekly", "remaining_pct": 47.17},
             {"provider": "codex", "scope": "short-term", "remaining_pct": 22.0, "reset_in_seconds": 3600, "captured_at_unix": 10000}
@@ -321,5 +322,101 @@ mod tests {
         let snap1 = normalize_snapshot_input(raws[1].clone()).unwrap();
         assert_eq!(snap1.provider, "codex");
         assert_eq!(snap1.reset_at_unix, Some(13600));
+    }
+
+    #[test]
+    fn report_aggregates_partial_quota_unknown_as_quota_unknown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = crate::state::open(Some(&path)).expect("open state");
+
+        // Record scope 1: ok
+        let input1 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-weekly".to_string(),
+            remaining_pct: Some(50.0),
+            used_pct: Some(50.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input1).unwrap();
+
+        // Record scope 2: quota_unknown (partial unknown)
+        let input2 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "claude-gpt-weekly".to_string(),
+            remaining_pct: None,
+            used_pct: None,
+            status: Some("quota_unknown".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input2).unwrap();
+
+        let report = generate_report(&store, Some("AGY")).expect("report");
+        assert_eq!(report.providers.len(), 1);
+        let agy = &report.providers[0];
+        assert_eq!(agy.provider, "agy");
+        assert_eq!(agy.status, "quota_unknown");
+        assert_eq!(agy.scopes.len(), 2);
+    }
+
+    #[test]
+    fn report_aggregates_exhausted_over_quota_unknown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = crate::state::open(Some(&path)).expect("open state");
+
+        let input1 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-weekly".to_string(),
+            remaining_pct: Some(0.0),
+            used_pct: Some(100.0),
+            status: Some("exhausted".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input1).unwrap();
+
+        let input2 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "claude-gpt-weekly".to_string(),
+            remaining_pct: None,
+            used_pct: None,
+            status: Some("quota_unknown".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input2).unwrap();
+
+        let report = generate_report(&store, Some("agy")).expect("report");
+        assert_eq!(report.providers[0].status, "exhausted");
+    }
+
+    #[test]
+    fn report_aggregates_all_ok_as_ok() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = crate::state::open(Some(&path)).expect("open state");
+
+        let input1 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-weekly".to_string(),
+            remaining_pct: Some(50.0),
+            used_pct: Some(50.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input1).unwrap();
+
+        let report = generate_report(&store, Some("agy")).expect("report");
+        assert_eq!(report.providers[0].status, "ok");
     }
 }

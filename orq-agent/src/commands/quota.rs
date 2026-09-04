@@ -11,7 +11,7 @@ pub struct QuotaRecordArgs {
     pub scope: Option<String>,
     pub remaining_pct: Option<f64>,
     pub used_pct: Option<f64>,
-    pub status: String,
+    pub status: Option<String>,
     pub reset_at_unix: Option<u64>,
     pub reset_in_seconds: Option<u64>,
     pub captured_at_unix: Option<u64>,
@@ -33,7 +33,7 @@ pub async fn run_record(args: QuotaRecordArgs) -> Result<QuotaRecordResponse> {
         parse_raw_snapshots_from_json(&json_str)?
     } else {
         let provider = match args.provider {
-            Some(p) if !p.trim().is_empty() => p.trim().to_string(),
+            Some(p) if !p.trim().is_empty() => p.trim().to_lowercase(),
             _ => bail!("missing required --provider or --json"),
         };
         let scope = match args.scope {
@@ -46,7 +46,7 @@ pub async fn run_record(args: QuotaRecordArgs) -> Result<QuotaRecordResponse> {
             scope,
             remaining_pct: args.remaining_pct,
             used_pct: args.used_pct,
-            status: Some(args.status),
+            status: args.status,
             reset_at_unix: args.reset_at_unix,
             reset_in_seconds: args.reset_in_seconds,
             captured_at_unix: args.captured_at_unix,

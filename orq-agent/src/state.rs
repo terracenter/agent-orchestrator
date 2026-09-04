@@ -254,7 +254,6 @@ impl StateStore {
                 context: "record migration 2",
                 source,
             })?;
-        self.ensure_quota_snapshots_table()?;
         self.conn
             .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
@@ -275,31 +274,6 @@ impl StateStore {
             )
             .map_err(|source| StoreError::Sqlite {
                 context: "add receipts receipt_hash column",
-                source,
-            })?;
-        Ok(())
-    }
-
-    fn ensure_quota_snapshots_table(&self) -> Result<()> {
-        self.conn
-            .execute_batch(
-                r#"
-                CREATE TABLE IF NOT EXISTS quota_snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    provider TEXT NOT NULL,
-                    scope TEXT NOT NULL,
-                    remaining_pct REAL,
-                    used_pct REAL,
-                    status TEXT NOT NULL DEFAULT 'ok',
-                    reset_at_unix INTEGER,
-                    captured_at_unix INTEGER NOT NULL,
-                    metadata_json TEXT NOT NULL DEFAULT '{}'
-                );
-                CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider_scope ON quota_snapshots(provider, scope, captured_at_unix DESC);
-                "#,
-            )
-            .map_err(|source| StoreError::Sqlite {
-                context: "ensure quota_snapshots table",
                 source,
             })?;
         Ok(())
@@ -650,6 +624,8 @@ impl StateStore {
             })?),
             None => None,
         };
+        let provider = input.provider.trim().to_lowercase();
+        let scope = input.scope.trim();
         let status = input.status.as_deref().unwrap_or("ok");
         let metadata_json = input.metadata_json.as_deref().unwrap_or("{}");
 
@@ -658,8 +634,8 @@ impl StateStore {
                 "INSERT INTO quota_snapshots(provider, scope, remaining_pct, used_pct, status, reset_at_unix, captured_at_unix, metadata_json)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
-                    input.provider,
-                    input.scope,
+                    provider,
+                    scope,
                     input.remaining_pct,
                     input.used_pct,
                     status,
@@ -677,8 +653,8 @@ impl StateStore {
 
         Ok(QuotaSnapshotRecord {
             id,
-            provider: input.provider.clone(),
-            scope: input.scope.clone(),
+            provider,
+            scope: scope.to_string(),
             remaining_pct: input.remaining_pct,
             used_pct: input.used_pct,
             status: status.to_string(),
@@ -692,7 +668,8 @@ impl StateStore {
         &self,
         provider_filter: Option<&str>,
     ) -> Result<Vec<QuotaSnapshotRecord>> {
-        let (sql, filter_param) = if let Some(p) = provider_filter {
+        let filter_owned = provider_filter.map(|p| p.trim().to_lowercase());
+        let (sql, filter_param) = if let Some(ref p) = filter_owned {
             (
                 "SELECT qs.id, qs.provider, qs.scope, qs.remaining_pct, qs.used_pct, qs.status, qs.reset_at_unix, qs.captured_at_unix, qs.metadata_json
                  FROM quota_snapshots qs
@@ -703,7 +680,7 @@ impl StateStore {
                      LIMIT 1
                  )
                  ORDER BY qs.scope ASC",
-                Some(p),
+                Some(p.as_str()),
             )
         } else {
             (
@@ -1366,5 +1343,149 @@ mod tests {
         store.migrate().expect("second migration should succeed");
         let status2 = store.status().expect("status2");
         assert_eq!(status2.schema_version, LATEST_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn test_migration_upgrade_from_v2_to_v3_preserves_data() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("v2_state.sqlite");
+
+        // 1. Manually build a v2 database (before quota_snapshots existed)
+        {
+            let raw_conn = rusqlite::Connection::open(&path).expect("open raw sqlite");
+            raw_conn
+                .execute_batch(
+                    r#"
+                    CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE agents (
+                        agent_id TEXT PRIMARY KEY,
+                        display_name TEXT NOT NULL,
+                        adapter_status TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE task_kinds (
+                        task_kind TEXT PRIMARY KEY,
+                        description TEXT NOT NULL DEFAULT '',
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE models (
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL DEFAULT 'general',
+                        gated INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL,
+                        PRIMARY KEY (agent_id, model_id, task_kind),
+                        FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+                    );
+                    CREATE TABLE receipts (
+                        correlation_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        duration_ms INTEGER NOT NULL DEFAULT 0,
+                        secrets_read INTEGER NOT NULL DEFAULT 0,
+                        receipt_json TEXT NOT NULL,
+                        created_at_unix INTEGER NOT NULL,
+                        receipt_hash TEXT NOT NULL DEFAULT ''
+                    );
+                    CREATE TABLE certifications (
+                        certificate_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        receipt_hash TEXT NOT NULL,
+                        secrets_read INTEGER NOT NULL DEFAULT 0,
+                        created_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE route_scores (
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        success_count INTEGER NOT NULL DEFAULT 0,
+                        failure_count INTEGER NOT NULL DEFAULT 0,
+                        total_latency_ms INTEGER NOT NULL DEFAULT 0,
+                        updated_at_unix INTEGER NOT NULL,
+                        PRIMARY KEY (agent_id, model_id, task_kind)
+                    );
+                    CREATE TABLE circuit_breakers (
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        failure_streak INTEGER NOT NULL DEFAULT 0,
+                        opened_until_unix INTEGER,
+                        updated_at_unix INTEGER NOT NULL,
+                        PRIMARY KEY (agent_id, model_id)
+                    );
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (1, 1000);
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (2, 2000);
+
+                    INSERT INTO agents(agent_id, display_name, adapter_status, metadata_json, updated_at_unix)
+                    VALUES ('pre-v3-agent', 'Pre V3 Agent', 'available', '{"pre": true}', 1000);
+                    "#,
+                )
+                .expect("setup v2 schema and data");
+
+            // Verify quota_snapshots does NOT exist prior to opening with state::open
+            let mut stmt = raw_conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='quota_snapshots'",
+                )
+                .expect("prepare check");
+            let mut rows = stmt.query([]).expect("query check");
+            assert!(
+                rows.next().expect("next").is_none(),
+                "quota_snapshots must not exist in v2 db"
+            );
+        }
+
+        // 2. Open with state::open (which runs migrate())
+        let store = open(Some(&path)).expect("open state upgrades from v2 to v3");
+        let status = store.status().expect("status");
+
+        assert_eq!(status.schema_version, 3);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3]);
+        assert!(status
+            .tables_present
+            .contains(&"quota_snapshots".to_string()));
+
+        // 3. Verify pre-existing v2 data was preserved
+        let agent = store
+            .find_agent("pre-v3-agent")
+            .expect("query agent")
+            .expect("agent must exist");
+        assert_eq!(agent.display_name, "Pre V3 Agent");
+        assert_eq!(agent.metadata_json, "{\"pre\": true}");
+
+        // 4. Verify new quota snapshot table is functional
+        let snap = store
+            .insert_quota_snapshot(&QuotaSnapshotInput {
+                provider: "agy".to_string(),
+                scope: "gemini-weekly".to_string(),
+                remaining_pct: Some(55.5),
+                used_pct: Some(44.5),
+                status: Some("ok".to_string()),
+                reset_at_unix: None,
+                captured_at_unix: Some(3000),
+                metadata_json: None,
+            })
+            .expect("insert snapshot into upgraded db");
+
+        assert_eq!(snap.provider, "agy");
+        assert_eq!(snap.remaining_pct, Some(55.5));
+
+        let latest = store
+            .latest_quota_snapshots(None)
+            .expect("latest snapshots");
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].scope, "gemini-weekly");
     }
 }

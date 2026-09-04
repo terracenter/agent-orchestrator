@@ -222,8 +222,8 @@ enum QuotaCommand {
         #[arg(long)]
         used_pct: Option<f64>,
         /// Quota status (ok, quota_unknown, exceeded, warning, exhausted).
-        #[arg(long, default_value = "ok")]
-        status: String,
+        #[arg(long)]
+        status: Option<String>,
         /// Unix timestamp when the quota resets or refreshes.
         #[arg(long)]
         reset_at_unix: Option<u64>,

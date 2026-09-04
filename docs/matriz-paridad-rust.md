@@ -29,6 +29,8 @@ ADR relacionado: [`adr-migracion-rust.md`](adr-migracion-rust.md)
 | `orq delegate` | Genera handoff, no ejecuta runner | Crítica | Reemplazar semántica por `orq-agent exec`; mantener handoff como modo fallback. |
 | `orq run` | Reporta `executed=false` siempre | Crítica | Reemplazar por ejecución real con receipt JSON. |
 | `orq receipt` | Valida recibos iniciales | Alta | Portar schemas y validación; Rust debe ser fuente de receipts. |
+| `orq quota record` | No existe en Go legacy. | Crítica | Ingesta de snapshots de cuota por proveedor y scope (vía CLI manual o JSON/archivo `@payload.json`) en SQLite. |
+| `orq quota report` | No existe en Go legacy. | Crítica | Reporte agregado y filtrado por proveedor del estado de cuota y scopes con timestamps de captura y reset. |
 | `orq observer sync` | Sincroniza ledger con Observer | Media | Mantener Go al inicio; integrar Rust emitiendo JSONL compatible. |
 | `orq record/status` | Ledger operativo | Media | Mantener compatible; Rust debe poder escribir eventos seguros. |
 | `orq audit session` | Auditoría de cumplimiento | Media | Portar luego; depende de receipts y trace confiable. |
@@ -56,8 +58,9 @@ Antes de considerar reemplazar `orq` Go por Rust, deben estar cubiertos:
 9. `adapters`: metadata de adapters detectables vive en `orq-agent/config/adapters-registry.json`; `detect`, `exec`, `models`, `route` y `smoke` aceptan `--adapters-config`.
 10. `certify`: MVP genera certificado JSON versionado desde smoke acotado para `(agent, model, task_kind)`.
 11. `route` puede consultar certificados con `--cert-dir`: prefiere certificados `certified` exactos y salta certificados `failed`, sin saltarse policy/detection.
-7. `policy`: bloqueo de Sonnet/Opus sin aprobación explícita.
-8. `models/smoke`: validación runtime de modelos, incluyendo 404/model_not_found.
+12. `quota`: soporte de registro (`quota record`) y consulta (`quota report`) de cuotas en SQLite, con cálculo de reset relativo/absoluto y agregación no-optimista.
+13. `policy`: bloqueo de Sonnet/Opus sin aprobación explícita.
+14. `models/smoke`: validación runtime de modelos, incluyendo 404/model_not_found.
 
 ## MVP Rust concreto
 
@@ -74,6 +77,10 @@ orq-agent models --agent qwen-code --config orq-agent/config/models-catalog.json
 orq-agent detect --adapters-config orq-agent/config/adapters-registry.json --format json
 orq-agent certify --agent qwen-code --model qwen3.6-flash --task-kind documentation --output /tmp/orq-cert.json --format json
 orq-agent route --task-kind documentation --cert-dir /tmp/orq-certs --format json
+orq-agent quota record --provider agy --scope gemini-weekly --remaining-pct 47.17 --format json
+orq-agent quota record --json '[{"provider":"codex","scope":"short-term","remaining_pct":22.0,"reset_in_seconds":3600}]' --format json
+orq-agent quota report --format json
+orq-agent quota report --provider agy --format json
 orq-agent adapters propose --agent hermes --format json
 ```
 
@@ -84,6 +91,29 @@ orq-agent adapters propose --agent hermes --format json
 - `agy`: prioritario para tareas baratas/revisión.
 - `hermes`: detectar y marcar `deprecated_or_quarantine`.
 - `claude-code`: detectar y bloquear si modelo requiere aprobación.
+
+## Contrato de Quota y Quota Unknown
+
+Para la integración del router (Parte 2) y la observabilidad de capacidad:
+
+### 1. Semántica y significado de `quota_unknown`
+- **Nivel de Scope**:
+  - Se genera automáticamente cuando un snapshot se ingresa sin porcentajes (`remaining_pct` y `used_pct` ausentes) y sin un `--status` explícito, o cuando se indica explícitamente `quota_unknown`.
+  - Significa que el proveedor carece de detector automatizado de cuota o que la medición no estuvo disponible durante la captura.
+- **Nivel de Proveedor (Estado Agregado)**:
+  - Proveedores conocidos sin registros previos reportan `status: "quota_unknown"` y `scopes: []`.
+  - Si un proveedor contiene al menos un scope en `quota_unknown` (y ninguno en `exhausted` o `warning`), el estado general del proveedor es `quota_unknown`. Esto evita optimismo falso (marcar `ok`) cuando parte de la capacidad del proveedor no puede ser verificada.
+
+### 2. Jerarquía de agregación en reportes
+La determinación del estado consolidado por proveedor sigue esta precedencia determinista:
+1. **`exhausted`**: si cualquier scope está en `exhausted`, `exceeded` o tiene `remaining_pct == 0.0`.
+2. **`warning`**: si ningún scope está agotado pero al menos uno reporta `warning`.
+3. **`quota_unknown`**: si la lista de scopes está vacía o al menos un scope está en `quota_unknown`.
+4. **`ok`**: únicamente cuando todos los scopes están evaluados y en estado saludable (`ok`).
+
+### 3. Normalización y precedencia
+- **Normalización de proveedores**: los nombres de proveedor se normalizan automáticamente a minúsculas (`trim().to_lowercase()`) tanto en `quota record` como en los filtros de `quota report`.
+- **Precedencia de almacenamiento**: el parámetro `--db-path` toma precedencia sobre la variable `ORQ_STATE_DB`, la cual a su vez sobreescribe la ruta SQLite por defecto (`~/.local/state/orq-agent/orq-state.sqlite`).
 
 ## Riesgos de migración completa
 
