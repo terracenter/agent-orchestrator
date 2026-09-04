@@ -552,10 +552,57 @@ fn exec_timeout_kills_child_process_group() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"status\": \"timed_out\""));
+        .stdout(predicate::str::contains("\"status\": \"timed_out\""))
+        .stdout(predicate::str::contains("\"cleanup_attempted\": true"))
+        .stdout(predicate::str::contains("\"cleanup_succeeded\": true"));
 
     std::thread::sleep(std::time::Duration::from_secs(3));
     assert!(!marker.exists(), "timeout left an orphaned process behind");
+}
+
+#[test]
+fn exec_pgid_cleanup() {
+    let marker = std::env::temp_dir().join(format!(
+        "orq-agent-pgid-cleanup-marker-{}",
+        std::process::id()
+    ));
+    let body = format!(
+        "#!/usr/bin/env bash\ntrap '' TERM\n(sleep 2; echo child-alive > '{}') &\nwhile true; do sleep 1; done\n",
+        marker.display()
+    );
+    let runner = fake_runner("qwen-pgid-cleanup-runner", &body);
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-pgid-cleanup-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello pgid cleanup").unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.8-max",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--timeout",
+            "1",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"timed_out\""))
+        .stdout(predicate::str::contains("\"cleanup_attempted\": true"))
+        .stdout(predicate::str::contains("\"cleanup_succeeded\": true"));
+
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(
+        !marker.exists(),
+        "PGID cleanup failed: orphaned background child process survived"
+    );
 }
 
 #[test]

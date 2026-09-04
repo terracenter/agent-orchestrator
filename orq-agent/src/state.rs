@@ -759,6 +759,8 @@ mod tests {
             stdout_tail: "stdout".to_string(),
             stderr_tail: "stderr".to_string(),
             secrets_read,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         }
     }
 

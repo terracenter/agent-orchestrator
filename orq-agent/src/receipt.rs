@@ -30,6 +30,10 @@ pub struct ExecReceipt {
     pub stdout_tail: String,
     pub stderr_tail: String,
     pub secrets_read: bool,
+    #[serde(default)]
+    pub cleanup_attempted: bool,
+    #[serde(default)]
+    pub cleanup_succeeded: bool,
 }
 
 pub fn now_unix() -> u64 {
@@ -81,6 +85,8 @@ mod tests {
             stdout_tail: String::new(),
             stderr_tail: String::new(),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         let hash = receipt_sha256(&receipt).expect("hash receipt");

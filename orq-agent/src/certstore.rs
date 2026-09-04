@@ -173,6 +173,8 @@ mod tests {
             stdout_tail: String::new(),
             stderr_tail: String::new(),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         let cert = Certificate {
             schema_version: 1,
