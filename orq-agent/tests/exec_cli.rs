@@ -1582,3 +1582,310 @@ fn compliance_cli_vg_sync_not_available() {
         .stdout(predicate::str::contains("\"status\": \"not_available\""))
         .stdout(predicate::str::contains("\"is_fresh\": false"));
 }
+
+#[test]
+fn models_refresh_cli_merges_feed_idempotently() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let catalog_path = temp_dir.path().join("models-catalog.json");
+    let feed_path = temp_dir.path().join("market-feed.json");
+
+    let initial_catalog = r#"{
+        "schema_version": 1,
+        "agents": {
+            "qwen-code": [
+                {
+                    "id": "qwen3.6-flash",
+                    "source": "manual",
+                    "confidence": "baseline",
+                    "notes": "initial candidate"
+                }
+            ]
+        }
+    }"#;
+    fs::write(&catalog_path, initial_catalog).unwrap();
+
+    let feed_content = r#"{
+        "schema_version": 1,
+        "feed_source": "test_feed_source",
+        "agents": {
+            "qwen-code": [
+                {
+                    "id": "qwen3.6-flash",
+                    "promo": "special 50% weekly usage limit",
+                    "cost_hint": 0.0001
+                },
+                {
+                    "id": "qwen3.8-max",
+                    "cost_hint": 0.005,
+                    "status": "active",
+                    "notes": "newly added model"
+                },
+                {
+                    "id": "old-deprecated-model",
+                    "status": "deprecated"
+                }
+            ]
+        }
+    }"#;
+    fs::write(&feed_path, feed_content).unwrap();
+
+    // First execution: merges feed into catalog
+    let mut cmd1 = Command::cargo_bin("orq-agent").unwrap();
+    cmd1.args([
+        "models",
+        "refresh",
+        "--feed",
+        feed_path.to_str().unwrap(),
+        "--catalog",
+        catalog_path.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"schema_version\": 2"))
+    .stdout(predicate::str::contains("\"added\": 1"))
+    .stdout(predicate::str::contains("\"updated\": 1"))
+    .stdout(predicate::str::contains("\"deprecated\": 1"))
+    .stdout(predicate::str::contains("\"total_models\": 3"))
+    .stdout(predicate::str::contains("\"fetched_at\":"));
+
+    // Verify catalog on disk was updated
+    let updated_catalog = fs::read_to_string(&catalog_path).unwrap();
+    assert!(updated_catalog.contains("special 50% weekly usage limit"));
+    assert!(updated_catalog.contains("qwen3.8-max"));
+    assert!(updated_catalog.contains("old-deprecated-model"));
+    assert!(updated_catalog.contains("\"schema_version\": 2"));
+
+    // Second execution: must be idempotent (0 added, 0 updated, 0 deprecated)
+    let mut cmd2 = Command::cargo_bin("orq-agent").unwrap();
+    cmd2.args([
+        "models",
+        "refresh",
+        "--feed",
+        feed_path.to_str().unwrap(),
+        "--catalog",
+        catalog_path.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"added\": 0"))
+    .stdout(predicate::str::contains("\"updated\": 0"))
+    .stdout(predicate::str::contains("\"deprecated\": 0"))
+    .stdout(predicate::str::contains("\"total_models\": 3"));
+}
+
+#[test]
+fn route_cli_fallback_when_top_model_status_down() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db = temp_dir.path().join("state.sqlite");
+    let config_path = temp_dir.path().join("routing-matrix.json");
+    let adapters_path = temp_dir.path().join("adapters-registry.json");
+    let models_path = temp_dir.path().join("models-catalog.json");
+
+    let routing_config = r#"{
+        "schema_version": 1,
+        "approval_required_model_patterns": ["opus"],
+        "routes": [
+            {
+                "task_kind": "review",
+                "default_agent": "primary-agent",
+                "default_model": "top-model",
+                "cheap_sufficient": "fallback-agent/second-model",
+                "escalate_to": "none",
+                "avoid": [],
+                "rationale": "testing fallback when top model status is down"
+            }
+        ]
+    }"#;
+    fs::write(&config_path, routing_config).unwrap();
+
+    let adapters_registry = r#"{
+        "schema_version": 1,
+        "adapters": [
+            {
+                "name": "primary-agent",
+                "binary": "primary-runner",
+                "status": "available",
+                "argv": ["$MODEL", "$TASK"]
+            },
+            {
+                "name": "fallback-agent",
+                "binary": "fallback-runner",
+                "status": "available",
+                "argv": ["$MODEL", "$TASK"]
+            }
+        ]
+    }"#;
+    fs::write(&adapters_path, adapters_registry).unwrap();
+
+    let models_catalog = r#"{
+        "schema_version": 2,
+        "agents": {
+            "primary-agent": [
+                {
+                    "id": "top-model",
+                    "source": "catalog",
+                    "confidence": "high",
+                    "notes": "unhealthy top model",
+                    "status": "down"
+                }
+            ],
+            "fallback-agent": [
+                {
+                    "id": "second-model",
+                    "source": "catalog",
+                    "confidence": "high",
+                    "notes": "healthy fallback model",
+                    "status": "active"
+                }
+            ]
+        }
+    }"#;
+    fs::write(&models_path, models_catalog).unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_PRIMARY_AGENT", "primary-runner")
+        .env("ORQ_AGENT_BIN_FALLBACK_AGENT", "fallback-runner")
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "route",
+            "--task-kind",
+            "review",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--adapters-config",
+            adapters_path.to_str().unwrap(),
+            "--models-config",
+            models_path.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"selected_agent\": \"fallback-agent\""))
+        .stdout(predicate::str::contains("\"selected_model\": \"second-model\""))
+        .stdout(predicate::str::contains("\"fallback_applied\": true"));
+}
+
+#[test]
+fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_promo() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db = temp_dir.path().join("state.sqlite");
+    let config_path = temp_dir.path().join("routing-matrix.json");
+    let adapters_path = temp_dir.path().join("adapters-registry.json");
+    let models_path = temp_dir.path().join("models-catalog.json");
+
+    let routing_config = r#"{
+        "schema_version": 1,
+        "approval_required_model_patterns": ["opus"],
+        "routes": [
+            {
+                "task_kind": "equal_cost",
+                "default_agent": "agent-plain",
+                "default_model": "model-plain",
+                "cheap_sufficient": "agent-promo/model-promo",
+                "escalate_to": "none",
+                "avoid": [],
+                "rationale": "promo preferred over equivalent cost"
+            },
+            {
+                "task_kind": "cheap_vs_expensive_promo",
+                "default_agent": "cheap-agent",
+                "default_model": "cheap-model",
+                "cheap_sufficient": "none",
+                "escalate_to": "expensive-agent/expensive-promo-model",
+                "avoid": [],
+                "rationale": "cheap healthy not displaced by expensive candidate with promo"
+            }
+        ]
+    }"#;
+    fs::write(&config_path, routing_config).unwrap();
+
+    let adapters_registry = r#"{
+        "schema_version": 1,
+        "adapters": [
+            {"name": "agent-plain", "binary": "runner", "status": "available", "argv": ["$MODEL", "$TASK"]},
+            {"name": "agent-promo", "binary": "runner", "status": "available", "argv": ["$MODEL", "$TASK"]},
+            {"name": "cheap-agent", "binary": "runner", "status": "available", "argv": ["$MODEL", "$TASK"]},
+            {"name": "expensive-agent", "binary": "runner", "status": "available", "argv": ["$MODEL", "$TASK"]}
+        ]
+    }"#;
+    fs::write(&adapters_path, adapters_registry).unwrap();
+
+    let models_catalog = r#"{
+        "schema_version": 2,
+        "agents": {
+            "agent-plain": [
+                {"id": "model-plain", "source": "s", "confidence": "c", "notes": "n", "cost_hint": 0.002, "status": "active"}
+            ],
+            "agent-promo": [
+                {"id": "model-promo", "source": "s", "confidence": "c", "notes": "n", "cost_hint": 0.002, "promo": "+50% usage promo", "status": "active"}
+            ],
+            "cheap-agent": [
+                {"id": "cheap-model", "source": "s", "confidence": "c", "notes": "n", "cost_hint": 0.0001, "status": "active"}
+            ],
+            "expensive-agent": [
+                {"id": "expensive-promo-model", "source": "s", "confidence": "c", "notes": "n", "cost_hint": 0.01, "promo": "+50% promo", "status": "active"}
+            ]
+        }
+    }"#;
+    fs::write(&models_path, models_catalog).unwrap();
+
+    // 1. Equal cost: agent-promo/model-promo is preferred over agent-plain/model-plain
+    let mut cmd1 = Command::cargo_bin("orq-agent").unwrap();
+    cmd1.env("ORQ_AGENT_BIN_AGENT_PLAIN", "runner")
+        .env("ORQ_AGENT_BIN_AGENT_PROMO", "runner")
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "route",
+            "--task-kind",
+            "equal_cost",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--adapters-config",
+            adapters_path.to_str().unwrap(),
+            "--models-config",
+            models_path.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"selected_agent\": \"agent-promo\""))
+        .stdout(predicate::str::contains("\"selected_model\": \"model-promo\""))
+        .stdout(predicate::str::contains("\"fallback_applied\": true"));
+
+    // 2. Cheap vs expensive with promo: cheap-agent/cheap-model is kept (not displaced by expensive model with promo)
+    let mut cmd2 = Command::cargo_bin("orq-agent").unwrap();
+    cmd2.env("ORQ_AGENT_BIN_CHEAP_AGENT", "runner")
+        .env("ORQ_AGENT_BIN_EXPENSIVE_AGENT", "runner")
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "route",
+            "--task-kind",
+            "cheap_vs_expensive_promo",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--adapters-config",
+            adapters_path.to_str().unwrap(),
+            "--models-config",
+            models_path.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"selected_agent\": \"cheap-agent\""))
+        .stdout(predicate::str::contains("\"selected_model\": \"cheap-model\""))
+        .stdout(predicate::str::contains("\"fallback_applied\": false"));
+}
+

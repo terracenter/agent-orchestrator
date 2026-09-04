@@ -1,12 +1,13 @@
 use color_eyre::eyre::Result;
 
-use crate::{adapters, certstore, detect, route as domain_route, state};
+use crate::{adapters, certstore, detect, models as domain_models, route as domain_route, state};
 
 pub(crate) struct RouteArgs {
     pub(crate) task_kind: String,
     pub(crate) config: Option<String>,
     pub(crate) allow_gated: bool,
     pub(crate) adapters_config: Option<String>,
+    pub(crate) models_config: Option<String>,
     pub(crate) cert_dir: Option<String>,
     pub(crate) db_path: Option<String>,
 }
@@ -16,6 +17,11 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
     let (routing_config, config_source) = domain_route::load_config(config_path).await?;
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+    let models_config_path = args.models_config.as_deref().map(std::path::Path::new);
+    let models_catalog = match domain_models::load_catalog(models_config_path).await {
+        Ok((catalog, _)) => Some(catalog),
+        Err(_) => domain_models::default_catalog().ok(),
+    };
     let cert_store = match args.cert_dir.as_deref().map(std::path::Path::new) {
         Some(path) => Some(certstore::CertificateStore::load_dir(path)?),
         None => None,
@@ -33,5 +39,6 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
         &detected,
         cert_store.as_ref(),
         state_store.as_ref(),
+        models_catalog.as_ref(),
     )
 }

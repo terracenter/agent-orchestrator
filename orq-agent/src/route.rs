@@ -159,9 +159,11 @@ pub fn decide(
         &detected,
         None,
         None,
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn decide_with_detected(
     config: &RoutingConfig,
     task_kind: &str,
@@ -170,6 +172,7 @@ pub fn decide_with_detected(
     detected: &detect::DetectReport,
     certificate_store: Option<&CertificateStore>,
     state_store: Option<&StateStore>,
+    models_catalog: Option<&crate::models::ModelsCatalog>,
 ) -> Result<RouteDecision> {
     let rule = config
         .routes
@@ -183,6 +186,7 @@ pub fn decide_with_detected(
         allow_gated,
         certificate_store,
         state_store,
+        models_catalog,
     );
 
     Ok(RouteDecision {
@@ -365,10 +369,13 @@ struct EvaluatedCandidate {
     selected: SelectedRoute,
     is_gated: bool,
     quota: CandidateQuota,
+    is_down_or_deprecated: bool,
+    cost_hint: Option<f64>,
+    has_promo: bool,
 }
 
 impl EvaluatedCandidate {
-    fn score(&self, any_healthy: bool) -> (i32, usize) {
+    fn tier(&self, any_healthy: bool) -> i32 {
         let is_short_term_critical = self
             .quota
             .short_term_remaining_pct
@@ -382,12 +389,12 @@ impl EvaluatedCandidate {
                 .is_none_or(|w| w < GATED_WEEKLY_THRESHOLD_PCT);
 
         // Penalty tiers:
-        // -100: Exhausted (when at least one candidate is healthy)
+        // -100: Exhausted or model status down/deprecated (when at least one candidate is healthy)
         // -50: Degraded / Warning (status == warning, immediate quota <= 15%, or gated under weekly threshold)
         // 0: Healthy / Baseline
         // Note: Certificates annotate but NEVER reorder candidates (no tier boost).
         // Note: Gated models NEVER displace healthy defaults (no tier boost above 0).
-        let tier = if any_healthy && self.quota.is_exhausted {
+        if any_healthy && (self.quota.is_exhausted || self.is_down_or_deprecated) {
             -100
         } else if any_healthy
             && (self.quota.is_warning || is_short_term_critical || is_gated_under_weekly_threshold)
@@ -395,9 +402,7 @@ impl EvaluatedCandidate {
             -50
         } else {
             0
-        };
-
-        (tier, usize::MAX - self.original_index)
+        }
     }
 }
 
@@ -408,6 +413,7 @@ fn select_route(
     allow_gated: bool,
     certificate_store: Option<&CertificateStore>,
     state_store: Option<&StateStore>,
+    models_catalog: Option<&crate::models::ModelsCatalog>,
 ) -> SelectedRoute {
     let raw_candidates = [
         candidate_from_parts(&rule.default_agent, &rule.default_model, false),
@@ -471,6 +477,25 @@ fn select_route(
             continue;
         }
 
+        let (cost_hint, promo, model_status) = if let Some(catalog) = models_catalog {
+            if let Some(agent_models) = catalog.agents.get(&candidate.agent) {
+                if let Some(m) = agent_models.iter().find(|m| m.id == candidate.model) {
+                    (m.cost_hint, m.promo.clone(), m.status.clone())
+                } else {
+                    (None, None, None)
+                }
+            } else {
+                (None, None, None)
+            }
+        } else {
+            (None, None, None)
+        };
+
+        let is_model_down_or_deprecated = matches!(
+            model_status.as_deref().map(str::to_lowercase).as_deref(),
+            Some("deprecated") | Some("down") | Some("disabled") | Some("offline")
+        );
+
         let is_gated = matches!(status, AdapterStatus::Gated);
         let requires_conf = requires_confirmation(status, &candidate.model, approval_patterns);
         let policy_reason = match &preferred_cert {
@@ -495,6 +520,9 @@ fn select_route(
             },
             is_gated,
             quota,
+            is_down_or_deprecated: is_model_down_or_deprecated,
+            cost_hint,
+            has_promo: promo.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false),
         });
     }
 
@@ -513,24 +541,66 @@ fn select_route(
         };
     }
 
-    let any_healthy = allowed_candidates.iter().any(|c| !c.quota.is_exhausted);
+    let any_healthy = allowed_candidates
+        .iter()
+        .any(|c| !c.quota.is_exhausted && !c.is_down_or_deprecated);
     let mut quota_penalized_candidates = Vec::new();
     for c in &allowed_candidates {
-        if c.quota.is_exhausted || c.quota.is_warning {
+        if c.quota.is_exhausted || c.quota.is_warning || c.is_down_or_deprecated {
             quota_penalized_candidates.push(c.selected.agent.clone());
         }
     }
 
     allowed_candidates.sort_by(|a, b| {
-        let score_b = b.score(any_healthy);
-        let score_a = a.score(any_healthy);
-        score_b.cmp(&score_a)
+        let tier_b = b.tier(any_healthy);
+        let tier_a = a.tier(any_healthy);
+        if tier_b != tier_a {
+            return tier_b.cmp(&tier_a);
+        }
+
+        // Same tier! Compare cost and promo:
+        match (b.cost_hint, a.cost_hint) {
+            (Some(cost_b), Some(cost_a)) => {
+                let diff = (cost_b - cost_a).abs();
+                if diff > 1e-7 {
+                    // Lower cost is better: cost_a < cost_b means a is better than b
+                    return cost_a.partial_cmp(&cost_b).unwrap_or(std::cmp::Ordering::Equal);
+                }
+                // Equivalent cost: promo preference
+                if b.has_promo != a.has_promo {
+                    return b.has_promo.cmp(&a.has_promo);
+                }
+            }
+            (None, None) => {
+                if b.has_promo != a.has_promo {
+                    return b.has_promo.cmp(&a.has_promo);
+                }
+            }
+            (Some(_), None) => {
+                if b.has_promo != a.has_promo {
+                    return b.has_promo.cmp(&a.has_promo);
+                }
+            }
+            (None, Some(_)) => {
+                if b.has_promo != a.has_promo {
+                    return b.has_promo.cmp(&a.has_promo);
+                }
+            }
+        }
+
+        let prio_b = usize::MAX - b.original_index;
+        let prio_a = usize::MAX - a.original_index;
+        prio_b.cmp(&prio_a)
     });
 
     let mut chosen = allowed_candidates.remove(0).selected;
     chosen.circuit_breaker_filtered = circuit_breaker_filtered;
     chosen.quota_aware = state_store.is_some();
     chosen.quota_penalized_candidates = quota_penalized_candidates;
+
+    if chosen.agent != rule.default_agent || chosen.model != rule.default_model {
+        chosen.fallback_applied = true;
+    }
 
     if chosen.fallback_applied
         && chosen
@@ -657,6 +727,7 @@ mod tests {
             &detected,
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(decision.selected_agent, route.default_agent);
@@ -729,6 +800,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -796,6 +868,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -852,6 +925,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -940,6 +1014,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1028,6 +1103,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1048,6 +1124,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1136,6 +1213,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1198,6 +1276,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1207,6 +1286,7 @@ mod tests {
             false,
             "test",
             &detected,
+            None,
             None,
             None,
         )
@@ -1311,6 +1391,7 @@ mod tests {
             &detected,
             Some(&cert_store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1320,6 +1401,7 @@ mod tests {
             false,
             "test",
             &detected,
+            None,
             None,
             None,
         )
@@ -1450,6 +1532,7 @@ mod tests {
             &detected,
             Some(&cert_store),
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1526,6 +1609,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1602,6 +1686,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1690,6 +1775,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1778,6 +1864,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1852,6 +1939,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 
@@ -1941,6 +2029,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
         )
         .unwrap();
 

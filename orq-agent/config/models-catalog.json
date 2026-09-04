@@ -1,30 +1,138 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "agents": {
-    "qwen-code": [
-      {"id":"qwen3-coder-next","source":"workspace_qwen_policy","confidence":"candidate_preferred_cheap","notes":"preferred for mechanical code reviews and small coding tasks before escalating"},
-      {"id":"glm-4.7","source":"workspace_qwen_policy","confidence":"candidate_preferred_cheap","notes":"cheap second-opinion route for simple mechanical reviews"},
-      {"id":"MiniMax-M2.5","source":"workspace_qwen_policy","confidence":"candidate_preferred_cheap","notes":"cheap agent route for simple multi-step tasks with low QPM"},
-      {"id":"qwen3.6-flash","source":"workspace_qwen_policy","confidence":"candidate_daily_driver","notes":"daily coding workhorse; use before flagship for edit-test-fix tasks"},
-      {"id":"qwen3-coder-plus","source":"workspace_qwen_policy","confidence":"candidate_large_repo","notes":"large-repo/refactor coding route with 1M context"},
-      {"id":"qwen3.8-max","source":"observed_cli_usage","confidence":"candidate_expensive_gated","notes":"flagship/costly; reserve for deep security, architecture, or hard reasoning"}
-    ],
-    "pi": [
-      {"id":"nvidia/openai/gpt-oss-20b","source":"workspace_policy","confidence":"candidate","notes":"NVIDIA stays under Pi until a separate local runner exists"}
+    "agy": [
+      {
+        "id": "gemini-3.6-flash-medium",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipts for simple_review, short_text_review, real_tool_execution proposals and documentation synthesis",
+        "status": "active"
+      },
+      {
+        "id": "gemini-3.1-pro-high",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipts for architecture, deep_reasoning and bounded large_refactor while Claude remains gated",
+        "status": "active"
+      },
+      {
+        "id": "gemini-3.7-flash-high",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipts for debugging, sysadmin_linux, write_tests and database review fit; referenced by routing-matrix for practical non-gated defaults",
+        "status": "active"
+      },
+      {
+        "id": "gemini-3.6-flash-high",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipt for small_refactor fit",
+        "status": "active"
+      },
+      {
+        "id": "gemini-3.6-flash-low",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipt as cheap documentation replacement for invalid gemini-3.5-flash-low alias",
+        "status": "active"
+      },
+      {
+        "id": "gemini-3.7-flash-low",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipt for cheap doc_watcher classification",
+        "status": "active"
+      },
+      {
+        "id": "gemini-3.7-flash-medium",
+        "source": "observed_receipts",
+        "confidence": "observed_receipt_certified_candidate",
+        "notes": "validated by Orq receipt for monorepo_long_context readonly planning and doc_watcher escalation",
+        "status": "active"
+      }
     ],
     "claude-code": [
-      {"id":"claude-haiku-4-5","source":"observed_cli_usage","confidence":"candidate_gated","notes":"cheap Claude route; Sonnet/Opus remain human-gated"}
+      {
+        "id": "claude-haiku-4-5",
+        "source": "observed_cli_usage",
+        "confidence": "candidate_gated",
+        "notes": "cheap Claude route; Sonnet/Opus remain human-gated",
+        "status": "active"
+      },
+      {
+        "id": "claude-opus-4-1-20250805",
+        "source": "market_feed",
+        "confidence": "market_feed_candidate",
+        "notes": "Anthropic promo extended to Sep 13 2026; source support.claude.com article 15910845",
+        "fetched_at": "2026-09-04T22:30:14Z",
+        "promo": "claude-code +50% weekly usage limit through 2026-09-13T23:59-07:00 (Pro/Max/Team + legacy Enterprise seats; weekly only, 5h unchanged)",
+        "status": "active"
+      },
+      {
+        "id": "claude-sonnet-4-5-20250929",
+        "source": "market_feed",
+        "confidence": "market_feed_candidate",
+        "notes": "Anthropic promo extended to Sep 13 2026",
+        "fetched_at": "2026-09-04T22:30:14Z",
+        "promo": "claude-code +50% weekly usage limit through 2026-09-13T23:59-07:00 (Pro/Max/Team + legacy Enterprise seats; weekly only, 5h unchanged)",
+        "status": "active"
+      }
     ],
     "hermes": [],
     "openclaw": [],
-    "agy": [
-      {"id":"gemini-3.6-flash-medium","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipts for simple_review, short_text_review, real_tool_execution proposals and documentation synthesis"},
-      {"id":"gemini-3.1-pro-high","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipts for architecture, deep_reasoning and bounded large_refactor while Claude remains gated"},
-      {"id":"gemini-3.7-flash-high","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipts for debugging, sysadmin_linux, write_tests and database review fit; referenced by routing-matrix for practical non-gated defaults"},
-      {"id":"gemini-3.6-flash-high","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt for small_refactor fit"},
-      {"id":"gemini-3.6-flash-low","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt as cheap documentation replacement for invalid gemini-3.5-flash-low alias"},
-      {"id":"gemini-3.7-flash-low","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt for cheap doc_watcher classification"},
-      {"id":"gemini-3.7-flash-medium","source":"observed_receipts","confidence":"observed_receipt_certified_candidate","notes":"validated by Orq receipt for monorepo_long_context readonly planning and doc_watcher escalation"}
+    "pi": [
+      {
+        "id": "nvidia/openai/gpt-oss-20b",
+        "source": "workspace_policy",
+        "confidence": "candidate",
+        "notes": "NVIDIA stays under Pi until a separate local runner exists",
+        "status": "active"
+      }
+    ],
+    "qwen-code": [
+      {
+        "id": "qwen3-coder-next",
+        "source": "workspace_qwen_policy",
+        "confidence": "candidate_preferred_cheap",
+        "notes": "preferred for mechanical code reviews and small coding tasks before escalating",
+        "status": "active"
+      },
+      {
+        "id": "glm-4.7",
+        "source": "workspace_qwen_policy",
+        "confidence": "candidate_preferred_cheap",
+        "notes": "cheap second-opinion route for simple mechanical reviews",
+        "status": "active"
+      },
+      {
+        "id": "MiniMax-M2.5",
+        "source": "workspace_qwen_policy",
+        "confidence": "candidate_preferred_cheap",
+        "notes": "cheap agent route for simple multi-step tasks with low QPM",
+        "status": "active"
+      },
+      {
+        "id": "qwen3.6-flash",
+        "source": "workspace_qwen_policy",
+        "confidence": "candidate_daily_driver",
+        "notes": "daily coding workhorse; use before flagship for edit-test-fix tasks",
+        "status": "active"
+      },
+      {
+        "id": "qwen3-coder-plus",
+        "source": "workspace_qwen_policy",
+        "confidence": "candidate_large_repo",
+        "notes": "large-repo/refactor coding route with 1M context",
+        "status": "active"
+      },
+      {
+        "id": "qwen3.8-max",
+        "source": "observed_cli_usage",
+        "confidence": "candidate_expensive_gated",
+        "notes": "flagship/costly; reserve for deep security, architecture, or hard reasoning",
+        "status": "active"
+      }
     ]
   }
 }

@@ -88,13 +88,16 @@ enum Commands {
     Models {
         /// Agent adapter name.
         #[arg(long)]
-        agent: String,
+        agent: Option<String>,
         /// Optional models catalog JSON path. Uses bundled config when omitted.
         #[arg(long)]
         config: Option<String>,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Subcommand for models management (e.g. refresh).
+        #[command(subcommand)]
+        command: Option<ModelsSubcommand>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -113,6 +116,9 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
         /// Optional certificate directory for routing preferences.
         #[arg(long)]
         cert_dir: Option<String>,
@@ -238,6 +244,22 @@ enum Commands {
 enum OutputFormat {
     Json,
     Text,
+}
+
+#[derive(Debug, Subcommand)]
+enum ModelsSubcommand {
+    /// Refresh the models catalog from a market feed.
+    Refresh {
+        /// Optional market feed JSON path. Uses bundled config or env when omitted.
+        #[arg(long)]
+        feed: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config or env when omitted.
+        #[arg(long)]
+        catalog: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -383,21 +405,40 @@ async fn run_command(command: Commands) -> Result<()> {
             agent,
             config,
             adapters_config,
+            command,
             format,
-        } => {
-            let report = commands::models::run(commands::models::ModelsArgs {
-                agent,
-                config,
-                adapters_config,
-            })
-            .await?;
-            print_json(format, &report)
-        }
+        } => match command {
+            Some(ModelsSubcommand::Refresh {
+                feed,
+                catalog,
+                format: refresh_format,
+            }) => {
+                let summary = commands::models::run_refresh(commands::models::ModelsRefreshArgs {
+                    feed,
+                    catalog,
+                })
+                .await?;
+                print_json(refresh_format, &summary)
+            }
+            None => {
+                let agent = agent.ok_or_else(|| {
+                    color_eyre::eyre::eyre!("missing required argument '--agent <AGENT>'")
+                })?;
+                let report = commands::models::run(commands::models::ModelsArgs {
+                    agent,
+                    config,
+                    adapters_config,
+                })
+                .await?;
+                print_json(format, &report)
+            }
+        },
         Commands::Route {
             task_kind,
             config,
             allow_gated,
             adapters_config,
+            models_config,
             cert_dir,
             db_path,
             format,
@@ -407,6 +448,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 config,
                 allow_gated,
                 adapters_config,
+                models_config,
                 cert_dir,
                 db_path,
             })
