@@ -631,3 +631,28 @@ fn exec_qwen_fake_timeout_is_reported() {
         .success()
         .stdout(predicate::str::contains("\"status\": \"timed_out\""));
 }
+
+#[test]
+fn exec_without_correlation_id_uses_unique_fallback() {
+    let task =
+        std::env::temp_dir().join(format!("orq-agent-fallback-task-{}.md", std::process::id()));
+    fs::write(&task, "hello fallback").unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "exec",
+        "--agent",
+        "missing-agent",
+        "--model",
+        "missing-model",
+        "--task-file",
+        task.to_str().unwrap(),
+        "--timeout",
+        "0",
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::is_match(r#""correlation_id": "orq-agent-\d{16,}-\d+""#).unwrap());
+}
