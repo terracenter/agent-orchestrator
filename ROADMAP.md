@@ -112,7 +112,7 @@ Certificación: [`docs/model-capability-certification.md`](docs/model-capability
 - [x] Crear crate/binario `orq-agent` sin reemplazar todavía el `orq` Go legacy.
 - [x] Implementar `orq-agent detect --format json` sin leer secretos.
 - [x] Implementar adapters iniciales detectados: `pi`, `openclaw`, `agy`, `qwen-code`.
-- [x] Marcar `hermes` como `deprecated_or_quarantine` hasta decidir si se elimina.
+- [x] Reactivar `hermes` como runner gestionado (issue #125).
 - [ ] Mantener NVIDIA solo bajo Pi por ahora; no tratar `nvidia-api` como agente local si no hay runner real.
 - [x] Implementar MVP inicial de `orq-agent exec` con timeout, stdout/stderr, exit code y receipt JSON; incluye kill por process group Unix, streaming/ring buffer acotado y salida parcial en timeout.
 - [x] Implementar `orq-agent models --agent <agent> --format json` para descubrimiento seguro de modelos sin leer secretos.
