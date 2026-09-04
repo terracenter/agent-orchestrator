@@ -1128,6 +1128,10 @@ fn quota_cli_migration_idempotent_on_existing_db() {
 
 #[test]
 fn route_cli_avoids_five_hour_exhausted_scope() {
+    let runner_agy = fake_runner("agy-route", "#!/usr/bin/env bash\necho agy-ok\n");
+    let runner_qwen = fake_runner("qwen-route", "#!/usr/bin/env bash\necho qwen-ok\n");
+    let runner_claude = fake_runner("claude-route", "#!/usr/bin/env bash\necho claude-ok\n");
+
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -1173,6 +1177,9 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
 
     let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
     route_cmd
+        .env("ORQ_AGENT_BIN_AGY", runner_agy)
+        .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
+        .env("ORQ_AGENT_BIN_CLAUDE_CODE", runner_claude)
         .args([
             "route",
             "--task-kind",
@@ -1195,6 +1202,13 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
 
 #[test]
 fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
+    let runner_agy = fake_runner("agy-route-gated", "#!/usr/bin/env bash\necho agy-ok\n");
+    let runner_qwen = fake_runner("qwen-route-gated", "#!/usr/bin/env bash\necho qwen-ok\n");
+    let runner_claude = fake_runner(
+        "claude-route-gated",
+        "#!/usr/bin/env bash\necho claude-ok\n",
+    );
+
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -1219,6 +1233,9 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
 
     let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
     route_cmd
+        .env("ORQ_AGENT_BIN_AGY", runner_agy)
+        .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
+        .env("ORQ_AGENT_BIN_CLAUDE_CODE", runner_claude)
         .args([
             "route",
             "--task-kind",
@@ -1242,6 +1259,9 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
 
 #[test]
 fn route_cli_quota_unknown_does_not_penalize() {
+    let runner_agy = fake_runner("agy-route-unk", "#!/usr/bin/env bash\necho agy-ok\n");
+    let runner_qwen = fake_runner("qwen-route-unk", "#!/usr/bin/env bash\necho qwen-ok\n");
+
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -1283,6 +1303,8 @@ fn route_cli_quota_unknown_does_not_penalize() {
 
     let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
     route_cmd
+        .env("ORQ_AGENT_BIN_AGY", runner_agy)
+        .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
         .args([
             "route",
             "--task-kind",
