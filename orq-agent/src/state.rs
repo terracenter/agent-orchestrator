@@ -771,7 +771,7 @@ mod tests {
         let store = open(Some(&path)).expect("open state");
         let status = store.status().expect("status");
         assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
-        assert_eq!(status.secrets_read, false);
+        assert!(!status.secrets_read);
         assert!(status.tables_present.contains(&"agents".to_string()));
         assert!(status.tables_present.contains(&"models".to_string()));
     }
