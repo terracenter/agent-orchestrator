@@ -43,6 +43,13 @@ pub fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+pub fn now_unix_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
+}
+
 pub fn receipt_sha256(receipt: &ExecReceipt) -> Result<String> {
     let receipt_json = serde_json::to_vec(receipt).wrap_err("serializing receipt for sha256")?;
     Ok(hex_sha256(&receipt_json))

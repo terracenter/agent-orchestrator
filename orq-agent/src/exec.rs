@@ -1,6 +1,6 @@
 use crate::adapters::{find_adapter_in_registry, AdaptersRegistry};
 use crate::policy;
-use crate::receipt::{now_unix, tail_sanitized, ExecReceipt, ExecStatus};
+use crate::receipt::{now_unix, now_unix_nanos, tail_sanitized, ExecReceipt, ExecStatus};
 use color_eyre::eyre::Result;
 use std::collections::VecDeque;
 use std::process::Stdio;
@@ -31,7 +31,7 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
     let correlation_id = request
         .correlation_id
         .clone()
-        .unwrap_or_else(|| format!("orq-agent-{}", started_at_unix));
+        .unwrap_or_else(|| build_correlation_id(now_unix_nanos(), std::process::id()));
 
     if request.timeout_seconds == 0 || request.timeout_seconds > MAX_TIMEOUT_SECONDS {
         return Ok(invalid_receipt(
@@ -371,5 +371,26 @@ fn invalid_receipt(
         secrets_read: false,
         cleanup_attempted: false,
         cleanup_succeeded: false,
+    }
+}
+
+fn build_correlation_id(nanos: u128, pid: u32) -> String {
+    format!("orq-agent-{nanos}-{pid}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_correlation_id;
+
+    #[test]
+    fn correlation_id_unique_across_pids() {
+        assert_eq!(
+            build_correlation_id(1788535346, 10),
+            "orq-agent-1788535346-10"
+        );
+        assert_ne!(
+            build_correlation_id(1788535346, 10),
+            build_correlation_id(1788535346, 11)
+        );
     }
 }
