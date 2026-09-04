@@ -207,10 +207,10 @@ enum Commands {
         /// Project name for engram session_summary verification.
         #[arg(long)]
         project: Option<String>,
-        /// Optional vault directory path for vg-sync check. Defaults to ORQ_VAULT_PATH or /home/freddy/Workspace/Obsidian.
+        /// Optional vault directory path for vg-sync check. Resolved only from --vault-path or ORQ_VAULT_PATH / VAULT_PATH env vars.
         #[arg(long)]
         vault_path: Option<String>,
-        /// Optional kuzu db path or sync marker path. Defaults to ORQ_KUZU_PATH or ~/.local/share/vault-graph/kuzu.
+        /// Optional kuzu db path or sync marker path. Resolved only from --kuzu-path or ORQ_KUZU_PATH / KUZU_PATH env vars.
         #[arg(long)]
         kuzu_path: Option<String>,
         /// Optional custom engram binary path (for testing or overrides). Defaults to ORQ_ENGRAM_BIN or engram.

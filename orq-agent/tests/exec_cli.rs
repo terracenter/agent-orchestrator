@@ -1478,3 +1478,107 @@ fn compliance_cli_engram_summary_ok_and_violation() {
         .stdout(predicate::str::contains("\"status\": \"violation\""))
         .stdout(predicate::str::contains("\"session_summaries_count\": 0"));
 }
+
+#[test]
+fn compliance_cli_vg_sync_stale_when_vault_newer() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let vault_dir = tempfile::tempdir().unwrap();
+    let git_refs = vault_dir.path().join(".git/refs/heads");
+    fs::create_dir_all(&git_refs).unwrap();
+    fs::write(vault_dir.path().join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    let main_ref = git_refs.join("main");
+    fs::write(&main_ref, "commit-sha\n").unwrap();
+
+    let kuzu_dir = tempfile::tempdir().unwrap();
+    let kuzu_marker = kuzu_dir.path().join("vault.kuzu.sync");
+    fs::write(&kuzu_marker, "sync-marker\n").unwrap();
+
+    // Set kuzu marker timestamp to older time so vault ref is newer
+    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+    let times = std::fs::FileTimes::new().set_modified(old_time);
+    let file = std::fs::File::options().write(true).open(&kuzu_marker).unwrap();
+    let _ = file.set_times(times);
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "compliance",
+            "--vg-sync",
+            "--vault-path",
+            vault_dir.path().to_str().unwrap(),
+            "--kuzu-path",
+            kuzu_marker.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("\"status\": \"violation\""))
+        .stdout(predicate::str::contains("\"is_fresh\": false"));
+}
+
+#[test]
+fn compliance_cli_vg_sync_fresh() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let vault_dir = tempfile::tempdir().unwrap();
+    let git_refs = vault_dir.path().join(".git/refs/heads");
+    fs::create_dir_all(&git_refs).unwrap();
+    fs::write(vault_dir.path().join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    let main_ref = git_refs.join("main");
+    fs::write(&main_ref, "commit-sha\n").unwrap();
+
+    // Set vault ref timestamp to older time so kuzu marker is newer
+    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+    let times = std::fs::FileTimes::new().set_modified(old_time);
+    let file = std::fs::File::options().write(true).open(&main_ref).unwrap();
+    let _ = file.set_times(times);
+
+    let kuzu_dir = tempfile::tempdir().unwrap();
+    let kuzu_marker = kuzu_dir.path().join("vault.kuzu.sync");
+    fs::write(&kuzu_marker, "sync-marker\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "compliance",
+            "--vg-sync",
+            "--vault-path",
+            vault_dir.path().to_str().unwrap(),
+            "--kuzu-path",
+            kuzu_marker.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"ok\""))
+        .stdout(predicate::str::contains("\"is_fresh\": true"));
+}
+
+#[test]
+fn compliance_cli_vg_sync_not_available() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_STATE_DB", &db)
+        .env_remove("ORQ_VAULT_PATH")
+        .env_remove("VAULT_PATH")
+        .env_remove("ORQ_KUZU_PATH")
+        .env_remove("KUZU_PATH")
+        .args([
+            "compliance",
+            "--vg-sync",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"not_available\""))
+        .stdout(predicate::str::contains("\"is_fresh\": false"));
+}

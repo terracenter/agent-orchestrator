@@ -2,7 +2,6 @@ use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -591,17 +590,33 @@ pub fn check_vg_sync(
     let vault_path = vault_path_str
         .map(PathBuf::from)
         .or_else(|| std::env::var("ORQ_VAULT_PATH").ok().map(PathBuf::from))
-        .or_else(|| std::env::var("VAULT_PATH").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("/home/freddy/Workspace/Obsidian"));
+        .or_else(|| std::env::var("VAULT_PATH").ok().map(PathBuf::from));
 
     let kuzu_path = kuzu_path_str
         .map(PathBuf::from)
         .or_else(|| std::env::var("ORQ_KUZU_PATH").ok().map(PathBuf::from))
-        .or_else(|| std::env::var("KUZU_PATH").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("/home/freddy/Workspace/.agents/kuzu/vault.kuzu"));
+        .or_else(|| std::env::var("KUZU_PATH").ok().map(PathBuf::from));
 
-    let vault_head_unix = get_vault_head_commit_unix(&vault_path);
-    let kuzu_sync_unix = get_kuzu_sync_unix(&kuzu_path);
+    let (Some(vault_path), Some(kuzu_path)) = (vault_path.as_ref(), kuzu_path.as_ref()) else {
+        return Ok(VgSyncReport {
+            status: ComplianceStatus::NotAvailable,
+            vault_path: vault_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            kuzu_path: kuzu_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            vault_head_unix: None,
+            kuzu_sync_unix: None,
+            is_fresh: false,
+            message: "vault o kuzu path no disponible".to_string(),
+        });
+    };
+
+    let vault_head_unix = get_vault_head_unix(vault_path);
+    let kuzu_sync_unix = get_kuzu_sync_unix(kuzu_path);
 
     let (status, is_fresh, message) = match (vault_head_unix, kuzu_sync_unix) {
         (Some(head), Some(kuzu)) => {
@@ -627,7 +642,7 @@ pub fn check_vg_sync(
         (None, _) => (
             ComplianceStatus::Violation,
             false,
-            format!("unable to obtain vault git HEAD commit timestamp at {}", vault_path.display()),
+            format!("unable to obtain vault git HEAD timestamp at {}", vault_path.display()),
         ),
         (_, None) => (
             ComplianceStatus::Violation,
@@ -647,21 +662,128 @@ pub fn check_vg_sync(
     })
 }
 
-fn get_vault_head_commit_unix(vault_path: &Path) -> Option<u64> {
+fn get_vault_head_unix(vault_path: &Path) -> Option<u64> {
     if !vault_path.exists() {
         return None;
     }
-    let output = Command::new("git")
-        .args(["-C", &vault_path.to_string_lossy(), "log", "-1", "--format=%ct"])
-        .output()
-        .ok()?;
 
-    if !output.status.success() {
-        return None;
+    let git_dir = if vault_path.join(".git").is_dir() {
+        vault_path.join(".git")
+    } else if vault_path.join(".git").is_file() {
+        if let Ok(content) = fs::read_to_string(vault_path.join(".git")) {
+            if let Some(target) = content.trim().strip_prefix("gitdir:") {
+                let target_path = PathBuf::from(target.trim());
+                if target_path.is_absolute() {
+                    target_path
+                } else {
+                    vault_path.join(target_path)
+                }
+            } else {
+                vault_path.join(".git")
+            }
+        } else {
+            vault_path.join(".git")
+        }
+    } else if vault_path.join("HEAD").exists() {
+        vault_path.to_path_buf()
+    } else {
+        vault_path.join(".git")
+    };
+
+    // 1. Try resolving current branch from .git/HEAD
+    let head_file = git_dir.join("HEAD");
+    if let Ok(head_content) = fs::read_to_string(&head_file) {
+        let trimmed = head_content.trim();
+        if let Some(ref_rel) = trimmed.strip_prefix("ref:") {
+            let branch_file = git_dir.join(ref_rel.trim());
+            if branch_file.exists() {
+                if let Ok(meta) = fs::metadata(&branch_file) {
+                    if let Ok(mtime) = meta.modified() {
+                        return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+                    }
+                }
+            }
+        }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout.trim().parse::<u64>().ok()
+    // Direct check for main or master
+    let main_ref = git_dir.join("refs/heads/main");
+    if main_ref.exists() {
+        if let Ok(meta) = fs::metadata(&main_ref) {
+            if let Ok(mtime) = meta.modified() {
+                return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+            }
+        }
+    }
+
+    let master_ref = git_dir.join("refs/heads/master");
+    if master_ref.exists() {
+        if let Ok(meta) = fs::metadata(&master_ref) {
+            if let Ok(mtime) = meta.modified() {
+                return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+            }
+        }
+    }
+
+    // Check any ref in refs/heads/
+    let refs_heads = git_dir.join("refs/heads");
+    if refs_heads.is_dir() {
+        if let Ok(entries) = fs::read_dir(&refs_heads) {
+            let mut latest_ref_mtime = 0u64;
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(mtime) = meta.modified() {
+                        if let Ok(secs) = mtime.duration_since(UNIX_EPOCH).map(|d| d.as_secs()) {
+                            if secs > latest_ref_mtime {
+                                latest_ref_mtime = secs;
+                            }
+                        }
+                    }
+                }
+            }
+            if latest_ref_mtime > 0 {
+                return Some(latest_ref_mtime);
+            }
+        }
+    }
+
+    // Fallback 1: .git/FETCH_HEAD
+    let fetch_head = git_dir.join("FETCH_HEAD");
+    if fetch_head.exists() {
+        if let Ok(meta) = fs::metadata(&fetch_head) {
+            if let Ok(mtime) = meta.modified() {
+                return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+            }
+        }
+    }
+
+    // Fallback 2: .git/index
+    let index = git_dir.join("index");
+    if index.exists() {
+        if let Ok(meta) = fs::metadata(&index) {
+            if let Ok(mtime) = meta.modified() {
+                return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+            }
+        }
+    }
+
+    // Fallback 3: .git/HEAD
+    if head_file.exists() {
+        if let Ok(meta) = fs::metadata(&head_file) {
+            if let Ok(mtime) = meta.modified() {
+                return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+            }
+        }
+    }
+
+    // Fallback 4: vault_path directory itself
+    if let Ok(meta) = fs::metadata(vault_path) {
+        if let Ok(mtime) = meta.modified() {
+            return mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+        }
+    }
+
+    None
 }
 
 fn get_kuzu_sync_unix(kuzu_path: &Path) -> Option<u64> {
@@ -776,5 +898,52 @@ Found 2 memories:
 "#;
         assert_eq!(count_today_session_summaries(output, "2026-09-04"), 1);
         assert_eq!(count_today_session_summaries(output, "2026-09-03"), 0);
+    }
+
+    #[test]
+    fn test_vg_sync_fresh_and_stale() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_dir = temp_dir.path().join("vault");
+        let git_refs = vault_dir.join(".git/refs/heads");
+        fs::create_dir_all(&git_refs).unwrap();
+        fs::write(vault_dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let main_ref = git_refs.join("main");
+        fs::write(&main_ref, "commit1\n").unwrap();
+
+        let kuzu_file = temp_dir.path().join("vault.kuzu");
+        fs::write(&kuzu_file, "kuzu db content\n").unwrap();
+
+        // When kuzu is newer or same
+        let report_fresh = check_vg_sync(
+            Some(vault_dir.to_str().unwrap()),
+            Some(kuzu_file.to_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(report_fresh.status, ComplianceStatus::Ok);
+        assert!(report_fresh.is_fresh);
+
+        // When vault ref is newer than kuzu
+        // Set kuzu file mtime to 10 seconds ago
+        let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+        let times = std::fs::FileTimes::new().set_modified(old_time);
+        let file = std::fs::File::options().write(true).open(&kuzu_file).unwrap();
+        let _ = file.set_times(times);
+
+        let report_stale = check_vg_sync(
+            Some(vault_dir.to_str().unwrap()),
+            Some(kuzu_file.to_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(report_stale.status, ComplianceStatus::Violation);
+        assert!(!report_stale.is_fresh);
+    }
+
+    #[test]
+    fn test_vg_sync_not_available_when_no_paths() {
+        let report = check_vg_sync(None, None).unwrap();
+        if std::env::var("ORQ_VAULT_PATH").is_err() && std::env::var("VAULT_PATH").is_err() {
+            assert_eq!(report.status, ComplianceStatus::NotAvailable);
+            assert!(!report.is_fresh);
+        }
     }
 }
