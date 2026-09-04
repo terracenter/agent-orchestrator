@@ -30,8 +30,8 @@ caller, es tool.
 
 | Idea | Aplicación en `orq` |
 |---|---|
-| **AgentCard** (capacidades autodescriptivas, con `skills[]` + versionado) | Fuente en el pipeline Rust de discovery (#81): `detect` + `models snapshot` + certstore + SQLite — NO en `agent-profiles.json` (curación manual). La card versiona; el catálogo cachea; `detect` revalida. |
-| **Máquina de estados de tarea explícita** | Estados tipados `submitted / working / input-required / completed / failed / canceled` en el receipt; formalizar `session_id` además de `correlation_id`. Distingue "falló" de "esperando input" de "cortó el breaker". |
+| **AgentCard** (capacidades autodescriptivas, con `skills[]` + versionado) | Fuente en el pipeline Rust de discovery (#81): `detect` + `models snapshot` + certstore + SQLite — NO en `agent-profiles.json` (curación manual). La card versiona; el catálogo cachea; `detect` revalida (si la versión cacheada no coincide, refresca y marca drift). |
+| **Máquina de estados de tarea explícita** | Estados tipados `submitted / working / input-required / completed / failed / canceled` en el receipt; formalizar `session_id` además de `correlation_id`. Estados terminales llevan `reason` (`canceled` distingue breaker-trip de cancelación manual). `session_id` agrupa N `correlation_id` (una sesión, varios runs). |
 
 ## Ideas a adaptar
 
