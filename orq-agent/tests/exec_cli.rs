@@ -656,3 +656,29 @@ fn exec_without_correlation_id_uses_unique_fallback() {
     .success()
     .stdout(predicate::str::is_match(r#""correlation_id": "orq-agent-\d{16,}-\d+""#).unwrap());
 }
+
+#[test]
+fn certify_without_correlation_id_uses_unique_fallback() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "certify",
+        "--agent",
+        "missing-agent",
+        "--model",
+        "missing-model",
+        "--task-kind",
+        "regression",
+        "--timeout",
+        "0",
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(
+        predicate::str::is_match(
+            r#""certificate_id": "cert-\d{16,}-\d+-missing-agent-missing-model-regression""#,
+        )
+        .unwrap(),
+    );
+}

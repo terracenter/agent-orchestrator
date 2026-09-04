@@ -1,6 +1,6 @@
 use crate::adapters::AdaptersRegistry;
 use crate::policy::PolicyConfig;
-use crate::receipt::{now_unix, receipt_sha256, ExecReceipt, ExecStatus};
+use crate::receipt::{now_unix, now_unix_nanos, receipt_sha256, ExecReceipt, ExecStatus};
 use crate::smoke;
 use color_eyre::eyre::{Result, WrapErr};
 use serde::{Deserialize, Serialize};
@@ -55,11 +55,12 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
     .await?;
     let receipt_sha256 = receipt_sha256(&receipt)?;
     let created_at_unix = now_unix();
-    let certificate_id = format!(
-        "cert-{created_at_unix}-{}-{}-{}",
-        safe_id(&request.agent),
-        safe_id(&request.model),
-        safe_id(&request.task_kind)
+    let certificate_id = build_certificate_id(
+        now_unix_nanos(),
+        std::process::id(),
+        &request.agent,
+        &request.model,
+        &request.task_kind,
     );
     let status = certificate_status_for_receipt(&receipt);
     let output_path = request.output.clone();
@@ -105,6 +106,21 @@ pub fn certificate_status_for_receipt(receipt: &ExecReceipt) -> CertificateStatu
     }
 }
 
+fn build_certificate_id(
+    nanos: u128,
+    pid: u32,
+    agent: &str,
+    model: &str,
+    task_kind: &str,
+) -> String {
+    format!(
+        "cert-{nanos}-{pid}-{}-{}-{}",
+        safe_id(agent),
+        safe_id(model),
+        safe_id(task_kind)
+    )
+}
+
 fn safe_id(value: &str) -> String {
     value
         .chars()
@@ -114,8 +130,16 @@ fn safe_id(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{certificate_status_for_receipt, safe_id};
+    use super::{build_certificate_id, certificate_status_for_receipt, safe_id};
     use crate::receipt::{ExecReceipt, ExecStatus};
+
+    #[test]
+    fn certificate_id_uses_nanos_and_pid() {
+        assert_eq!(
+            build_certificate_id(1788535346, 10, "a/b", "c:d", "task"),
+            "cert-1788535346-10-a-b-c-d-task"
+        );
+    }
 
     #[test]
     fn receipt_with_secrets_read_is_not_certified_positive() {
