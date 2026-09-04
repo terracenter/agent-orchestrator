@@ -11,6 +11,7 @@ mod discover;
 mod exec;
 mod models;
 mod policy;
+mod quota;
 mod receipt;
 mod route;
 mod smoke;
@@ -162,6 +163,11 @@ enum Commands {
         #[command(subcommand)]
         command: StateCommand,
     },
+    /// Manage and report agent provider quotas.
+    Quota {
+        #[command(subcommand)]
+        command: QuotaCommand,
+    },
     /// Execute a bounded real smoke task and emit a receipt.
     Smoke {
         /// Agent adapter name.
@@ -197,6 +203,61 @@ enum Commands {
 #[derive(Clone, Debug, ValueEnum)]
 enum OutputFormat {
     Json,
+}
+
+#[derive(Debug, Subcommand)]
+enum QuotaCommand {
+    /// Ingest or record a quota snapshot manually or from JSON.
+    Record {
+        /// Provider identifier (e.g., agy, claude-code, codex, qwen).
+        #[arg(long)]
+        provider: Option<String>,
+        /// Quota scope/group (e.g., weekly, five_hour, session, daily).
+        #[arg(long)]
+        scope: Option<String>,
+        /// Remaining quota percentage (0.0 - 100.0).
+        #[arg(long)]
+        remaining_pct: Option<f64>,
+        /// Used quota percentage (0.0 - 100.0).
+        #[arg(long)]
+        used_pct: Option<f64>,
+        /// Quota status (ok, quota_unknown, exceeded, warning, exhausted).
+        #[arg(long, default_value = "ok")]
+        status: String,
+        /// Unix timestamp when the quota resets or refreshes.
+        #[arg(long)]
+        reset_at_unix: Option<u64>,
+        /// Relative seconds until quota reset/refresh.
+        #[arg(long)]
+        reset_in_seconds: Option<u64>,
+        /// Captured timestamp in unix seconds. Defaults to now.
+        #[arg(long)]
+        captured_at_unix: Option<u64>,
+        /// Optional JSON metadata string or payload.
+        #[arg(long)]
+        metadata: Option<String>,
+        /// Raw JSON string or @file.json containing single snapshot or array of snapshots.
+        #[arg(long)]
+        json: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Report latest quota snapshots per provider and scope.
+    Report {
+        /// Optional provider filter.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -354,6 +415,50 @@ async fn run_command(command: Commands) -> Result<()> {
             record_exec_breaker_outcome(db_path.as_deref(), &certificate.receipt);
             print_json(format, &certificate)
         }
+        Commands::Quota { command } => match command {
+            QuotaCommand::Record {
+                provider,
+                scope,
+                remaining_pct,
+                used_pct,
+                status,
+                reset_at_unix,
+                reset_in_seconds,
+                captured_at_unix,
+                metadata,
+                json,
+                db_path,
+                format,
+            } => {
+                let response = commands::quota::run_record(commands::quota::QuotaRecordArgs {
+                    provider,
+                    scope,
+                    remaining_pct,
+                    used_pct,
+                    status,
+                    reset_at_unix,
+                    reset_in_seconds,
+                    captured_at_unix,
+                    metadata,
+                    json,
+                    db_path,
+                })
+                .await?;
+                print_json(format, &response)
+            }
+            QuotaCommand::Report {
+                provider,
+                db_path,
+                format,
+            } => {
+                let report = commands::quota::run_report(commands::quota::QuotaReportArgs {
+                    provider,
+                    db_path,
+                })
+                .await?;
+                print_json(format, &report)
+            }
+        },
         Commands::State { command } => match command {
             StateCommand::Migrate { db_path, format }
             | StateCommand::Status { db_path, format } => {

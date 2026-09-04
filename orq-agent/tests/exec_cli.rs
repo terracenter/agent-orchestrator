@@ -203,7 +203,7 @@ fn state_status_creates_temp_db_without_secrets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 2"))
+        .stdout(predicate::str::contains("\"schema_version\": 3"))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
         .stdout(predicate::str::contains("agents"))
         .stdout(predicate::str::contains("models"));
@@ -783,4 +783,188 @@ fn certify_without_correlation_id_uses_unique_fallback() {
             )
             .unwrap(),
         );
+}
+
+#[test]
+fn quota_cli_help_is_visible() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["quota", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Manage and report agent provider quotas",
+        ))
+        .stdout(predicate::str::contains("record"))
+        .stdout(predicate::str::contains("report"));
+}
+
+#[test]
+fn quota_cli_record_manual_and_report() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "agy",
+            "--scope",
+            "gemini-weekly",
+            "--remaining-pct",
+            "47.17",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"agy\""))
+        .stdout(predicate::str::contains("\"remaining_pct\": 47.17"))
+        .stdout(predicate::str::contains("\"used_pct\": 52.83"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+
+    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    report_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "quota",
+            "report",
+            "--provider",
+            "agy",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"agy\""))
+        .stdout(predicate::str::contains("\"gemini-weekly\""))
+        .stdout(predicate::str::contains("47.17"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn quota_cli_record_json_array_and_report_with_resets() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let json_payload = r#"[
+        {"provider": "agy", "scope": "gemini-weekly", "remaining_pct": 47.17},
+        {"provider": "agy", "scope": "gemini-five-hour", "remaining_pct": 96.48},
+        {"provider": "agy", "scope": "claude-gpt-weekly", "remaining_pct": 62.69},
+        {"provider": "agy", "scope": "claude-gpt-five-hour", "remaining_pct": 0.0, "reset_in_seconds": 9180, "status": "exhausted"},
+        {"provider": "claude-code", "scope": "session", "used_pct": 30.0},
+        {"provider": "claude-code", "scope": "weekly", "used_pct": 3.0, "metadata": {"promo": "+50% until Sep 13"}},
+        {"provider": "codex", "scope": "short-term", "remaining_pct": 22.0, "reset_in_seconds": 14760},
+        {"provider": "codex", "scope": "long-term", "remaining_pct": 80.0, "reset_in_seconds": 440640}
+    ]"#;
+
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "quota",
+            "record",
+            "--json",
+            json_payload,
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 1"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+
+    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    report_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "quota",
+            "report",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"agy\""))
+        .stdout(predicate::str::contains("\"provider\": \"claude-code\""))
+        .stdout(predicate::str::contains("\"provider\": \"codex\""))
+        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
+        .stdout(predicate::str::contains("claude-gpt-five-hour"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn quota_cli_qwen_without_detector_reports_quota_unknown() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    report_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "quota",
+            "report",
+            "--provider",
+            "qwen",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
+        .stdout(predicate::str::contains("\"scopes\": []"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn quota_cli_migration_idempotent_on_existing_db() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    // Open first time (migrates to version 3)
+    let mut status_cmd = Command::cargo_bin("orq-agent").unwrap();
+    status_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "state",
+            "status",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 3"))
+        .stdout(predicate::str::contains("quota_snapshots"));
+
+    // Migrate again explicitly
+    let mut migrate_cmd = Command::cargo_bin("orq-agent").unwrap();
+    migrate_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "state",
+            "migrate",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 3"));
 }
