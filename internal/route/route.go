@@ -6,6 +6,9 @@ const (
 	AnthropicOpusCriticalModel = "claude-opus-4-1-20250805"
 	AnthropicSonnetReviewModel = "claude-sonnet-4-5-20250929"
 	AnthropicHaikuCheapModel   = "claude-3-5-haiku-20241022"
+
+	HermesFlashModel = "deepseek-v4-flash"
+	HermesProModel   = "deepseek-v4-pro"
 )
 
 type Decision struct {
@@ -88,11 +91,19 @@ func Decide(task string) Decision {
 		decision.Reason = "seguridad sobrescribe costo; Sonnet por defecto, Opus solo para arquitectura/auditoria critica"
 	case "documentacion":
 		decision.RecommendedLevel = 1
-		decision.RecommendedAgent = "agy"
-		decision.RecommendedModel = "gpt-oss-120b-medium"
+		decision.RecommendedAgent = "hermes"
+		decision.RecommendedModel = HermesFlashModel
 		decision.FallbackAgent = "pi"
 		decision.FallbackModel = "cheap-or-fast"
-		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/" + AnthropicHaikuCheapModel}
+		decision.AllowedAgents = []string{
+			"hermes/" + HermesFlashModel,
+			"hermes/" + HermesProModel,
+			"nvidia-api/openai/gpt-oss-20b",
+			"agy/gpt-oss-120b-medium",
+			"agy/gemini-3.5-flash-low",
+			"pi/cheap-or-fast",
+			"claude-code/" + AnthropicHaikuCheapModel,
+		}
 		decision.AvoidAgents = []string{"claude-code/" + AnthropicOpusCriticalModel, "claude-code/" + AnthropicSonnetReviewModel}
 		decision.Reason = "documentacion/vault: descubrir con vg/rtk y ejecutar con agente barato; escalar solo si hay conflicto o riesgo"
 	case "codigo":
@@ -101,16 +112,25 @@ func Decide(task string) Decision {
 		decision.RecommendedModel = "gemini-3.7-flash-high"
 		decision.FallbackAgent = "pi"
 		decision.FallbackModel = "gpt-5.5"
-		decision.AllowedAgents = []string{"agy/gemini-3.7-flash-high", "agy/gemini-3.5-flash-low", "pi/gpt-5.5"}
+		decision.AllowedAgents = []string{"agy/gemini-3.7-flash-high", "agy/gemini-3.5-flash-low", "hermes/" + HermesProModel, "pi/gpt-5.5"}
 		decision.AvoidAgents = []string{"claude-code/" + AnthropicOpusCriticalModel}
 		decision.Reason = "codigo entra por agente de implementacion antes de escalar"
 	default:
 		decision.RecommendedLevel = 1
-		decision.RecommendedAgent = "local-or-cheap"
-		decision.RecommendedModel = "lowest-sufficient"
+		decision.RecommendedAgent = "hermes"
+		decision.RecommendedModel = HermesFlashModel
 		decision.FallbackAgent = "nvidia-api"
 		decision.FallbackModel = "openai/gpt-oss-20b"
-		decision.AllowedAgents = []string{"nvidia-api/openai/gpt-oss-20b", "agy/gpt-oss-120b-medium", "agy/gemini-3.5-flash-low", "pi/cheap-or-fast", "claude-code/" + AnthropicHaikuCheapModel, "local"}
+		decision.AllowedAgents = []string{
+			"hermes/" + HermesFlashModel,
+			"hermes/" + HermesProModel,
+			"nvidia-api/openai/gpt-oss-20b",
+			"agy/gpt-oss-120b-medium",
+			"agy/gemini-3.5-flash-low",
+			"pi/cheap-or-fast",
+			"claude-code/" + AnthropicHaikuCheapModel,
+			"local",
+		}
 		decision.AvoidAgents = []string{"claude-code/" + AnthropicOpusCriticalModel, "claude-code/" + AnthropicSonnetReviewModel}
 		decision.Reason = "tarea mecanica: usar escalon mas barato suficiente"
 	}

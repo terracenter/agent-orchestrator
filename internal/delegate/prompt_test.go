@@ -29,16 +29,16 @@ func TestPlanForPiUnexecutedRequiresStop(t *testing.T) {
 		wantCommandFragment  string
 	}{
 		{
-			name:                 "agy documentation delegation",
+			name:                 "hermes documentation delegation",
 			task:                 "ordenar informacion del vault",
-			wantRecommendedAgent: "agy",
-			wantCommandFragment:  "rtk agy",
+			wantRecommendedAgent: "hermes",
+			wantCommandFragment:  "rtk hermes",
 		},
 		{
-			name:                 "local or cheap mechanical delegation",
+			name:                 "hermes mechanical delegation",
 			task:                 "listar archivos pendientes",
-			wantRecommendedAgent: "local-or-cheap",
-			wantCommandFragment:  "rtk agy",
+			wantRecommendedAgent: "hermes",
+			wantCommandFragment:  "rtk hermes",
 		},
 	}
 
@@ -120,7 +120,7 @@ func TestPlanForExternalAgentAllowsExecution(t *testing.T) {
 func TestBuildAGYCommandWithHandoff(t *testing.T) {
 	opts := PlanOptions{
 		Task:        "implementar feature",
-		Agent:       "pi",
+		Agent:       "agy",
 		HandoffPath: "/home/freddy/Workspace/.agents/handoffs/orq-delegate-agy-cli-autonomo-2026-08-29.md",
 		RepoPath:    "/home/freddy/Workspace/Desarrollo/agent-orchestrator",
 		AgentsDir:   "/home/freddy/Workspace/.agents",
@@ -189,7 +189,7 @@ func TestBuildAGYCommandCustomOptions(t *testing.T) {
 	}
 }
 
-func TestBuildAGYCommandDocRoutingModel(t *testing.T) {
+func TestBuildHermesCommandDocRoutingModel(t *testing.T) {
 	opts := PlanOptions{
 		Task:  "ordenar documentacion del vault",
 		Agent: "pi",
@@ -199,11 +199,35 @@ func TestBuildAGYCommandDocRoutingModel(t *testing.T) {
 		t.Fatalf("PlanWithOptions failed: %v", err)
 	}
 
-	if !strings.Contains(res.AutonomousCommand, "--model gpt-oss-120b-medium") {
-		t.Errorf("expected gpt-oss-120b-medium for documentation routing: %s", res.AutonomousCommand)
+	if !strings.Contains(res.AutonomousCommand, "-m deepseek-v4-flash") {
+		t.Errorf("expected deepseek-v4-flash for documentation routing: %s", res.AutonomousCommand)
 	}
-	if !strings.Contains(res.AutonomousCommand, `--print="Olvida el historial anterior. ordenar documentacion del vault"`) {
-		t.Errorf("expected task in print instruction: %s", res.AutonomousCommand)
+	if !strings.Contains(res.AutonomousCommand, `-z "Olvida el historial anterior. ordenar documentacion del vault"`) {
+		t.Errorf("expected task in prompt instruction: %s", res.AutonomousCommand)
+	}
+}
+
+func TestBuildHermesCommand(t *testing.T) {
+	opts := PlanOptions{
+		Task:        "tarea de prueba hermes",
+		Agent:       "hermes",
+		Model:       "deepseek-v4-pro",
+		Workspace:   "/custom/workspace",
+		HandoffPath: "/custom/handoff.md",
+	}
+	res, err := PlanWithOptions(opts)
+	if err != nil {
+		t.Fatalf("PlanWithOptions failed: %v", err)
+	}
+
+	if !strings.HasPrefix(res.AutonomousCommand, "cd /custom/workspace\nrtk hermes") {
+		t.Errorf("expected hermes command to start with workspace cd and rtk hermes: %s", res.AutonomousCommand)
+	}
+	if !strings.Contains(res.AutonomousCommand, "-m deepseek-v4-pro") {
+		t.Errorf("expected custom model deepseek-v4-pro: %s", res.AutonomousCommand)
+	}
+	if !strings.Contains(res.AutonomousCommand, `-z "Olvida el historial anterior. Lee y ejecuta /custom/handoff.md"`) {
+		t.Errorf("expected handoff prompt instruction: %s", res.AutonomousCommand)
 	}
 }
 

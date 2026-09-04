@@ -196,5 +196,23 @@
     "use_for": "modelo Claude pendiente de clasificar; usar solo si la CLI lo expone y hay confirmacion operativa",
     "review_only": true,
     "verified": false
+  },
+  {
+    "agent": "hermes",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "cost_level": 0,
+    "use_for": "tareas mecanicas, documentales y analisis de volumen; runner gestionado por orq",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "hermes",
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "cost_level": 2,
+    "use_for": "analisis medio pesado y codigo; runner gestionado por orq",
+    "review_only": false,
+    "verified": true
   }
 ]
