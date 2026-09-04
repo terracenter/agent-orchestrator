@@ -64,6 +64,12 @@ func TestSecurityAllowsClaudeSonnetAndOpus(t *testing.T) {
 
 func TestMechanicalAllowsClaudeHaikuButAvoidsExpensiveClaude(t *testing.T) {
 	decision := Decide("corregir typo simple")
+	if decision.RecommendedAgent != "hermes" || decision.RecommendedModel != HermesFlashModel {
+		t.Fatalf("recommended = %s/%s, want hermes/%s", decision.RecommendedAgent, decision.RecommendedModel, HermesFlashModel)
+	}
+	if !contains(decision.AllowedAgents, "hermes/"+HermesFlashModel) {
+		t.Fatalf("AllowedAgents = %+v, want hermes/%s", decision.AllowedAgents, HermesFlashModel)
+	}
 	if !contains(decision.AllowedAgents, "claude-code/"+AnthropicHaikuCheapModel) {
 		t.Fatalf("AllowedAgents = %+v, want claude-code/%s", decision.AllowedAgents, AnthropicHaikuCheapModel)
 	}
@@ -85,6 +91,12 @@ func TestVaultDocumentationUsesCheapAgents(t *testing.T) {
 	decision := Decide("ordenar informacion del vault relacionada con GLPI")
 	if decision.Category != "documentacion" {
 		t.Fatalf("Category = %q, want documentacion", decision.Category)
+	}
+	if decision.RecommendedAgent != "hermes" || decision.RecommendedModel != HermesFlashModel {
+		t.Fatalf("recommended = %s/%s, want hermes/%s", decision.RecommendedAgent, decision.RecommendedModel, HermesFlashModel)
+	}
+	if !contains(decision.AllowedAgents, "hermes/"+HermesFlashModel) {
+		t.Fatalf("AllowedAgents = %+v, want hermes/%s", decision.AllowedAgents, HermesFlashModel)
 	}
 	if decision.RecommendedLevel != 1 {
 		t.Fatalf("RecommendedLevel = %d, want 1", decision.RecommendedLevel)

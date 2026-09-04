@@ -51,6 +51,11 @@ func isAGYAgent(agentName string) bool {
 	return normalized == "agy" || normalized == "agy-cli" || normalized == "antigravity" || normalized == "antigravity-cli" || strings.HasPrefix(normalized, "agy/")
 }
 
+func isHermesAgent(agentName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(agentName))
+	return normalized == "hermes" || strings.HasPrefix(normalized, "hermes/")
+}
+
 func isOpenClawAgent(agentName string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(agentName))
 	return normalized == "openclaw" || normalized == "open-claw" || strings.HasPrefix(normalized, "openclaw/")
@@ -113,6 +118,44 @@ func BuildOpenClawCommand(opts PlanOptions, decision route.Decision) string {
 	}
 
 	return strings.Join(cmdParts, " ")
+}
+
+func BuildHermesCommand(opts PlanOptions, decision route.Decision) string {
+	workspace := opts.Workspace
+	if workspace == "" {
+		workspace = "/home/freddy/Workspace"
+	}
+
+	model := opts.Model
+	if model == "" {
+		if isHermesAgent(decision.RecommendedAgent) && decision.RecommendedModel != "" {
+			model = decision.RecommendedModel
+		} else {
+			model = "deepseek-v4-flash"
+		}
+	}
+
+	handoffTarget := opts.HandoffPath
+	if handoffTarget == "" && opts.WriteHandoff != "" {
+		handoffTarget = opts.WriteHandoff
+	}
+
+	var printInstruction string
+	if handoffTarget != "" {
+		printInstruction = fmt.Sprintf("Olvida el historial anterior. Lee y ejecuta %s", handoffTarget)
+	} else if strings.HasSuffix(strings.TrimSpace(opts.Task), ".md") || strings.Contains(opts.Task, "handoffs/") {
+		printInstruction = fmt.Sprintf("Olvida el historial anterior. Lee y ejecuta %s", strings.TrimSpace(opts.Task))
+	} else if strings.TrimSpace(opts.Task) != "" {
+		printInstruction = fmt.Sprintf("Olvida el historial anterior. %s", strings.TrimSpace(opts.Task))
+	} else {
+		printInstruction = "Olvida el historial anterior."
+	}
+
+	return fmt.Sprintf("cd %s\nrtk hermes --model %s --prompt=%q",
+		workspace,
+		model,
+		printInstruction,
+	)
 }
 
 func BuildAGYCommand(opts PlanOptions, decision route.Decision) string {
@@ -213,9 +256,17 @@ func PlanWithOptions(opts PlanOptions) (Result, error) {
 	}
 
 	var autoCmd string
-	if isOpenClawAgent(opts.Agent) || (opts.Agent == "" && isOpenClawAgent(decision.RecommendedAgent)) {
+	if isOpenClawAgent(opts.Agent) {
 		autoCmd = BuildOpenClawCommand(opts, decision)
-	} else if isAGYAgent(opts.Agent) || requiresExternalCheapExecution(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
+	} else if isHermesAgent(opts.Agent) {
+		autoCmd = BuildHermesCommand(opts, decision)
+	} else if isAGYAgent(opts.Agent) {
+		autoCmd = BuildAGYCommand(opts, decision)
+	} else if isOpenClawAgent(decision.RecommendedAgent) {
+		autoCmd = BuildOpenClawCommand(opts, decision)
+	} else if isHermesAgent(decision.RecommendedAgent) {
+		autoCmd = BuildHermesCommand(opts, decision)
+	} else if isAGYAgent(decision.RecommendedAgent) || requiresExternalCheapExecution(decision.RecommendedAgent) || opts.HandoffPath != "" || opts.WriteHandoff != "" {
 		autoCmd = BuildAGYCommand(opts, decision)
 	}
 
