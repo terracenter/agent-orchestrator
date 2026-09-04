@@ -221,8 +221,7 @@ enum StateCommand {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run_cli() -> Result<()> {
     color_eyre::install()?;
 
     let cli = Cli::parse();
