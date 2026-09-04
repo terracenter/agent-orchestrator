@@ -134,6 +134,8 @@ mod tests {
             stdout_tail: String::new(),
             stderr_tail: String::new(),
             secrets_read: true,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         assert_eq!(

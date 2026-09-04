@@ -80,6 +80,8 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
             stdout_tail: String::new(),
             stderr_tail: String::new(),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         });
     }
 
@@ -163,6 +165,8 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
                 stdout_tail: String::new(),
                 stderr_tail: format!("spawning agent {} via {}: {error}", adapter.name(), binary),
                 secrets_read: false,
+                cleanup_attempted: false,
+                cleanup_succeeded: false,
             });
         }
     };
@@ -180,29 +184,44 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
     let wait_result =
         time::timeout(Duration::from_secs(request.timeout_seconds), child.wait()).await;
 
-    let (status, exit_code, timeout_message) = match wait_result {
-        Ok(Ok(status)) => (
-            if status.success() {
-                ExecStatus::Succeeded
-            } else {
-                ExecStatus::Failed
-            },
-            status.code(),
-            None,
-        ),
-        Ok(Err(error)) => (ExecStatus::SpawnFailed, None, Some(error.to_string())),
-        Err(_) => {
-            let kill_warning = kill_process_group(child_id);
-            let _ = time::timeout(Duration::from_secs(2), child.kill()).await;
-            let _ = time::timeout(Duration::from_secs(2), child.wait()).await;
-            let mut message = format!("timed out after {} seconds", request.timeout_seconds);
-            if let Some(warning) = kill_warning {
-                message.push_str("; ");
-                message.push_str(&warning);
+    let (status, exit_code, timeout_message, cleanup_attempted, cleanup_succeeded) =
+        match wait_result {
+            Ok(Ok(status)) => (
+                if status.success() {
+                    ExecStatus::Succeeded
+                } else {
+                    ExecStatus::Failed
+                },
+                status.code(),
+                None,
+                false,
+                false,
+            ),
+            Ok(Err(error)) => (
+                ExecStatus::SpawnFailed,
+                None,
+                Some(error.to_string()),
+                false,
+                false,
+            ),
+            Err(_) => {
+                let (cleanup_succeeded, kill_warning) = kill_process_group(child_id);
+                let _ = time::timeout(Duration::from_secs(2), child.kill()).await;
+                let _ = time::timeout(Duration::from_secs(2), child.wait()).await;
+                let mut message = format!("timed out after {} seconds", request.timeout_seconds);
+                if let Some(warning) = kill_warning {
+                    message.push_str("; ");
+                    message.push_str(&warning);
+                }
+                (
+                    ExecStatus::TimedOut,
+                    None,
+                    Some(message),
+                    true,
+                    cleanup_succeeded,
+                )
             }
-            (ExecStatus::TimedOut, None, Some(message))
-        }
-    };
+        };
 
     let stdout_tail = collect_tail(stdout_task).await;
     let mut stderr_tail = collect_tail(stderr_task).await;
@@ -230,6 +249,8 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         stdout_tail,
         stderr_tail,
         secrets_read: false,
+        cleanup_attempted,
+        cleanup_succeeded,
     })
 }
 
@@ -295,23 +316,35 @@ fn configure_process_group(command: &mut Command) {
 fn configure_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
-fn kill_process_group(child_id: Option<u32>) -> Option<String> {
-    let pid = child_id?;
+fn kill_process_group(child_id: Option<u32>) -> (bool, Option<String>) {
+    let Some(pid) = child_id else {
+        return (
+            false,
+            Some("child pid missing for process group kill".to_string()),
+        );
+    };
     let result = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
     if result == 0 {
-        None
+        (true, None)
     } else {
-        Some(format!(
-            "kill process group {} failed: {}",
-            pid,
-            std::io::Error::last_os_error()
-        ))
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ESRCH) {
+            (true, None)
+        } else {
+            (
+                false,
+                Some(format!("kill process group {} failed: {}", pid, err)),
+            )
+        }
     }
 }
 
 #[cfg(not(unix))]
-fn kill_process_group(_child_id: Option<u32>) -> Option<String> {
-    Some("process group kill is unsupported on this platform".to_string())
+fn kill_process_group(_child_id: Option<u32>) -> (bool, Option<String>) {
+    (
+        false,
+        Some("process group kill is unsupported on this platform".to_string()),
+    )
 }
 
 fn invalid_receipt(
@@ -336,5 +369,7 @@ fn invalid_receipt(
         stdout_tail: String::new(),
         stderr_tail: String::new(),
         secrets_read: false,
+        cleanup_attempted: false,
+        cleanup_succeeded: false,
     }
 }
