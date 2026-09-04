@@ -1,12 +1,12 @@
 use crate::receipt::{receipt_sha256, ExecReceipt};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 2;
+const LATEST_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -96,6 +96,31 @@ pub struct CircuitBreakerRecord {
     pub failure_streak: i64,
     pub opened_until_unix: Option<u64>,
     pub updated_at_unix: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuotaSnapshotRecord {
+    pub id: i64,
+    pub provider: String,
+    pub scope: String,
+    pub remaining_pct: Option<f64>,
+    pub used_pct: Option<f64>,
+    pub status: String,
+    pub reset_at_unix: Option<u64>,
+    pub captured_at_unix: u64,
+    pub metadata_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuotaSnapshotInput {
+    pub provider: String,
+    pub scope: String,
+    pub remaining_pct: Option<f64>,
+    pub used_pct: Option<f64>,
+    pub status: Option<String>,
+    pub reset_at_unix: Option<u64>,
+    pub captured_at_unix: Option<u64>,
+    pub metadata_json: Option<String>,
 }
 
 pub fn default_db_path() -> Result<PathBuf> {
@@ -222,10 +247,19 @@ impl StateStore {
         self.ensure_receipts_hash_column()?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (2, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "record migration 2",
+                source,
+            })?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
-            .map_err(|source| StoreError::Sqlite { context: "record migration", source })?;
+            .map_err(|source| StoreError::Sqlite { context: "record migration 3", source })?;
         Ok(())
     }
 
@@ -579,6 +613,238 @@ impl StateStore {
         Ok(())
     }
 
+    pub fn insert_quota_snapshot(&self, input: &QuotaSnapshotInput) -> Result<QuotaSnapshotRecord> {
+        let captured_at_unix = input.captured_at_unix.unwrap_or_else(now_unix);
+        let captured_at_i64 = i64::try_from(captured_at_unix).map_err(|_| {
+            StoreError::Config("captured_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+        let reset_at_i64 = match input.reset_at_unix {
+            Some(val) => Some(i64::try_from(val).map_err(|_| {
+                StoreError::Config("reset_at_unix exceeds SQLite INTEGER range".to_string())
+            })?),
+            None => None,
+        };
+        let provider = input.provider.trim().to_lowercase();
+        let scope = input.scope.trim();
+        let status = input.status.as_deref().unwrap_or("ok");
+        let metadata_json = input.metadata_json.as_deref().unwrap_or("{}");
+
+        self.conn
+            .execute(
+                "INSERT INTO quota_snapshots(provider, scope, remaining_pct, used_pct, status, reset_at_unix, captured_at_unix, metadata_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    provider,
+                    scope,
+                    input.remaining_pct,
+                    input.used_pct,
+                    status,
+                    reset_at_i64,
+                    captured_at_i64,
+                    metadata_json,
+                ],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "insert quota snapshot",
+                source,
+            })?;
+
+        let id = self.conn.last_insert_rowid();
+
+        Ok(QuotaSnapshotRecord {
+            id,
+            provider,
+            scope: scope.to_string(),
+            remaining_pct: input.remaining_pct,
+            used_pct: input.used_pct,
+            status: status.to_string(),
+            reset_at_unix: input.reset_at_unix,
+            captured_at_unix,
+            metadata_json: metadata_json.to_string(),
+        })
+    }
+
+    pub fn latest_quota_snapshots(
+        &self,
+        provider_filter: Option<&str>,
+    ) -> Result<Vec<QuotaSnapshotRecord>> {
+        let filter_owned = provider_filter.map(|p| p.trim().to_lowercase());
+        let (sql, filter_param) = if let Some(ref p) = filter_owned {
+            (
+                "SELECT qs.id, qs.provider, qs.scope, qs.remaining_pct, qs.used_pct, qs.status, qs.reset_at_unix, qs.captured_at_unix, qs.metadata_json
+                 FROM quota_snapshots qs
+                 WHERE qs.provider = ?1 AND qs.id = (
+                     SELECT qs2.id FROM quota_snapshots qs2
+                     WHERE qs2.provider = qs.provider AND qs2.scope = qs.scope
+                     ORDER BY qs2.captured_at_unix DESC, qs2.id DESC
+                     LIMIT 1
+                 )
+                 ORDER BY qs.scope ASC",
+                Some(p.as_str()),
+            )
+        } else {
+            (
+                "SELECT qs.id, qs.provider, qs.scope, qs.remaining_pct, qs.used_pct, qs.status, qs.reset_at_unix, qs.captured_at_unix, qs.metadata_json
+                 FROM quota_snapshots qs
+                 WHERE qs.id = (
+                     SELECT qs2.id FROM quota_snapshots qs2
+                     WHERE qs2.provider = qs.provider AND qs2.scope = qs.scope
+                     ORDER BY qs2.captured_at_unix DESC, qs2.id DESC
+                     LIMIT 1
+                 )
+                 ORDER BY qs.provider ASC, qs.scope ASC",
+                None,
+            )
+        };
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare latest quota snapshots query",
+                source,
+            })?;
+
+        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<QuotaSnapshotRecord> {
+            let id: i64 = row.get(0)?;
+            let provider: String = row.get(1)?;
+            let scope: String = row.get(2)?;
+            let remaining_pct: Option<f64> = row.get(3)?;
+            let used_pct: Option<f64> = row.get(4)?;
+            let status: String = row.get(5)?;
+            let reset_at_i64: Option<i64> = row.get(6)?;
+            let captured_at_i64: i64 = row.get(7)?;
+            let metadata_json: String = row.get(8)?;
+
+            let reset_at_unix = match reset_at_i64 {
+                Some(v) => Some(u64::try_from(v).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Integer,
+                        Box::new(e),
+                    )
+                })?),
+                None => None,
+            };
+            let captured_at_unix = u64::try_from(captured_at_i64).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    7,
+                    rusqlite::types::Type::Integer,
+                    Box::new(e),
+                )
+            })?;
+
+            Ok(QuotaSnapshotRecord {
+                id,
+                provider,
+                scope,
+                remaining_pct,
+                used_pct,
+                status,
+                reset_at_unix,
+                captured_at_unix,
+                metadata_json,
+            })
+        };
+
+        let rows = if let Some(p) = filter_param {
+            stmt.query_map(params![p], map_row)
+        } else {
+            stmt.query_map([], map_row)
+        }
+        .map_err(|source| StoreError::Sqlite {
+            context: "query latest quota snapshots",
+            source,
+        })?;
+
+        collect_rows(rows, "read latest quota snapshots")
+    }
+
+    #[allow(dead_code)]
+    pub fn all_quota_snapshots(
+        &self,
+        provider_filter: Option<&str>,
+    ) -> Result<Vec<QuotaSnapshotRecord>> {
+        let (sql, filter_param) = if let Some(p) = provider_filter {
+            (
+                "SELECT id, provider, scope, remaining_pct, used_pct, status, reset_at_unix, captured_at_unix, metadata_json
+                 FROM quota_snapshots
+                 WHERE provider = ?1
+                 ORDER BY captured_at_unix DESC, id DESC",
+                Some(p),
+            )
+        } else {
+            (
+                "SELECT id, provider, scope, remaining_pct, used_pct, status, reset_at_unix, captured_at_unix, metadata_json
+                 FROM quota_snapshots
+                 ORDER BY captured_at_unix DESC, id DESC",
+                None,
+            )
+        };
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare all quota snapshots query",
+                source,
+            })?;
+
+        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<QuotaSnapshotRecord> {
+            let id: i64 = row.get(0)?;
+            let provider: String = row.get(1)?;
+            let scope: String = row.get(2)?;
+            let remaining_pct: Option<f64> = row.get(3)?;
+            let used_pct: Option<f64> = row.get(4)?;
+            let status: String = row.get(5)?;
+            let reset_at_i64: Option<i64> = row.get(6)?;
+            let captured_at_i64: i64 = row.get(7)?;
+            let metadata_json: String = row.get(8)?;
+
+            let reset_at_unix = match reset_at_i64 {
+                Some(v) => Some(u64::try_from(v).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Integer,
+                        Box::new(e),
+                    )
+                })?),
+                None => None,
+            };
+            let captured_at_unix = u64::try_from(captured_at_i64).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    7,
+                    rusqlite::types::Type::Integer,
+                    Box::new(e),
+                )
+            })?;
+
+            Ok(QuotaSnapshotRecord {
+                id,
+                provider,
+                scope,
+                remaining_pct,
+                used_pct,
+                status,
+                reset_at_unix,
+                captured_at_unix,
+                metadata_json,
+            })
+        };
+
+        let rows = if let Some(p) = filter_param {
+            stmt.query_map(params![p], map_row)
+        } else {
+            stmt.query_map([], map_row)
+        }
+        .map_err(|source| StoreError::Sqlite {
+            context: "query all quota snapshots",
+            source,
+        })?;
+
+        collect_rows(rows, "read all quota snapshots")
+    }
+
     fn schema_version(&self) -> Result<i64> {
         self.conn
             .query_row(
@@ -725,10 +991,22 @@ CREATE TABLE IF NOT EXISTS circuit_breakers (
     updated_at_unix INTEGER NOT NULL,
     PRIMARY KEY (agent_id, model_id)
 );
+CREATE TABLE IF NOT EXISTS quota_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    remaining_pct REAL,
+    used_pct REAL,
+    status TEXT NOT NULL DEFAULT 'ok',
+    reset_at_unix INTEGER,
+    captured_at_unix INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
 CREATE INDEX IF NOT EXISTS idx_models_agent_model_task ON models(agent_id, model_id, task_kind);
 CREATE INDEX IF NOT EXISTS idx_receipts_agent_model_task ON receipts(agent_id, model_id, task_kind);
 CREATE INDEX IF NOT EXISTS idx_certifications_agent_model_task ON certifications(agent_id, model_id, task_kind);
 CREATE INDEX IF NOT EXISTS idx_route_scores_agent_model_task ON route_scores(agent_id, model_id, task_kind);
+CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider_scope ON quota_snapshots(provider, scope, captured_at_unix DESC);
 "#;
 
 #[cfg(test)]
@@ -987,5 +1265,227 @@ mod tests {
         assert_eq!(r2.failure_streak, 2);
         // Streak 2 backoff = 60 * 2^(2-1) = 120s
         assert!(r2.opened_until_unix.unwrap() >= now_unix() + 110);
+    }
+
+    #[test]
+    fn test_quota_snapshots_insert_and_latest() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        let input1 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-weekly".to_string(),
+            remaining_pct: Some(47.17),
+            used_pct: Some(52.83),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input1).expect("insert input1");
+
+        let input2 = QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-weekly".to_string(),
+            remaining_pct: Some(40.0),
+            used_pct: Some(60.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(2000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&input2).expect("insert input2");
+
+        let input3 = QuotaSnapshotInput {
+            provider: "claude-code".to_string(),
+            scope: "session".to_string(),
+            remaining_pct: Some(70.0),
+            used_pct: Some(30.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: Some(1788559999),
+            captured_at_unix: Some(1500),
+            metadata_json: Some("{\"promo\": true}".to_string()),
+        };
+        store.insert_quota_snapshot(&input3).expect("insert input3");
+
+        let latest_all = store.latest_quota_snapshots(None).expect("latest all");
+        assert_eq!(latest_all.len(), 2);
+        let agy_snap = latest_all.iter().find(|s| s.provider == "agy").unwrap();
+        assert_eq!(agy_snap.remaining_pct, Some(40.0));
+        assert_eq!(agy_snap.captured_at_unix, 2000);
+
+        let latest_agy = store
+            .latest_quota_snapshots(Some("agy"))
+            .expect("latest agy");
+        assert_eq!(latest_agy.len(), 1);
+        assert_eq!(latest_agy[0].remaining_pct, Some(40.0));
+
+        let all_agy = store.all_quota_snapshots(Some("agy")).expect("all agy");
+        assert_eq!(all_agy.len(), 2);
+        assert_eq!(all_agy[0].captured_at_unix, 2000);
+        assert_eq!(all_agy[1].captured_at_unix, 1000);
+    }
+
+    #[test]
+    fn test_quota_migration_is_idempotent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        let status = store.status().expect("status");
+        assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
+        assert!(status
+            .tables_present
+            .contains(&"quota_snapshots".to_string()));
+
+        // Second migration execution on already migrated DB
+        store.migrate().expect("second migration should succeed");
+        let status2 = store.status().expect("status2");
+        assert_eq!(status2.schema_version, LATEST_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn test_migration_upgrade_from_v2_to_v3_preserves_data() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("v2_state.sqlite");
+
+        // 1. Manually build a v2 database (before quota_snapshots existed)
+        {
+            let raw_conn = rusqlite::Connection::open(&path).expect("open raw sqlite");
+            raw_conn
+                .execute_batch(
+                    r#"
+                    CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE agents (
+                        agent_id TEXT PRIMARY KEY,
+                        display_name TEXT NOT NULL,
+                        adapter_status TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE task_kinds (
+                        task_kind TEXT PRIMARY KEY,
+                        description TEXT NOT NULL DEFAULT '',
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE models (
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL DEFAULT 'general',
+                        gated INTEGER NOT NULL DEFAULT 0,
+                        active INTEGER NOT NULL DEFAULT 1,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL,
+                        PRIMARY KEY (agent_id, model_id, task_kind),
+                        FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+                    );
+                    CREATE TABLE receipts (
+                        correlation_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        duration_ms INTEGER NOT NULL DEFAULT 0,
+                        secrets_read INTEGER NOT NULL DEFAULT 0,
+                        receipt_json TEXT NOT NULL,
+                        created_at_unix INTEGER NOT NULL,
+                        receipt_hash TEXT NOT NULL DEFAULT ''
+                    );
+                    CREATE TABLE certifications (
+                        certificate_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        receipt_hash TEXT NOT NULL,
+                        secrets_read INTEGER NOT NULL DEFAULT 0,
+                        created_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE route_scores (
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        success_count INTEGER NOT NULL DEFAULT 0,
+                        failure_count INTEGER NOT NULL DEFAULT 0,
+                        total_latency_ms INTEGER NOT NULL DEFAULT 0,
+                        updated_at_unix INTEGER NOT NULL,
+                        PRIMARY KEY (agent_id, model_id, task_kind)
+                    );
+                    CREATE TABLE circuit_breakers (
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        failure_streak INTEGER NOT NULL DEFAULT 0,
+                        opened_until_unix INTEGER,
+                        updated_at_unix INTEGER NOT NULL,
+                        PRIMARY KEY (agent_id, model_id)
+                    );
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (1, 1000);
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (2, 2000);
+
+                    INSERT INTO agents(agent_id, display_name, adapter_status, metadata_json, updated_at_unix)
+                    VALUES ('pre-v3-agent', 'Pre V3 Agent', 'available', '{"pre": true}', 1000);
+                    "#,
+                )
+                .expect("setup v2 schema and data");
+
+            // Verify quota_snapshots does NOT exist prior to opening with state::open
+            let mut stmt = raw_conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='quota_snapshots'",
+                )
+                .expect("prepare check");
+            let mut rows = stmt.query([]).expect("query check");
+            assert!(
+                rows.next().expect("next").is_none(),
+                "quota_snapshots must not exist in v2 db"
+            );
+        }
+
+        // 2. Open with state::open (which runs migrate())
+        let store = open(Some(&path)).expect("open state upgrades from v2 to v3");
+        let status = store.status().expect("status");
+
+        assert_eq!(status.schema_version, 3);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3]);
+        assert!(status
+            .tables_present
+            .contains(&"quota_snapshots".to_string()));
+
+        // 3. Verify pre-existing v2 data was preserved
+        let agent = store
+            .find_agent("pre-v3-agent")
+            .expect("query agent")
+            .expect("agent must exist");
+        assert_eq!(agent.display_name, "Pre V3 Agent");
+        assert_eq!(agent.metadata_json, "{\"pre\": true}");
+
+        // 4. Verify new quota snapshot table is functional
+        let snap = store
+            .insert_quota_snapshot(&QuotaSnapshotInput {
+                provider: "agy".to_string(),
+                scope: "gemini-weekly".to_string(),
+                remaining_pct: Some(55.5),
+                used_pct: Some(44.5),
+                status: Some("ok".to_string()),
+                reset_at_unix: None,
+                captured_at_unix: Some(3000),
+                metadata_json: None,
+            })
+            .expect("insert snapshot into upgraded db");
+
+        assert_eq!(snap.provider, "agy");
+        assert_eq!(snap.remaining_pct, Some(55.5));
+
+        let latest = store
+            .latest_quota_snapshots(None)
+            .expect("latest snapshots");
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].scope, "gemini-weekly");
     }
 }
