@@ -2,9 +2,31 @@
 
 Este documento registra los resultados de la inspección de capacidades de agentes y modelos detectados en el sistema de desarrollo local, basándose en la salida de las herramientas del orquestador (`orq`).
 
+## 0. Principio operativo: agentes y modelos son dinámicos
+
+Los agentes, sus binarios y los modelos disponibles **no forman un catálogo estático**: cambian con la instalación local, la disponibilidad del proveedor, la deprecación/EOL y la evidencia de ejecución. Todo listado de agentes/modelos en este repo es **evidencia de inspección o bootstrap reproducible**, nunca una fuente de verdad congelada. La doctrina operativa:
+
+1. **JSON = bootstrap/export (no es la fuente de verdad).** Los archivos `orq-agent/config/*.json` (`models-catalog.json`, `routing-matrix.json`, `policy.json`, `adapters-registry.json`) son semilla versionada y reproducible: declaran candidatos, matriz de ruteo, política y adaptadores conocidos para onboarding y auditoría.
+2. **SQLite = fuente operativa viva.** El state DB de `orq-agent` (`ORQ_STATE_DB`) persiste el estado real: agentes, modelos (flags `gated`/`active`), certifications, receipts (hash `sha256` en `receipt_hash`), `route_scores` y `circuit_breakers`. Default: `~/.local/state/orq-agent/orq-state.sqlite`. El CLI `orq` (Go) mantiene su propia telemetría JSONL en `~/.local/state/orq/` (`ledger.jsonl`, `tasks.jsonl`); no confundir con el state DB de `orq-agent`.
+3. **Detección y descubrimiento = presencia de binario + candidatos de bootstrap.** `orq-agent detect` confirma solo la presencia del binario en el `PATH` (resolución por `which` o `ORQ_AGENT_BIN_*`), sin leer secretos (`secrets_read=false`); `models --agent <agent>` y `discover` reportan los candidatos del catálogo bootstrap (`discovery: config_catalog`) y `discover` los persiste en SQLite. La disponibilidad real del modelo queda confirmada únicamente al ejecutarlo (`exec`/`smoke`/`certify`) y registrar receipt/certification.
+4. **Cuarentena = evidencia histórica, nunca default.** Un par agente/modelo con estado `deprecated_or_quarantine`, o con circuito abierto por timeout/fallo, documenta un hallazgo (deprecación/EOL, timeout, adapter roto) para revisión humana y no participa del ruteo automático: `policy.json` define `blocked_adapter_statuses: ["deprecated_or_quarantine"]` y un circuito abierto hace que `route` omita el par aunque siga presente en el JSON de bootstrap.
+5. **Seguridad.** Ni los docs ni los JSON de config contienen secretos (los runners nunca se consultan con credenciales); el state DB SQLite se crea con permisos `0600` automáticos; los receipts se persisten hasheados (`sha256`) y los snapshots externos deben guardar extracto sanitizado con su `sha256`.
+
+### Variables de entorno (`orq-agent`)
+
+| Variable | Rol | Default |
+|---|---|---|
+| `ORQ_STATE_DB` | Ruta del state DB SQLite vivo (agentes, modelos, certifications, receipts, circuit breakers). Permisos `0600` automáticos. | `~/.local/state/orq-agent/orq-state.sqlite` |
+| `ORQ_ROUTING_CONFIG` | Config de ruteo: matriz `task_kind` → `default_agent`/`default_model`, `cheap_sufficient`, `escalate_to`, `avoid`. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/routing-matrix.json` — fuera del árbol de compilación, fijar `ORQ_ROUTING_CONFIG`. |
+| `ORQ_MODELS_CATALOG` | Catálogo de candidatos (bootstrap/export): modelos conocidos por agente, con `source`, `confidence` y `notes`. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/models-catalog.json` — fuera del árbol de compilación, fijar `ORQ_MODELS_CATALOG`. |
+| `ORQ_POLICY_CONFIG` | Política: patrones de modelos con aprobación requerida (`sonnet`, `opus`) y estados de adapter bloqueados/gated. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/policy.json` — fuera del árbol de compilación, fijar `ORQ_POLICY_CONFIG`. |
+| `ORQ_ADAPTERS_REGISTRY` | Registro de adaptadores: binario, estado (`available`, `missing`, `deprecated_or_quarantine`, `gated`) y `argv`. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/adapters-registry.json` — fuera del árbol de compilación, fijar `ORQ_ADAPTERS_REGISTRY`. |
+
+Las tablas de las secciones siguientes son **instantáneas de inspección fechadas**, no catálogo operativo: para conocer el estado vivo se consulta el state DB SQLite (el discovery solo re-reporta presencia de binario y candidatos del catálogo bootstrap, §0.3).
+
 ## 1. Agentes Configurados y Modelos
 
-A continuación se detallan los agentes registrados y sus configuraciones de modelos obtenidas mediante `rtk orq agents --format json`:
+A continuación se detallan los agentes registrados y sus configuraciones de modelos obtenidas mediante `rtk orq agents --format json` (instantánea de inspección de la sección 0; el estado vivo está en SQLite y en el runtime):
 
 | Agente | Proveedor | Modelo | Nivel de Costo | Propósito de Uso | Verificado |
 |--------|-----------|--------|----------------|------------------|------------|
