@@ -21,7 +21,7 @@ ADR relacionado: [`adr-migracion-rust.md`](adr-migracion-rust.md)
 
 | Capacidad Go actual | Estado actual | Prioridad Rust | Acción propuesta |
 |---|---:|---:|---|
-| `orq route` | Usa matriz JSON versionada en `orq-agent/config/routing-matrix.json`, soporta `--config`, lookup dinámico por `--task-kind`, intersección con agentes detectados y policy gating. | Alta | Agregar certificados/capacidad y extraer registro de adapters/modelos. |
+| `orq route` | Usa matriz JSON versionada en `orq-agent/config/routing-matrix.json`, soporta `--config`, lookup dinámico por `--task-kind`, certificados (`--cert-dir`), circuit breaker y ruteo consciente de cuotas persistidas (penalización por agotamiento `five_hour` y preferencia gated con `--allow-gated`). | Crítica | Portado completo con observabilidad y circuit breaker. |
 | `orq task` | Registry/estados; útil pero con pares agente/modelo rígidos | Alta | Portar tipos de estado y transiciones; corregir soporte dinámico de agentes. |
 | `orq agents detect` | Detecta binarios/configs sin secretos | Crítica | Primer comando MVP: `orq-agent detect --format json`. |
 | `orq agents configure` | Documentado, pero binario actual no lo acepta correctamente | Media | Replantear en Rust con dry-run obligatorio; no tocar configs sin confirmación. |
@@ -114,6 +114,13 @@ La determinación del estado consolidado por proveedor sigue esta precedencia de
 ### 3. Normalización y precedencia
 - **Normalización de proveedores**: los nombres de proveedor se normalizan automáticamente a minúsculas (`trim().to_lowercase()`) tanto en `quota record` como en los filtros de `quota report`.
 - **Precedencia de almacenamiento**: el parámetro `--db-path` toma precedencia sobre la variable `ORQ_STATE_DB`, la cual a su vez sobreescribe la ruta SQLite por defecto (`~/.local/state/orq-agent/orq-state.sqlite`).
+
+### 4. Integración con el Router (Routing consciente de cuotas)
+El comando `route` consume los snapshots más recientes de la base de estado (`quota_snapshots`) aplicando las siguientes reglas deterministas:
+1. **Penalización por agotamiento (`five_hour` / inmediato)**: Si un candidato tiene su grupo `five_hour` o cualquier scope en `0.0%` o `exhausted`/`exceeded`, es penalizado y evitado en favor de una alternativa permitida con cuota disponible. Si todos los candidatos están agotados, se mantiene el fallback por defecto.
+2. **Preferencia de proveedores `gated` con `--allow-gated`**: Cuando el usuario autoriza modelos restringidos con `--allow-gated`, si el candidato gated (ej. `claude-code`) cuenta con cuota semanal alta (`>= 50%`) y saludable, el router lo prioriza sobre candidatos estándar.
+3. **Neutralidad de `quota_unknown`**: Proveedores sin snapshots o con scopes en `quota_unknown` no sufren penalizaciones; se consideran saludables y preservan el orden y criterios definidos en la matriz de ruteo base.
+4. **Prioridad de Circuit Breakers y Certificados**: El filtrado por Circuit Breaker (cooldowns de fallos/timeouts) y la evaluación estricta de políticas de seguridad se ejecutan antes de la ponderación de cuotas.
 
 ## Riesgos de migración completa
 
