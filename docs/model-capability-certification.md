@@ -129,17 +129,17 @@ La certificación debe basarse en:
 
 ## Pipeline de certificación: fuentes, snapshots y persistencia
 
-El catálogo versionado del repo (`orq-agent/config/models-catalog.json`) es **bootstrap/export**: declara candidatos y semilla reproducible, pero no es la fuente de verdad operativa. La fuente viva es el state DB SQLite (`ORQ_STATE_DB`), donde se persisten agentes, modelos (flags `gated`/`active`), certifications, receipts (hash `sha256` en `receipt_hash`), `route_scores` y `circuit_breakers`. El discovery runtime (`orq-agent models --agent <agent> --format json`) confirma disponibilidad real sin leer secretos. Cuando bootstrap y runtime divergen, el modelo queda como `candidate`, `deprecated_or_quarantine` o `needs_review` — **evidencia histórica para revisión, nunca default de ruteo** — hasta pasar smoke/certify y quedar certificado en SQLite.
+El catálogo versionado del repo (`orq-agent/config/models-catalog.json`) es **bootstrap/export**: declara candidatos y semilla reproducible, pero no es la fuente de verdad operativa. La fuente viva es el state DB SQLite (`ORQ_STATE_DB`), donde se persisten agentes, modelos (flags `gated`/`active`), certifications, receipts (hash `sha256` en `receipt_hash`), `route_scores` y `circuit_breakers`. El descubrimiento no consulta al runner real: `orq-agent detect` confirma solo la presencia del binario en el `PATH` sin leer secretos (`secrets_read=false`), y `models --agent <agent> --format json` / `discover` reportan los candidatos del catálogo bootstrap (`discovery: config_catalog`); `discover` los persiste en SQLite. La disponibilidad real del modelo queda confirmada únicamente al ejecutarlo (`exec`/`smoke`/`certify`) y registrar receipt/certification. No existe detección automática de divergencia bootstrap/runtime: cuando un hallazgo (deprecación/EOL, timeout, adapter roto) se documenta, el par queda como `deprecated_or_quarantine` o fuera de ruteo por circuito abierto — **evidencia histórica para revisión, nunca default de ruteo** — hasta pasar smoke/certify y quedar certificado en SQLite.
 
 **Variables de entorno (`orq-agent`):**
 
 | Variable | Rol | Default |
 |---|---|---|
 | `ORQ_STATE_DB` | State DB SQLite vivo (agentes, modelos, certifications, receipts, circuit breakers). Permisos `0600` automáticos. | `~/.local/state/orq-agent/orq-state.sqlite` |
-| `ORQ_ROUTING_CONFIG` | Config de ruteo: matriz `task_kind` → `default_agent`/`default_model`, `cheap_sufficient`, `escalate_to`, `avoid`. | `orq-agent/config/routing-matrix.json` |
-| `ORQ_MODELS_CATALOG` | Catálogo de candidatos (bootstrap/export): modelos conocidos por agente, con `source`, `confidence` y `notes`. | `orq-agent/config/models-catalog.json` |
-| `ORQ_POLICY_CONFIG` | Política: patrones de aprobación requerida y estados de adapter bloqueados/gated. | `orq-agent/config/policy.json` |
-| `ORQ_ADAPTERS_REGISTRY` | Registro de adaptadores: binario, estado (`available`, `missing`, `deprecated_or_quarantine`, `gated`) y `argv`. | `orq-agent/config/adapters-registry.json` |
+| `ORQ_ROUTING_CONFIG` | Config de ruteo: matriz `task_kind` → `default_agent`/`default_model`, `cheap_sufficient`, `escalate_to`, `avoid`. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/routing-matrix.json` — fuera del árbol de compilación, fijar `ORQ_ROUTING_CONFIG`. |
+| `ORQ_MODELS_CATALOG` | Catálogo de candidatos (bootstrap/export): modelos conocidos por agente, con `source`, `confidence` y `notes`. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/models-catalog.json` — fuera del árbol de compilación, fijar `ORQ_MODELS_CATALOG`. |
+| `ORQ_POLICY_CONFIG` | Política: patrones de aprobación requerida y estados de adapter bloqueados/gated. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/policy.json` — fuera del árbol de compilación, fijar `ORQ_POLICY_CONFIG`. |
+| `ORQ_ADAPTERS_REGISTRY` | Registro de adaptadores: binario, estado (`available`, `missing`, `deprecated_or_quarantine`, `gated`) y `argv`. | Ruta absoluta fijada en compilación: `<CARGO_MANIFEST_DIR>/config/adapters-registry.json` — fuera del árbol de compilación, fijar `ORQ_ADAPTERS_REGISTRY`. |
 
 El state DB se crea con permisos `0600` y los receipts se persisten hasheados (`sha256`); ni configs ni docs llevan secretos.
 
