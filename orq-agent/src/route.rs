@@ -218,6 +218,137 @@ struct SelectedRoute {
     circuit_breaker_filtered: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+struct CandidateQuota {
+    has_quota_data: bool,
+    is_exhausted: bool,
+    weekly_remaining_pct: Option<f64>,
+    min_remaining_pct: Option<f64>,
+}
+
+fn provider_matches(snapshot_provider: &str, candidate_agent: &str) -> bool {
+    let p = snapshot_provider.trim().to_lowercase();
+    let a = candidate_agent.trim().to_lowercase();
+    if p == a {
+        return true;
+    }
+    if let Some(stripped_a) = a.strip_suffix("-code") {
+        if p == stripped_a {
+            return true;
+        }
+    }
+    if let Some(stripped_p) = p.strip_suffix("-code") {
+        if a == stripped_p {
+            return true;
+        }
+    }
+    false
+}
+
+fn assess_candidate_quota(
+    agent: &str,
+    snapshots: &[crate::state::QuotaSnapshotRecord],
+) -> CandidateQuota {
+    let matching: Vec<&crate::state::QuotaSnapshotRecord> = snapshots
+        .iter()
+        .filter(|s| provider_matches(&s.provider, agent))
+        .collect();
+
+    if matching.is_empty() {
+        return CandidateQuota::default();
+    }
+
+    let any_known = matching
+        .iter()
+        .any(|s| s.status != "quota_unknown" || s.remaining_pct.is_some() || s.used_pct.is_some());
+    if !any_known {
+        return CandidateQuota::default();
+    }
+
+    let mut is_exhausted = false;
+    let mut short_term_remaining: Option<f64> = None;
+    let mut weekly_remaining: Option<f64> = None;
+    let mut min_remaining: Option<f64> = None;
+
+    for s in &matching {
+        let status_lower = s.status.to_lowercase();
+        let rem = s
+            .remaining_pct
+            .or_else(|| s.used_pct.map(|u| (100.0 - u).max(0.0)));
+
+        if status_lower == "exhausted" || status_lower == "exceeded" || rem == Some(0.0) {
+            is_exhausted = true;
+        }
+
+        if let Some(r) = rem {
+            min_remaining = Some(min_remaining.map_or(r, |m: f64| m.min(r)));
+
+            let scope_lower = s.scope.to_lowercase();
+            if scope_lower.contains("five_hour")
+                || scope_lower.contains("five-hour")
+                || scope_lower.contains("5h")
+                || scope_lower.contains("short-term")
+                || scope_lower.contains("short_term")
+                || scope_lower.contains("hourly")
+                || scope_lower.contains("hour")
+                || scope_lower.contains("session")
+            {
+                short_term_remaining = Some(short_term_remaining.map_or(r, |curr| curr.min(r)));
+            } else if scope_lower.contains("weekly")
+                || scope_lower.contains("week")
+                || scope_lower.contains("month")
+                || scope_lower.contains("long-term")
+                || scope_lower.contains("long_term")
+            {
+                weekly_remaining = Some(weekly_remaining.map_or(r, |curr| curr.min(r)));
+            }
+        }
+    }
+
+    CandidateQuota {
+        has_quota_data: true,
+        is_exhausted,
+        weekly_remaining_pct: weekly_remaining,
+        min_remaining_pct: min_remaining,
+    }
+}
+
+struct EvaluatedCandidate {
+    original_index: usize,
+    selected: SelectedRoute,
+    is_certified: bool,
+    is_gated: bool,
+    quota: CandidateQuota,
+}
+
+impl EvaluatedCandidate {
+    fn score(&self, any_healthy: bool, allow_gated: bool) -> (i32, i64, usize) {
+        let is_penalized = any_healthy && self.quota.is_exhausted;
+        let is_gated_boosted = allow_gated
+            && self.is_gated
+            && !self.quota.is_exhausted
+            && (self.quota.weekly_remaining_pct.unwrap_or(0.0) >= 50.0
+                || self.quota.min_remaining_pct.unwrap_or(0.0) >= 50.0);
+
+        let tier = if is_penalized {
+            -100
+        } else if is_gated_boosted {
+            100
+        } else if self.is_certified {
+            50
+        } else if self.quota.has_quota_data
+            && self.quota.min_remaining_pct.is_some_and(|p| p <= 15.0)
+        {
+            -50
+        } else {
+            0
+        };
+
+        let rem_score = 0;
+        (tier, rem_score, usize::MAX - self.original_index)
+    }
+}
+
 fn select_route(
     rule: &RouteRule,
     approval_patterns: &[String],
@@ -226,14 +357,20 @@ fn select_route(
     certificate_store: Option<&CertificateStore>,
     state_store: Option<&StateStore>,
 ) -> SelectedRoute {
-    let candidates = [
+    let raw_candidates = [
         candidate_from_parts(&rule.default_agent, &rule.default_model, false),
         candidate_from_expr(&rule.cheap_sufficient, true),
         candidate_from_expr(&rule.escalate_to, true),
     ];
 
     let mut circuit_breaker_filtered = 0usize;
-    for candidate in candidates.into_iter().flatten() {
+    let mut allowed_candidates: Vec<EvaluatedCandidate> = Vec::new();
+
+    let quota_snapshots = state_store
+        .and_then(|store| store.latest_quota_snapshots(None).ok())
+        .unwrap_or_default();
+
+    for (index, candidate) in raw_candidates.into_iter().flatten().enumerate() {
         if let Some(store) = state_store {
             match store.breaker_allows_model(&candidate.agent, &candidate.model) {
                 Ok(true) => {}
@@ -247,6 +384,9 @@ fn select_route(
                 }
             }
         }
+
+        let mut preferred_cert = None;
+        let mut is_positive_cert = false;
         if let Some(certificate) = certificate_store
             .and_then(|store| store.lookup(&candidate.agent, &candidate.model, &rule.task_kind))
         {
@@ -254,82 +394,82 @@ fn select_route(
                 continue;
             }
             if is_certified(certificate) {
-                if let Some(selected) = select_allowed_candidate(
-                    candidate,
-                    approval_patterns,
-                    detected,
-                    allow_gated,
-                    Some(certificate.certificate_id.clone()),
-                ) {
-                    return SelectedRoute {
-                        circuit_breaker_filtered,
-                        ..selected
-                    };
-                }
-                continue;
+                preferred_cert = Some(certificate.certificate_id.clone());
+                is_positive_cert = true;
             }
         }
 
-        if let Some(selected) =
-            select_allowed_candidate(candidate, approval_patterns, detected, allow_gated, None)
-        {
-            return SelectedRoute {
-                circuit_breaker_filtered,
-                ..selected
-            };
+        let status = match detected_status(detected, &candidate.agent) {
+            Some(status) => status,
+            None => continue,
+        };
+
+        let policy_config = policy::PolicyConfig {
+            schema_version: 1,
+            approval_required_model_patterns: approval_patterns.to_vec(),
+            blocked_adapter_statuses: vec!["deprecated_or_quarantine".to_string()],
+            gated_adapter_statuses: vec!["gated".to_string()],
+        };
+        let policy_eval = policy::evaluate(
+            &candidate.agent,
+            &candidate.model,
+            status,
+            allow_gated,
+            &policy_config,
+        );
+        if !policy_eval.allowed {
+            continue;
         }
+
+        let is_gated = matches!(status, AdapterStatus::Gated);
+        let requires_conf = requires_confirmation(status, &candidate.model, approval_patterns);
+        let policy_reason = match &preferred_cert {
+            Some(certificate_id) => format!("certified:{certificate_id}; {}", policy_eval.reason),
+            None => policy_eval.reason,
+        };
+
+        let quota = assess_candidate_quota(&candidate.agent, &quota_snapshots);
+
+        allowed_candidates.push(EvaluatedCandidate {
+            original_index: index,
+            selected: SelectedRoute {
+                agent: candidate.agent,
+                model: candidate.model,
+                fallback_applied: candidate.fallback_applied,
+                requires_confirmation: requires_conf,
+                policy_reason,
+                preferred_certificate: preferred_cert,
+                circuit_breaker_filtered: 0,
+            },
+            is_certified: is_positive_cert,
+            is_gated,
+            quota,
+        });
     }
 
-    SelectedRoute {
-        agent: rule.default_agent.clone(),
-        model: rule.default_model.clone(),
-        fallback_applied: false,
-        requires_confirmation: true,
-        policy_reason: "no detected allowed route; returning default for explicit human review"
-            .to_string(),
-        preferred_certificate: None,
-        circuit_breaker_filtered,
+    if allowed_candidates.is_empty() {
+        return SelectedRoute {
+            agent: rule.default_agent.clone(),
+            model: rule.default_model.clone(),
+            fallback_applied: false,
+            requires_confirmation: true,
+            policy_reason: "no detected allowed route; returning default for explicit human review"
+                .to_string(),
+            preferred_certificate: None,
+            circuit_breaker_filtered,
+        };
     }
-}
 
-fn select_allowed_candidate(
-    candidate: Candidate,
-    approval_patterns: &[String],
-    detected: &[AgentDetection],
-    allow_gated: bool,
-    preferred_certificate: Option<String>,
-) -> Option<SelectedRoute> {
-    let status = detected_status(detected, &candidate.agent)?;
-    let policy_config = policy::PolicyConfig {
-        schema_version: 1,
-        approval_required_model_patterns: approval_patterns.to_vec(),
-        blocked_adapter_statuses: vec!["deprecated_or_quarantine".to_string()],
-        gated_adapter_statuses: vec!["gated".to_string()],
-    };
-    let policy = policy::evaluate(
-        &candidate.agent,
-        &candidate.model,
-        status,
-        allow_gated,
-        &policy_config,
-    );
-    if !policy.allowed {
-        return None;
-    }
-    let requires_confirmation = requires_confirmation(status, &candidate.model, approval_patterns);
-    let policy_reason = match &preferred_certificate {
-        Some(certificate_id) => format!("certified:{certificate_id}; {}", policy.reason),
-        None => policy.reason,
-    };
-    Some(SelectedRoute {
-        agent: candidate.agent,
-        model: candidate.model,
-        fallback_applied: candidate.fallback_applied,
-        requires_confirmation,
-        policy_reason,
-        preferred_certificate,
-        circuit_breaker_filtered: 0,
-    })
+    let any_healthy = allowed_candidates.iter().any(|c| !c.quota.is_exhausted);
+    allowed_candidates.sort_by(|a, b| {
+        let score_b = b.score(any_healthy, allow_gated);
+        let score_a = a.score(any_healthy, allow_gated);
+        score_b.cmp(&score_a)
+    });
+
+    let mut chosen = allowed_candidates.remove(0).selected;
+    chosen.circuit_breaker_filtered = circuit_breaker_filtered;
+    chosen
 }
 
 struct Candidate {
@@ -645,5 +785,353 @@ mod tests {
         assert_eq!(decision.selected_model, "primary-model");
         assert!(!decision.fallback_applied);
         assert_eq!(decision.circuit_breaker_filtered, 0);
+    }
+
+    #[test]
+    fn test_route_avoids_five_hour_exhausted_scope_and_picks_alternative() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "documentation",
+                    "default_agent": "agy",
+                    "default_model": "gemini-3.7-flash-high",
+                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing five_hour quota exhaustion"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("agy-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("qwen-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        // AGY has five-hour quota exhausted (0.0% remaining)
+        let exhausted_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-five-hour".to_string(),
+            remaining_pct: Some(0.0),
+            used_pct: Some(100.0),
+            status: Some("exhausted".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&exhausted_snapshot).unwrap();
+
+        // Qwen has healthy quota
+        let healthy_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "qwen".to_string(),
+            scope: "general".to_string(),
+            remaining_pct: Some(85.0),
+            used_pct: Some(15.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&healthy_snapshot).unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "documentation",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(decision.fallback_applied);
+    }
+
+    #[test]
+    fn test_route_prefers_gated_when_weekly_quota_high_and_allow_gated() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["sonnet"],
+                "routes": [{
+                    "task_kind": "refactor",
+                    "default_agent": "agy",
+                    "default_model": "gemini-3.7-flash-high",
+                    "cheap_sufficient": "none",
+                    "escalate_to": "claude-code/claude-sonnet-5",
+                    "avoid": [],
+                    "rationale": "testing gated preference with high weekly quota"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("agy-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "claude-code".to_string(),
+                    binary: "claude-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("claude-runner".to_string()),
+                    adapter: AdapterStatus::Gated,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        // Claude has high weekly quota (80% remaining)
+        let claude_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "claude-code".to_string(),
+            scope: "weekly".to_string(),
+            remaining_pct: Some(80.0),
+            used_pct: Some(20.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&claude_snapshot).unwrap();
+
+        // 1. With allow_gated = true, claude-code is preferred!
+        let decision_gated = decide_with_detected(
+            &config,
+            "refactor",
+            true,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        assert_eq!(decision_gated.selected_agent, "claude-code");
+        assert_eq!(decision_gated.selected_model, "claude-sonnet-5");
+        assert!(decision_gated.fallback_applied);
+
+        // 2. With allow_gated = false, policy blocks claude-code and selects agy
+        let decision_ungated = decide_with_detected(
+            &config,
+            "refactor",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        assert_eq!(decision_ungated.selected_agent, "agy");
+        assert_eq!(decision_ungated.selected_model, "gemini-3.7-flash-high");
+        assert!(!decision_ungated.fallback_applied);
+    }
+
+    #[test]
+    fn test_route_without_quota_snapshots_behaves_identically_to_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "documentation",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.6-flash",
+                    "cheap_sufficient": "agy/gemini-3.6-flash-low",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "baseline comparison without snapshots"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("qwen-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("agy-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        // Decision with empty store vs None store are identical
+        let decision_with_store = decide_with_detected(
+            &config,
+            "documentation",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        let decision_without_store = decide_with_detected(
+            &config,
+            "documentation",
+            false,
+            "test",
+            &detected,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(decision_with_store.selected_agent, "qwen-code");
+        assert_eq!(decision_with_store.selected_model, "qwen3.6-flash");
+        assert!(!decision_with_store.fallback_applied);
+
+        assert_eq!(
+            decision_without_store.selected_agent,
+            decision_with_store.selected_agent
+        );
+        assert_eq!(
+            decision_without_store.selected_model,
+            decision_with_store.selected_model
+        );
+    }
+
+    #[test]
+    fn test_route_quota_unknown_does_not_penalize() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::state::open(Some(&dir.path().join("state.sqlite"))).unwrap();
+
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "analysis",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.6-flash",
+                    "cheap_sufficient": "agy/gemini-3.6-flash-low",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing quota_unknown neutrality"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("qwen-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("agy-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        // Qwen is quota_unknown
+        let qwen_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "qwen".to_string(),
+            scope: "general".to_string(),
+            remaining_pct: None,
+            used_pct: None,
+            status: Some("quota_unknown".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&qwen_snapshot).unwrap();
+
+        // AGY has 90% quota
+        let agy_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "agy".to_string(),
+            scope: "gemini-weekly".to_string(),
+            remaining_pct: Some(90.0),
+            used_pct: Some(10.0),
+            status: Some("ok".to_string()),
+            reset_at_unix: None,
+            captured_at_unix: Some(1000),
+            metadata_json: None,
+        };
+        store.insert_quota_snapshot(&agy_snapshot).unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "analysis",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&store),
+        )
+        .unwrap();
+
+        // Qwen is NOT penalized, remains default selected agent
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(!decision.fallback_applied);
     }
 }

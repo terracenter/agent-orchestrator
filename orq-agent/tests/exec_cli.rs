@@ -1125,3 +1125,180 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         .success()
         .stdout(predicate::str::contains("\"schema_version\": 3"));
 }
+
+#[test]
+fn route_cli_avoids_five_hour_exhausted_scope() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "agy",
+            "--scope",
+            "gemini-five-hour",
+            "--remaining-pct",
+            "0.0",
+            "--status",
+            "exhausted",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let mut record_qwen = Command::cargo_bin("orq-agent").unwrap();
+    record_qwen
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "qwen",
+            "--scope",
+            "general",
+            "--remaining-pct",
+            "80.0",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
+    route_cmd
+        .args([
+            "route",
+            "--task-kind",
+            "debugging",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"selected_agent\": \"qwen-code\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"selected_model\": \"qwen3.6-flash\"",
+        ))
+        .stdout(predicate::str::contains("\"fallback_applied\": true"));
+}
+
+#[test]
+fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "claude-code",
+            "--scope",
+            "weekly",
+            "--remaining-pct",
+            "85.0",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
+    route_cmd
+        .args([
+            "route",
+            "--task-kind",
+            "debugging",
+            "--allow-gated",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"selected_agent\": \"claude-code\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"selected_model\": \"claude-sonnet-5\"",
+        ))
+        .stdout(predicate::str::contains("\"fallback_applied\": true"));
+}
+
+#[test]
+fn route_cli_quota_unknown_does_not_penalize() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    record_cmd
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "qwen",
+            "--scope",
+            "general",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let mut record_agy = Command::cargo_bin("orq-agent").unwrap();
+    record_agy
+        .args([
+            "quota",
+            "record",
+            "--provider",
+            "agy",
+            "--scope",
+            "gemini-weekly",
+            "--remaining-pct",
+            "95.0",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
+    route_cmd
+        .args([
+            "route",
+            "--task-kind",
+            "documentation",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"selected_agent\": \"qwen-code\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"selected_model\": \"qwen3.6-flash\"",
+        ))
+        .stdout(predicate::str::contains("\"fallback_applied\": false"));
+}
