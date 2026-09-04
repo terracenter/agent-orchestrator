@@ -59,6 +59,8 @@ fn exec_supports_external_adapters_registry() {
         r#"{"schema_version":1,"adapters":[{"name":"custom-agent","binary":"custom-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_CUSTOM_AGENT", runner)
@@ -72,6 +74,8 @@ fn exec_supports_external_adapters_registry() {
             task.to_str().unwrap(),
             "--adapters-config",
             registry.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "5",
             "--format",
@@ -95,6 +99,8 @@ fn exec_supports_external_policy_config() {
         r#"{"schema_version":1,"approval_required_model_patterns":["max"],"blocked_adapter_statuses":["deprecated_or_quarantine"],"gated_adapter_statuses":["gated"]}"#,
     )
     .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -108,6 +114,8 @@ fn exec_supports_external_policy_config() {
             task.to_str().unwrap(),
             "--policy-config",
             policy.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "5",
             "--format",
@@ -127,6 +135,8 @@ fn exec_qwen_fake_succeeds_with_receipt() {
     let runner = fake_runner("qwen-ok", "#!/usr/bin/env bash\necho fake-qwen-ok\n");
     let task = std::env::temp_dir().join(format!("orq-agent-task-{}.md", std::process::id()));
     fs::write(&task, "hello fake").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -138,6 +148,8 @@ fn exec_qwen_fake_succeeds_with_receipt() {
             "qwen3.8-max",
             "--task-file",
             task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "5",
             "--format",
@@ -225,15 +237,26 @@ fn discover_reports_sources_and_writes_temp_state_without_secrets() {
 
 #[test]
 fn route_default_config_reports_documentation_without_secrets() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args(["route", "--task-kind", "documentation", "--format", "json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
-        .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains(
-            "orq-agent/config/routing-matrix.json",
-        ));
+    cmd.args([
+        "route",
+        "--task-kind",
+        "documentation",
+        "--db-path",
+        db.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
+    .stdout(predicate::str::contains("\"secrets_read\": false"))
+    .stdout(predicate::str::contains(
+        "orq-agent/config/routing-matrix.json",
+    ));
 }
 
 #[test]
@@ -246,6 +269,8 @@ fn route_uses_certificate_directory_for_exact_match() {
         std::env::temp_dir().join(format!("orq-agent-route-certs-{}", std::process::id()));
     fs::create_dir_all(&cert_dir).unwrap();
     let output = cert_dir.join("qwen-docs.json");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut certify = Command::cargo_bin("orq-agent").unwrap();
     certify
@@ -262,6 +287,8 @@ fn route_uses_certificate_directory_for_exact_match() {
             "5",
             "--output",
             output.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--format",
             "json",
         ])
@@ -277,6 +304,8 @@ fn route_uses_certificate_directory_for_exact_match() {
             "documentation",
             "--cert-dir",
             cert_dir.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--format",
             "json",
         ])
@@ -293,6 +322,9 @@ fn route_uses_certificate_directory_for_exact_match() {
 fn route_supports_external_config() {
     let config =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/routing-matrix.json");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args([
         "route",
@@ -300,6 +332,8 @@ fn route_supports_external_config() {
         "documentation",
         "--config",
         config.to_str().unwrap(),
+        "--db-path",
+        db.to_str().unwrap(),
         "--format",
         "json",
     ])
@@ -318,6 +352,8 @@ fn certify_qwen_fake_writes_certificate() {
         "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.8-max'\n",
     );
     let output = std::env::temp_dir().join(format!("orq-agent-cert-{}.json", std::process::id()));
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -333,6 +369,8 @@ fn certify_qwen_fake_writes_certificate() {
             "5",
             "--output",
             output.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--format",
             "json",
         ])
@@ -352,6 +390,8 @@ fn smoke_qwen_fake_succeeds_with_receipt() {
         "qwen-smoke",
         "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.8-max'\n",
     );
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -363,6 +403,8 @@ fn smoke_qwen_fake_succeeds_with_receipt() {
             "qwen3.8-max",
             "--timeout",
             "5",
+            "--db-path",
+            db.to_str().unwrap(),
             "--format",
             "json",
         ])
@@ -378,6 +420,8 @@ fn exec_unknown_agent_returns_invalid_request_receipt() {
     let task =
         std::env::temp_dir().join(format!("orq-agent-unknown-task-{}.md", std::process::id()));
     fs::write(&task, "hello unknown").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args([
@@ -388,6 +432,8 @@ fn exec_unknown_agent_returns_invalid_request_receipt() {
         "missing-model",
         "--task-file",
         task.to_str().unwrap(),
+        "--db-path",
+        db.to_str().unwrap(),
         "--timeout",
         "5",
         "--correlation-id",
@@ -411,6 +457,8 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
         std::process::id()
     ));
     fs::write(&task, "hello timeout ceiling").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args([
@@ -421,6 +469,8 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
         "qwen3.8-max",
         "--task-file",
         task.to_str().unwrap(),
+        "--db-path",
+        db.to_str().unwrap(),
         "--timeout",
         "301",
         "--format",
@@ -438,6 +488,8 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
 fn exec_missing_binary_returns_spawn_failed_receipt() {
     let task = std::env::temp_dir().join(format!("orq-agent-spawn-task-{}.md", std::process::id()));
     fs::write(&task, "hello spawn").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env(
@@ -452,6 +504,8 @@ fn exec_missing_binary_returns_spawn_failed_receipt() {
         "qwen3.8-max",
         "--task-file",
         task.to_str().unwrap(),
+        "--db-path",
+        db.to_str().unwrap(),
         "--timeout",
         "5",
         "--format",
@@ -472,6 +526,8 @@ fn exec_timeout_preserves_partial_stdout_tail() {
     let task =
         std::env::temp_dir().join(format!("orq-agent-partial-task-{}.md", std::process::id()));
     fs::write(&task, "hello partial").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -483,6 +539,8 @@ fn exec_timeout_preserves_partial_stdout_tail() {
             "qwen3.8-max",
             "--task-file",
             task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "1",
             "--format",
@@ -502,6 +560,8 @@ fn exec_output_tail_is_bounded_to_recent_output() {
         std::process::id()
     ));
     fs::write(&task, "hello long output").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -513,6 +573,8 @@ fn exec_output_tail_is_bounded_to_recent_output() {
             "qwen3.8-max",
             "--task-file",
             task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "5",
             "--format",
@@ -534,6 +596,8 @@ fn exec_timeout_kills_child_process_group() {
     let runner = fake_runner("qwen-process-group", &body);
     let task = std::env::temp_dir().join(format!("orq-agent-pgid-task-{}.md", std::process::id()));
     fs::write(&task, "hello pgid").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -545,6 +609,8 @@ fn exec_timeout_kills_child_process_group() {
             "qwen3.8-max",
             "--task-file",
             task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "1",
             "--format",
@@ -576,6 +642,8 @@ fn exec_pgid_cleanup() {
         std::process::id()
     ));
     fs::write(&task, "hello pgid cleanup").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -587,6 +655,8 @@ fn exec_pgid_cleanup() {
             "qwen3.8-max",
             "--task-file",
             task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "1",
             "--format",
@@ -611,6 +681,8 @@ fn exec_qwen_fake_timeout_is_reported() {
     let task =
         std::env::temp_dir().join(format!("orq-agent-timeout-task-{}.md", std::process::id()));
     fs::write(&task, "hello timeout").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
@@ -622,6 +694,8 @@ fn exec_qwen_fake_timeout_is_reported() {
             "qwen3.8-max",
             "--task-file",
             task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
             "--timeout",
             "1",
             "--format",
@@ -637,6 +711,8 @@ fn exec_without_correlation_id_uses_unique_fallback() {
     let task =
         std::env::temp_dir().join(format!("orq-agent-fallback-task-{}.md", std::process::id()));
     fs::write(&task, "hello fallback").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args([
@@ -647,6 +723,8 @@ fn exec_without_correlation_id_uses_unique_fallback() {
         "missing-model",
         "--task-file",
         task.to_str().unwrap(),
+        "--db-path",
+        db.to_str().unwrap(),
         "--timeout",
         "0",
         "--format",
@@ -659,6 +737,9 @@ fn exec_without_correlation_id_uses_unique_fallback() {
 
 #[test]
 fn certify_without_correlation_id_uses_unique_fallback() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.args([
         "certify",
@@ -668,6 +749,8 @@ fn certify_without_correlation_id_uses_unique_fallback() {
         "missing-model",
         "--task-kind",
         "regression",
+        "--db-path",
+        db.to_str().unwrap(),
         "--timeout",
         "0",
         "--format",
