@@ -64,6 +64,7 @@ fn exec_supports_external_adapters_registry() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_CUSTOM_AGENT", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -104,6 +105,7 @@ fn exec_supports_external_policy_config() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -140,6 +142,7 @@ fn exec_qwen_fake_succeeds_with_receipt() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -185,52 +188,52 @@ fn orq_binary_alias_supports_models_command() {
 
 #[test]
 fn state_status_creates_temp_db_without_secrets() {
-    let dir = std::env::temp_dir().join(format!("orq-agent-state-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
-    let db = dir.join("state.sqlite");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "state",
-        "status",
-        "--db-path",
-        db.to_str().unwrap(),
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"schema_version\": 2"))
-    .stdout(predicate::str::contains("\"secrets_read\": false"))
-    .stdout(predicate::str::contains("agents"))
-    .stdout(predicate::str::contains("models"));
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "state",
+            "status",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 2"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("agents"))
+        .stdout(predicate::str::contains("models"));
 }
 
 #[test]
 fn discover_reports_sources_and_writes_temp_state_without_secrets() {
-    let dir = std::env::temp_dir().join(format!("orq-agent-discover-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
-    let db = dir.join("state.sqlite");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "discover",
-        "--db-path",
-        db.to_str().unwrap(),
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"config_source\""))
-    .stdout(predicate::str::contains("\"state_source\""))
-    .stdout(predicate::str::contains("\"secrets_read\": false"))
-    .stdout(predicate::str::contains(
-        "orq-agent/config/adapters-registry.json",
-    ))
-    .stdout(predicate::str::contains(
-        "orq-agent/config/models-catalog.json",
-    ));
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "discover",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"config_source\""))
+        .stdout(predicate::str::contains("\"state_source\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains(
+            "orq-agent/config/adapters-registry.json",
+        ))
+        .stdout(predicate::str::contains(
+            "orq-agent/config/models-catalog.json",
+        ));
 
     assert!(db.exists());
 }
@@ -241,22 +244,23 @@ fn route_default_config_reports_documentation_without_secrets() {
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "route",
-        "--task-kind",
-        "documentation",
-        "--db-path",
-        db.to_str().unwrap(),
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
-    .stdout(predicate::str::contains("\"secrets_read\": false"))
-    .stdout(predicate::str::contains(
-        "orq-agent/config/routing-matrix.json",
-    ));
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "route",
+            "--task-kind",
+            "documentation",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains(
+            "orq-agent/config/routing-matrix.json",
+        ));
 }
 
 #[test]
@@ -275,6 +279,7 @@ fn route_uses_certificate_directory_for_exact_match() {
     let mut certify = Command::cargo_bin("orq-agent").unwrap();
     certify
         .env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "certify",
             "--agent",
@@ -298,6 +303,7 @@ fn route_uses_certificate_directory_for_exact_match() {
     let mut route = Command::cargo_bin("orq-agent").unwrap();
     route
         .env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "route",
             "--task-kind",
@@ -326,23 +332,24 @@ fn route_supports_external_config() {
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "route",
-        "--task-kind",
-        "documentation",
-        "--config",
-        config.to_str().unwrap(),
-        "--db-path",
-        db.to_str().unwrap(),
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("routing-matrix.json"))
-    .stdout(predicate::str::contains(
-        "\"default_model\": \"qwen3.6-flash\"",
-    ));
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "route",
+            "--task-kind",
+            "documentation",
+            "--config",
+            config.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("routing-matrix.json"))
+        .stdout(predicate::str::contains(
+            "\"default_model\": \"qwen3.6-flash\"",
+        ));
 }
 
 #[test]
@@ -357,6 +364,7 @@ fn certify_qwen_fake_writes_certificate() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "certify",
             "--agent",
@@ -395,6 +403,7 @@ fn smoke_qwen_fake_succeeds_with_receipt() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "smoke",
             "--agent",
@@ -424,30 +433,31 @@ fn exec_unknown_agent_returns_invalid_request_receipt() {
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "exec",
-        "--agent",
-        "missing-agent",
-        "--model",
-        "missing-model",
-        "--task-file",
-        task.to_str().unwrap(),
-        "--db-path",
-        db.to_str().unwrap(),
-        "--timeout",
-        "5",
-        "--correlation-id",
-        "test-correlation",
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"status\": \"invalid_request\""))
-    .stdout(predicate::str::contains(
-        "unknown agent adapter: missing-agent",
-    ))
-    .stdout(predicate::str::contains("test-correlation"));
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "missing-agent",
+            "--model",
+            "missing-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--correlation-id",
+            "test-correlation",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"invalid_request\""))
+        .stdout(predicate::str::contains(
+            "unknown agent adapter: missing-agent",
+        ))
+        .stdout(predicate::str::contains("test-correlation"));
 }
 
 #[test]
@@ -461,27 +471,28 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "exec",
-        "--agent",
-        "qwen-code",
-        "--model",
-        "qwen3.8-max",
-        "--task-file",
-        task.to_str().unwrap(),
-        "--db-path",
-        db.to_str().unwrap(),
-        "--timeout",
-        "301",
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"status\": \"invalid_request\""))
-    .stdout(predicate::str::contains(
-        "timeout must be between 1 and 300 seconds",
-    ));
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.8-max",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "301",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"invalid_request\""))
+        .stdout(predicate::str::contains(
+            "timeout must be between 1 and 300 seconds",
+        ));
 }
 
 #[test]
@@ -496,6 +507,7 @@ fn exec_missing_binary_returns_spawn_failed_receipt() {
         "ORQ_AGENT_BIN_QWEN_CODE",
         "/tmp/orq-agent-definitely-missing-binary",
     )
+    .env("ORQ_STATE_DB", &db)
     .args([
         "exec",
         "--agent",
@@ -531,6 +543,7 @@ fn exec_timeout_preserves_partial_stdout_tail() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -565,6 +578,7 @@ fn exec_output_tail_is_bounded_to_recent_output() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -601,6 +615,7 @@ fn exec_timeout_kills_child_process_group() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -647,6 +662,7 @@ fn exec_pgid_cleanup() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -686,6 +702,7 @@ fn exec_qwen_fake_timeout_is_reported() {
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -715,24 +732,25 @@ fn exec_without_correlation_id_uses_unique_fallback() {
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "exec",
-        "--agent",
-        "missing-agent",
-        "--model",
-        "missing-model",
-        "--task-file",
-        task.to_str().unwrap(),
-        "--db-path",
-        db.to_str().unwrap(),
-        "--timeout",
-        "0",
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::is_match(r#""correlation_id": "orq-agent-\d{16,}-\d+""#).unwrap());
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "missing-agent",
+            "--model",
+            "missing-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "0",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r#""correlation_id": "orq-agent-\d{16,}-\d+""#).unwrap());
 }
 
 #[test]
@@ -741,27 +759,28 @@ fn certify_without_correlation_id_uses_unique_fallback() {
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.args([
-        "certify",
-        "--agent",
-        "missing-agent",
-        "--model",
-        "missing-model",
-        "--task-kind",
-        "regression",
-        "--db-path",
-        db.to_str().unwrap(),
-        "--timeout",
-        "0",
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(
-        predicate::str::is_match(
-            r#""certificate_id": "cert-\d{16,}-\d+-missing-agent-missing-model-regression""#,
-        )
-        .unwrap(),
-    );
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "certify",
+            "--agent",
+            "missing-agent",
+            "--model",
+            "missing-model",
+            "--task-kind",
+            "regression",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "0",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::is_match(
+                r#""certificate_id": "cert-\d{16,}-\d+-missing-agent-missing-model-regression""#,
+            )
+            .unwrap(),
+        );
 }
