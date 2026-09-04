@@ -29,6 +29,7 @@ La visión funcional no cambia. Cambia la implementación objetivo: **Orq será 
 - `orq receipt/session`: validación inicial de recibos y checks.
 - Plantilla base: incluye README, README.en, CONTRIBUTING, SECURITY, RELEASES, CI y Makefile; falta reforzar ROADMAP como obligatorio.
 - Documentación como changelog operativo: todo issue/PR/entregable cerrado debe reflejarse en ROADMAP, RELEASES y docs relevantes.
+- Interop A2A/MCP analizado en [docs/a2a-mcp-interop.md](docs/a2a-mcp-interop.md): MCP para herramientas, A2A para agentes; AgentCard como norte de #81.
 
 ## Fase 1 — Guardrails de sesión y presupuesto
 
