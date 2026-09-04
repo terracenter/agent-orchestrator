@@ -6,54 +6,62 @@ Fuentes auditadas:
 
 ## Veredicto
 
-A2A **no es la visión central** de `orq`. A2A estandariza interop **remota** entre agentes
-(vía HTTP, AgentCard en `/.well-known/agent.json`, ciclo mensaje → tarea → artefacto). `orq` es
-orquestación **local-first** de procesos con **costo mínimo + evidencia verificable**. Son
-problemas complementarios, no equivalentes.
+A2A **no es la visión central** de `orq`. El eje que los separa no es el transporte (A2A no exige
+internet; puede correr en loopback) sino **opacidad y control del peer**: A2A asume peers opacos y
+autónomos que tú no lanzaste (negociación de modalidades, auth, superficie de red). `orq` lanza sus
+propios procesos y controla su ciclo de vida y su gasto.
 
-Sí adoptamos patrones puntuales, con la regla de siempre: adoptar lo probado, adaptar lo útil,
-descartar lo pesado.
+El interop agente↔agente de `orq` **ya existe** y es local: `.agents/handoffs/*.md` + git. Es nuestro
+"A2A de facto", y por ahora es suficiente.
 
 ## Qué es cada protocolo
 
 | Protocolo | Problema que resuelve | Equivalente en `orq` |
 |---|---|---|
-| MCP (Model Context Protocol) | Conectar el LLM con herramientas y datos | Capa de tools: `rtk`, `vg`, shell, hooks |
-| A2A (Agent2Agent) | Conectar agentes entre sí como agentes, no como tools | Capa de delegación: `orq delegate`, adapters |
+| MCP | Conectar el LLM con herramientas, recursos y prompts | Capa de tools/resources: `rtk` (tools), `vg`/vault (resources), hooks |
+| A2A | Conectar agentes entre sí como agentes | Delegación local: `.agents/handoffs` + git, `orq delegate` + adapters |
 
-La división oficial es **"MCP para herramientas, A2A para agentes"** — el borde arquitectónico que
-`orq` debe hacer explícito.
+Titular adoptado: **"MCP para herramientas, A2A para agentes"**. Criterio operativo que lo decide
+(verificable, no filosófico): **¿quién decide el costo?** Si el callee elige modelo, itera o
+re-delega, es agente (necesita presupuesto + receipt + breaker). Si el gasto es determinístico del
+caller, es tool.
 
 ## Ideas a adoptar
 
-| Idea | Motivo | Aplicación en `orq` |
-|---|---|---|
-| AgentCard (tarjeta de capacidades autodescriptiva) | Descubrir qué sabe/permite un agente sin hardcodear | Evolucionar `agent-profiles.json` hacia capacidades autodescriptivas; conecta con #81 (discovery dinámico) |
-| Ciclo de vida de tarea (mensaje → tarea → artefacto) | Modelo claro de entrada/proceso/salida con session id | Ya existe (handoff → exec → receipt); formalizar `correlation_id`/session como contrato |
-| MCP para la capa de herramientas | Estandariza el acceso de agentes a tools, en vez de hooks ad-hoc | `rtk`/`vg` expuestos como MCP servers; el borde agente/tool queda limpio |
+| Idea | Aplicación en `orq` |
+|---|---|
+| **AgentCard** (capacidades autodescriptivas, con `skills[]` + versionado) | Fuente en el pipeline Rust de discovery (#81): `detect` + `models snapshot` + certstore + SQLite — NO en `agent-profiles.json` (curación manual). La card versiona; el catálogo cachea; `detect` revalida. |
+| **Máquina de estados de tarea explícita** | Estados tipados `submitted / working / input-required / completed / failed / canceled` en el receipt; formalizar `session_id` además de `correlation_id`. Distingue "falló" de "esperando input" de "cortó el breaker". |
 
 ## Ideas a adaptar
 
 | Idea | Adaptación |
 |---|---|
-| Descubrimiento por URL `/.well-known/agent.json` | En `orq` local no hay HTTP; usar catálogo local SQLite + `orq agents detect` (ya existe) |
-| Notificaciones push de tareas A2A | `orq` es pull/síncrono con receipts; no agregar push hasta necesitarlo |
+| **MCP para la capa de herramientas** | El CLI sigue siendo la vía canónica (`rtk` vía hook, overhead ~0). MCP server solo para clientes que NO pueden ejecutar el binario (Codex, cliente ajeno). No envolver `rtk` como MCP por defecto: sería retroceso neto en tokens. |
+| Descubrimiento por URL `/.well-known/agent.json` | Catálogo local SQLite + `orq agents detect` (ya existe). |
+| **MCP no son solo tools** | Distinguir *Tools* (mutación: `rtk`, shell) de *Resources* (lectura pasiva: `vg`, vault) y *Prompts*. Mejor control de permisos/auditoría; evita forzar documentos como "tools". |
+| **Artifact vs Message** | `artifact` (salida durable) ↔ receipt; `message` (efímero) ↔ stdout. Define qué persiste el receipt store. |
+| Notificaciones push A2A | No; `orq` es pull/síncrono con receipts. |
 
-## Ideas a descartar para este workspace
+## Ideas a descartar
 
 | Idea | Razón |
 |---|---|
-| Mesh de agentes remotos vía HTTP (Cloud Run / Agent Engine) | `orq` es local-first; la interop remota no es el objetivo central |
-| Escenario "compra/venta" multi-vendedor del codelab | Ilustrativo; no aplica al dominio sysadmin/vault/repos |
-| A2A como protocolo de red central | Rompe local-first y agrega superficie de red/autenticación sin necesidad actual |
+| Mesh de agentes remotos vía HTTP (Cloud Run / Agent Engine) | `orq` es local-first; la interop remota no es el objetivo central. |
+| Escenario "compra/venta" multi-vendedor del codelab | Ilustrativo; no aplica al dominio. |
+| A2A como protocolo de red central | Rompe local-first y agrega superficie de red/autenticación sin necesidad actual. |
+
+**Disparador de reapertura:** se reabre A2A cuando `orq` deba coordinar un agente que **no lanzó**
+(remoto/ajeno); antes de cualquier mesh ad-hoc, evaluar `orq` como *cliente* A2A.
 
 ## Impacto en ROADMAP
 
-- Reforzar la fase de discovery (#81) con formato tipo AgentCard.
-- Evaluar `rtk`/`vg` como MCP servers (herramientas), manteniendo agentes por delegación.
-- Formalizar `correlation_id`/session en receipts como contrato de ciclo de tarea.
+- Reforzar la fase de discovery (#81) con formato tipo AgentCard (skills, versionado, permisos).
+- Evaluar `rtk`/`vg` como MCP servers **solo** para clientes que no ejecuten el binario; el CLI sigue canónico.
+- Formalizar estados de tarea + `session_id` en receipts (contrato de ciclo de vida).
 
 ## Regla de síntesis
 
-`orq` no se vuelve un nodo A2A. Toma el borde **MCP = herramientas / A2A = agentes** y la idea de
-**capacidades autodescriptivas**, sin renunciar a local-first, evidencia y costo mínimo.
+`orq` no se vuelve un nodo A2A. Toma el borde **MCP = herramientas/recursos / A2A = agentes**,
+la idea de **capacidades autodescriptivas versionadas** y la **máquina de estados de tarea**,
+sin renunciar a local-first, evidencia y costo mínimo.
