@@ -764,6 +764,13 @@ fn print_compliance_report(
                     "[pi-supervision] Status: {:?} | {}",
                     pi.status, pi.summary
                 );
+                println!(
+                    "  - [{:?}] guard_executable (Mandato 15): {}",
+                    pi.guard_executable.status, pi.guard_executable.message
+                );
+                if !pi.guard_executable.evidence.is_empty() {
+                    println!("    Evidence: {}", pi.guard_executable.evidence);
+                }
                 for check in &pi.checks {
                     println!(
                         "  - [{:?}] {}: {}",

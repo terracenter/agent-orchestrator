@@ -36,6 +36,13 @@ pub struct ComplianceChecks {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PiGuardCheck {
+    pub status: ComplianceStatus,
+    pub evidence: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PiLawCheck {
     pub law: String,
     pub status: ComplianceStatus,
@@ -46,6 +53,7 @@ pub struct PiLawCheck {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PiSupervisionReport {
     pub status: ComplianceStatus,
+    pub guard_executable: PiGuardCheck,
     pub checks: Vec<PiLawCheck>,
     pub summary: String,
 }
@@ -107,7 +115,7 @@ pub struct ComplianceArgs {
 pub async fn run_compliance(args: ComplianceArgs) -> Result<ComplianceReport> {
     let is_pi = args.agent.as_deref() == Some("pi");
     let has_explicit_check = args.rtk_usage || args.engram_summary || args.vg_sync;
-    let run_all = !has_explicit_check && args.agent.is_none();
+    let run_all = !has_explicit_check;
 
     let rtk_report = if run_all || args.rtk_usage {
         Some(check_rtk_usage(args.log.as_deref())?)
@@ -888,15 +896,20 @@ pub async fn check_pi_supervision(
     let agents_path = resolve_agents_path(agents_path_str);
     let handoffs_path = resolve_handoffs_path(handoffs_path_str, &agents_path);
 
-    let law1 = check_pi_law1_guardia(&agents_path).await?;
-    let law2 = check_pi_law2_documented(&agents_path)?;
-    let law3 = check_pi_law3_separation_of_duties(db_path_str)?;
-    let law4 = check_pi_law4_routing_delegation(&handoffs_path)?;
-    let law5 = check_pi_law5_plan_criteria(&handoffs_path)?;
-    let law6 = check_pi_law6_no_self_review(db_path_str, &handoffs_path)?;
+    let guard_executable = check_pi_guard_executable(&agents_path).await?;
+    let law1 = check_pi_law1_backlog(&handoffs_path)?;
+    let law2 = check_pi_law2_ranking_criteria(&handoffs_path)?;
+    let law3 = check_pi_law3_macro_first(&handoffs_path)?;
+    let law4 = check_pi_law4_separation_of_duties(db_path_str, &handoffs_path)?;
+    let law5 = check_pi_law5_routing_delegation(&handoffs_path)?;
+    let law6 = check_pi_law6_review_4r(db_path_str, &handoffs_path)?;
 
     let checks = vec![law1, law2, law3, law4, law5, law6];
     let mut violations = Vec::new();
+
+    if guard_executable.status == ComplianceStatus::Violation {
+        violations.push(format!("guard_executable: {}", guard_executable.message));
+    }
 
     for check in &checks {
         if check.status == ComplianceStatus::Violation {
@@ -912,12 +925,13 @@ pub async fn check_pi_supervision(
     } else {
         (
             ComplianceStatus::Ok,
-            "all 6 Pi supervision laws passed or not applicable".to_string(),
+            "all 6 Pi supervision laws and guard passed or not applicable".to_string(),
         )
     };
 
     Ok(PiSupervisionReport {
         status,
+        guard_executable,
         checks,
         summary,
     })
@@ -968,10 +982,8 @@ fn find_file_in_candidates(candidates: &[PathBuf]) -> Option<PathBuf> {
     None
 }
 
-// Law 1: guardia-pi instalada y pasando
-pub async fn check_pi_law1_guardia(agents_path: &Path) -> Result<PiLawCheck> {
-    let law = "Ley 1: guardia-pi instalada y pasando".to_string();
-
+// Gate Mandato 15: guard_executable
+pub async fn check_pi_guard_executable(agents_path: &Path) -> Result<PiGuardCheck> {
     let guardia_candidates = [
         agents_path.join("scripts/guardia-pi.sh"),
         agents_path.join("guardia-pi.sh"),
@@ -985,8 +997,7 @@ pub async fn check_pi_law1_guardia(agents_path: &Path) -> Result<PiLawCheck> {
     let test_path = find_file_in_candidates(&test_candidates);
 
     let (Some(guardia_path), Some(test_path)) = (guardia_path, test_path) else {
-        return Ok(PiLawCheck {
-            law,
+        return Ok(PiGuardCheck {
             status: ComplianceStatus::Violation,
             evidence: format!(
                 "guardia_candidates: {:?}, test_candidates: {:?}",
@@ -1005,8 +1016,7 @@ pub async fn check_pi_law1_guardia(agents_path: &Path) -> Result<PiLawCheck> {
     {
         Ok(out) => out,
         Err(err) => {
-            return Ok(PiLawCheck {
-                law,
+            return Ok(PiGuardCheck {
                 status: ComplianceStatus::Violation,
                 evidence: format!("exec error: {}", err),
                 message: format!("error al ejecutar test-guardia-pi.sh: {}", err),
@@ -1018,8 +1028,7 @@ pub async fn check_pi_law1_guardia(agents_path: &Path) -> Result<PiLawCheck> {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if output.status.success() {
-        Ok(PiLawCheck {
-            law,
+        Ok(PiGuardCheck {
             status: ComplianceStatus::Ok,
             evidence: format!(
                 "guardia: {}, test: {}, salida: {}",
@@ -1031,8 +1040,7 @@ pub async fn check_pi_law1_guardia(agents_path: &Path) -> Result<PiLawCheck> {
         })
     } else {
         let code = output.status.code().unwrap_or(1);
-        Ok(PiLawCheck {
-            law,
+        Ok(PiGuardCheck {
             status: ComplianceStatus::Violation,
             evidence: format!(
                 "exit: {}, stdout: {}, stderr: {}",
@@ -1045,219 +1053,359 @@ pub async fn check_pi_law1_guardia(agents_path: &Path) -> Result<PiLawCheck> {
     }
 }
 
-// Law 2: leyes documentadas
-pub fn check_pi_law2_documented(agents_path: &Path) -> Result<PiLawCheck> {
-    let law = "Ley 2: leyes documentadas".to_string();
-
-    let pi_md_candidates = [
-        agents_path.join("orquestadores/pi.md"),
-        agents_path.join("pi.md"),
-    ];
-
-    let Some(pi_md_path) = find_file_in_candidates(&pi_md_candidates) else {
-        return Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Violation,
-            evidence: format!("candidates: {:?}", pi_md_candidates),
-            message: "orquestadores/pi.md no encontrado".to_string(),
-        });
-    };
-
-    let content = match fs::read_to_string(&pi_md_path) {
-        Ok(c) => c,
-        Err(err) => {
-            return Ok(PiLawCheck {
-                law,
-                status: ComplianceStatus::Violation,
-                evidence: format!("read error: {}", err),
-                message: format!("no se pudo leer {}: {}", pi_md_path.display(), err),
-            });
+fn get_sorted_handoff_files(handoffs_path: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(handoffs_path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("md") {
+                files.push(p);
+            }
         }
-    };
-
-    let content_lower = content.to_lowercase();
-    let mut detected_laws = Vec::new();
-
-    // 1. Backlog
-    if content_lower.contains("backlog")
-        && (content_lower.contains("leer")
-            || content_lower.contains("leído")
-            || content_lower.contains("leido"))
-    {
-        detected_laws.push("1. Leer el backlog completo antes de priorizar");
-    } else if content_lower.contains("ley 1") || content_lower.contains("### 1") {
-        detected_laws.push("1. Backlog");
     }
-
-    // 2. Rankear por valor/urgencia/dependencia
-    if content_lower.contains("valor")
-        && content_lower.contains("urgencia")
-        && content_lower.contains("dependencia")
-    {
-        detected_laws.push("2. Rankear por valor/urgencia/dependencia");
-    } else if content_lower.contains("ley 2") || content_lower.contains("### 2") {
-        detected_laws.push("2. Priorización");
-    }
-
-    // 3. Macro antes que micro
-    if (content_lower.contains("macro") && content_lower.contains("micro"))
-        || content_lower.contains("ley 3")
-        || content_lower.contains("### 3")
-    {
-        detected_laws.push("3. Macro antes que micro");
-    }
-
-    // 4. Revisor distinto del implementador
-    if (content_lower.contains("revisor") && content_lower.contains("implementador"))
-        || content_lower.contains("review_agent")
-    {
-        detected_laws.push("4. Revisor distinto del implementador");
-    } else if content_lower.contains("ley 4") || content_lower.contains("### 4") {
-        detected_laws.push("4. Segregación de roles");
-    }
-
-    // 5. Delegación vía routing
-    if content_lower.contains("orq route")
-        || content_lower.contains("orq delegate")
-        || content_lower.contains("enrutado adaptativo")
-    {
-        detected_laws.push("5. Delegar vía orq route/delegate (enrutado adaptativo)");
-    } else if content_lower.contains("ley 5") || content_lower.contains("### 5") {
-        detected_laws.push("5. Routing");
-    }
-
-    // 6. Revisión oficial 4R
-    if content_lower.contains("orq review 4r")
-        || (content_lower.contains("review") && content_lower.contains("4r"))
-    {
-        detected_laws.push("6. Usar orq review 4r del orquestador");
-    } else if content_lower.contains("ley 6") || content_lower.contains("### 6") {
-        detected_laws.push("6. Review 4R");
-    }
-
-    if detected_laws.len() == 6 {
-        Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Ok,
-            evidence: format!(
-                "path: {}, 6 leyes detectadas: {:?}",
-                pi_md_path.display(),
-                detected_laws
-            ),
-            message: "orquestadores/pi.md contiene las 6 leyes de supervisión".to_string(),
-        })
-    } else {
-        Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Violation,
-            evidence: format!(
-                "path: {}, detectadas {}/6 leyes: {:?}",
-                pi_md_path.display(),
-                detected_laws.len(),
-                detected_laws
-            ),
-            message: format!(
-                "orquestadores/pi.md incompleto (detectadas {}/6 leyes)",
-                detected_laws.len()
-            ),
-        })
-    }
+    files.sort_by(|a, b| {
+        let ma = fs::metadata(a).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+        let mb = fs::metadata(b).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+        mb.cmp(&ma)
+    });
+    files
 }
 
-// Law 3: separación de deberes (revisor ≠ implementador)
-pub fn check_pi_law3_separation_of_duties(db_path_str: Option<&str>) -> Result<PiLawCheck> {
-    let law = "Ley 3: separación de deberes (revisor ≠ implementador)".to_string();
+fn is_plan_handoff(fname: &str, content: &str) -> bool {
+    let fname_lower = fname.to_lowercase();
+    if fname_lower.contains("plan") {
+        return true;
+    }
+    if fname_lower.contains("merge") || fname_lower.contains("review") || fname_lower.contains("smoke") {
+        return false;
+    }
+    let lower = content.to_lowercase();
+    if lower.contains("# handoff: plan")
+        || lower.contains("# plan")
+        || lower.contains("## plan")
+        || lower.contains("plan de trabajo")
+        || lower.contains("priorización")
+        || lower.contains("priorizacion")
+        || lower.contains("backlog")
+    {
+        return true;
+    }
+    false
+}
 
-    let path = db_path_str.map(Path::new);
-    let store = match crate::state::open(path) {
-        Ok(s) => s,
-        Err(err) => {
-            return Ok(PiLawCheck {
-                law,
-                status: ComplianceStatus::NotAvailable,
-                evidence: format!("state error: {}", err),
-                message: format!("base de datos de estado no disponible: {}", err),
-            });
+fn get_latest_plan_handoff(handoffs_path: &Path) -> Option<(PathBuf, String)> {
+    let files = get_sorted_handoff_files(handoffs_path);
+    for p in files {
+        let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if let Ok(content) = fs::read_to_string(&p) {
+            if is_plan_handoff(fname, &content) {
+                return Some((p, content));
+            }
         }
-    };
+    }
+    None
+}
 
-    let receipts = match store.list_delegate_receipts() {
-        Ok(r) => r,
-        Err(err) => {
-            return Ok(PiLawCheck {
-                law,
-                status: ComplianceStatus::NotAvailable,
-                evidence: format!("query error: {}", err),
-                message: format!("error al listar delegate receipts: {}", err),
-            });
+fn get_review_handoffs(handoffs_path: &Path) -> Vec<(PathBuf, String)> {
+    let files = get_sorted_handoff_files(handoffs_path);
+    let mut reviews = Vec::new();
+    for p in files {
+        let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+        if fname.contains("review") || fname.contains("4r") || fname.contains("merge") {
+            if let Ok(content) = fs::read_to_string(&p) {
+                reviews.push((p, content));
+            }
+        } else if let Ok(content) = fs::read_to_string(&p) {
+            let lower = content.to_lowercase();
+            if lower.contains("revisor:")
+                || lower.contains("review_agent")
+                || lower.contains("revisión 4r")
+                || lower.contains("revision 4r")
+            {
+                reviews.push((p, content));
+            }
         }
-    };
+    }
+    reviews
+}
 
-    let valid_receipts: Vec<_> = receipts
-        .into_iter()
-        .filter(|r| {
-            matches!(
-                r.status,
-                crate::receipt::DelegateStatus::Validated
-                    | crate::receipt::DelegateStatus::Executed
-            ) || matches!(
-                r.verdict,
-                crate::receipt::DelegateVerdict::Util
-                    | crate::receipt::DelegateVerdict::NonUtil
-            )
-        })
-        .collect();
+// Law 1: Leer el backlog completo antes de priorizar
+pub fn check_pi_law1_backlog(handoffs_path: &Path) -> Result<PiLawCheck> {
+    let law = "Ley 1: Leer el backlog completo antes de priorizar".to_string();
 
-    if valid_receipts.is_empty() {
+    let Some((path, content)) = get_latest_plan_handoff(handoffs_path) else {
         return Ok(PiLawCheck {
             law,
             status: ComplianceStatus::NotAvailable,
-            evidence: "[]".to_string(),
-            message: "no hay delegate receipts en la base de datos para auditar".to_string(),
+            evidence: format!("path: {}", handoffs_path.display()),
+            message: "no se encontraron handoffs de plan para auditar".to_string(),
         });
-    }
+    };
 
-    let mut agents = std::collections::BTreeSet::new();
-    let mut agent_models = std::collections::BTreeSet::new();
+    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let lower = content.to_lowercase();
 
-    for r in &valid_receipts {
-        agents.insert(r.agent.clone());
-        agent_models.insert(format!("{}:{}", r.agent, r.model));
-    }
+    let has_backlog = lower.contains("## backlog leído")
+        || lower.contains("### backlog leído")
+        || lower.contains("# backlog leído")
+        || lower.contains("## backlog leido")
+        || lower.contains("### backlog leido")
+        || lower.contains("# backlog leido")
+        || (lower.contains("backlog") && (lower.contains("leído") || lower.contains("leido")));
 
-    let evidence_str = format!("{:?}", agent_models.into_iter().collect::<Vec<_>>());
-
-    if agents.len() >= 2 {
+    if has_backlog {
         Ok(PiLawCheck {
             law,
             status: ComplianceStatus::Ok,
-            evidence: evidence_str,
-            message: format!("encontrados {} agentes distintos en los receipts", agents.len()),
+            evidence: format!("{}: sección 'Backlog leído' presente", fname),
+            message: "el plan incluye inspección completa del backlog previo a la priorización".to_string(),
         })
     } else {
         Ok(PiLawCheck {
             law,
             status: ComplianceStatus::Violation,
-            evidence: evidence_str,
-            message: format!(
-                "todos los receipts ({}) provienen de un único agente ({:?}) - riesgo de auto-revisión",
-                valid_receipts.len(),
-                agents
-            ),
+            evidence: format!("{}: falta sección 'Backlog leído'", fname),
+            message: "el plan más reciente no contiene la sección 'Backlog leído'".to_string(),
         })
     }
 }
 
-// Law 4: delegación vía routing, sin hardcode
-#[derive(Clone, Debug, Serialize, Deserialize)]
+// Law 2: Rankear por valor/urgencia/dependencia
+pub fn check_pi_law2_ranking_criteria(handoffs_path: &Path) -> Result<PiLawCheck> {
+    let law = "Ley 2: Rankear por valor/urgencia/dependencia".to_string();
+
+    let Some((path, content)) = get_latest_plan_handoff(handoffs_path) else {
+        return Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::NotAvailable,
+            evidence: format!("path: {}", handoffs_path.display()),
+            message: "no se encontraron handoffs de plan para auditar".to_string(),
+        });
+    };
+
+    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let lower = content.to_lowercase();
+
+    let has_valor = lower.contains("valor");
+    let has_urgencia = lower.contains("urgencia");
+    let has_dependencia = lower.contains("dependencia");
+
+    if has_valor && has_urgencia && has_dependencia {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Ok,
+            evidence: format!("{}: criterios Valor, Urgencia, Dependencia presentes", fname),
+            message: "el plan clasifica tareas por valor, urgencia y dependencia".to_string(),
+        })
+    } else {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Violation,
+            evidence: format!("{}: valor={}, urgencia={}, dependencia={}", fname, has_valor, has_urgencia, has_dependencia),
+            message: "el plan no contiene los 3 criterios requeridos (Valor, Urgencia, Dependencia)".to_string(),
+        })
+    }
+}
+
+// Law 3: Macro antes que micro
+pub fn check_pi_law3_macro_first(handoffs_path: &Path) -> Result<PiLawCheck> {
+    let law = "Ley 3: Macro antes que micro".to_string();
+
+    let Some((path, content)) = get_latest_plan_handoff(handoffs_path) else {
+        return Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::NotAvailable,
+            evidence: format!("path: {}", handoffs_path.display()),
+            message: "no se encontraron handoffs de plan para auditar".to_string(),
+        });
+    };
+
+    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let lower = content.to_lowercase();
+
+    let has_macro = lower.contains("macro")
+        || lower.contains("fundamento")
+        || lower.contains("core")
+        || lower.contains("blocker");
+
+    if has_macro {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Ok,
+            evidence: format!("{}: justificación de fundamento-first detectada", fname),
+            message: "el plan prioriza fundamentos estructurales antes que micro-tareas".to_string(),
+        })
+    } else {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Violation,
+            evidence: format!("{}: no menciona macro/fundamento/core/blocker", fname),
+            message: "el plan no contiene justificación de fundamento-first (macro/fundamento/core/blocker)".to_string(),
+        })
+    }
+}
+
+// Law 4: Revisor de 4R distinto del implementador
+pub fn check_pi_law4_separation_of_duties(
+    db_path_str: Option<&str>,
+    handoffs_path: &Path,
+) -> Result<PiLawCheck> {
+    let law = "Ley 4: Revisor de 4R distinto del implementador".to_string();
+
+    let mut audited_pairs = Vec::new();
+    let mut self_reviews = Vec::new();
+    let mut receipt_agents = std::collections::BTreeSet::new();
+    let mut total_valid_receipts = 0;
+
+    // 1. Audit SQLite delegate receipts
+    let path = db_path_str.map(Path::new);
+    if let Ok(store) = crate::state::open(path) {
+        if let Ok(receipts) = store.list_delegate_receipts() {
+            let valid_receipts: Vec<_> = receipts
+                .into_iter()
+                .filter(|r| {
+                    matches!(
+                        r.status,
+                        crate::receipt::DelegateStatus::Validated
+                            | crate::receipt::DelegateStatus::Executed
+                    ) || matches!(
+                        r.verdict,
+                        crate::receipt::DelegateVerdict::Util
+                            | crate::receipt::DelegateVerdict::NonUtil
+                    )
+                })
+                .collect();
+
+            total_valid_receipts = valid_receipts.len();
+            for r in &valid_receipts {
+                receipt_agents.insert(r.agent.clone());
+            }
+
+            for r in &valid_receipts {
+                let cmd_str = r.command.join(" ").to_lowercase();
+                let is_review = cmd_str.contains("review") || cmd_str.contains("4r");
+                if is_review {
+                    for other in &valid_receipts {
+                        if other.correlation_id == r.correlation_id {
+                            if other.agent == r.agent && other.command != r.command {
+                                self_reviews.push((
+                                    r.agent.clone(),
+                                    r.agent.clone(),
+                                    format!("receipt:{}", r.correlation_id),
+                                ));
+                            } else if other.agent != r.agent {
+                                audited_pairs.push((
+                                    other.agent.clone(),
+                                    r.agent.clone(),
+                                    format!("receipt:{}", r.correlation_id),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Audit handoff merge / review files (*merge*.md or *.json in handoffs_path)
+    if handoffs_path.exists() {
+        if let Ok(entries) = fs::read_dir(handoffs_path) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if p.is_file() && (fname.contains("merge") || fname.contains("review") || fname.ends_with(".json")) {
+                    if let Ok(content) = fs::read_to_string(&p) {
+                        if fname.ends_with(".json") {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                                let rev = v.get("review_agent").and_then(|a| a.as_str());
+                                let imp = v.get("implementer_agent").and_then(|a| a.as_str());
+                                if let (Some(r), Some(i)) = (rev, imp) {
+                                    if r.eq_ignore_ascii_case(i) {
+                                        self_reviews
+                                            .push((i.to_string(), r.to_string(), fname.to_string()));
+                                    } else {
+                                        audited_pairs
+                                            .push((i.to_string(), r.to_string(), fname.to_string()));
+                                    }
+                                }
+                            }
+                        } else {
+                            let (imp, rev) = extract_agents_from_handoff(&content);
+                            if let (Some(i), Some(r)) = (imp, rev) {
+                                if i.eq_ignore_ascii_case(&r) {
+                                    self_reviews.push((i, r, fname.to_string()));
+                                } else {
+                                    audited_pairs.push((i, r, fname.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check results
+    if !self_reviews.is_empty() {
+        let evidence = self_reviews
+            .iter()
+            .map(|(i, r, src)| format!("{}: implementador='{}' == revisor='{}'", src, i, r))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Violation,
+            evidence,
+            message: format!(
+                "detectada auto-revisión en {} caso(s)",
+                self_reviews.len()
+            ),
+        })
+    } else if total_valid_receipts > 0 && receipt_agents.len() < 2 && audited_pairs.is_empty() {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Violation,
+            evidence: format!("agentes en receipts: {:?}", receipt_agents),
+            message: format!(
+                "todos los receipts ({}) provienen de un único agente ({:?}) - riesgo de monopolio/auto-revisión",
+                total_valid_receipts,
+                receipt_agents
+            ),
+        })
+    } else if !audited_pairs.is_empty() || receipt_agents.len() >= 2 {
+        let mut evidence_items = Vec::new();
+        if receipt_agents.len() >= 2 {
+            evidence_items.push(format!("receipts con {} agentes distintos: {:?}", receipt_agents.len(), receipt_agents));
+        }
+        for (i, r, src) in &audited_pairs {
+            evidence_items.push(format!("{}: implementador='{}', revisor='{}'", src, i, r));
+        }
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Ok,
+            evidence: evidence_items.join("; "),
+            message: "segregación de roles 4R verificada (revisor distinto del implementador)".to_string(),
+        })
+    } else {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::NotAvailable,
+            evidence: "[]".to_string(),
+            message: "no se encontraron handoffs de merge/review ni receipts de delegación para auditar".to_string(),
+        })
+    }
+}
+
+// Law 5: Delegar vía orq route/orq delegate (enrutado adaptativo)
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HardcodedModelViolation {
     pub file: String,
     pub line: usize,
     pub raw_line: String,
 }
 
-pub fn check_pi_law4_routing_delegation(handoffs_path: &Path) -> Result<PiLawCheck> {
-    let law = "Ley 4: delegación vía routing, sin hardcode".to_string();
+pub fn check_pi_law5_routing_delegation(handoffs_path: &Path) -> Result<PiLawCheck> {
+    let law = "Ley 5: Delegar vía orq route/orq delegate (enrutado adaptativo)".to_string();
 
     if !handoffs_path.exists() {
         return Ok(PiLawCheck {
@@ -1306,6 +1454,9 @@ pub fn check_pi_law4_routing_delegation(handoffs_path: &Path) -> Result<PiLawChe
             if line_trimmed.starts_with('#')
                 || line_trimmed.starts_with("**Modelo")
                 || line_trimmed.starts_with("* **Modelo")
+                || line_trimmed.starts_with("**Fecha")
+                || line_trimmed.starts_with("**Supervisor")
+                || line_trimmed.starts_with("**Repo")
             {
                 continue;
             }
@@ -1328,7 +1479,7 @@ pub fn check_pi_law4_routing_delegation(handoffs_path: &Path) -> Result<PiLawChe
                 "escaneados {} archivos de handoffs sin violaciones",
                 md_files.len()
             ),
-            message: "delegaciones auditadas sin modelo hardcodeado".to_string(),
+            message: "delegaciones auditadas sin modelo/agente hardcodeado".to_string(),
         })
     } else {
         let evidence_json = serde_json::to_string(&violations).unwrap_or_default();
@@ -1337,14 +1488,14 @@ pub fn check_pi_law4_routing_delegation(handoffs_path: &Path) -> Result<PiLawChe
             status: ComplianceStatus::Violation,
             evidence: evidence_json,
             message: format!(
-                "detectadas {} violaciones de modelo hardcodeado en handoffs",
+                "detectadas {} violaciones de modelo/agente hardcodeado en delegaciones de handoffs",
                 violations.len()
             ),
         })
     }
 }
 
-fn is_hardcoded_model_invocation(line: &str) -> bool {
+pub fn is_hardcoded_model_invocation(line: &str) -> bool {
     let lower = line.to_lowercase();
     if lower.contains("ejemplo")
         || lower.contains("example")
@@ -1354,18 +1505,56 @@ fn is_hardcoded_model_invocation(line: &str) -> bool {
         return false;
     }
 
-    if (lower.contains("orq")
-        || lower.contains("cargo run")
-        || lower.contains("delegate")
-        || lower.contains("exec"))
-        && lower.contains("--model")
+    // Exclude non-delegation commands: log, smoke, catalog, etc.
+    if lower.contains("orq log")
+        || lower.contains("orq smoke")
+        || lower.contains("smoke --")
+        || lower.contains("orq catalog")
+        || lower.contains("orq models")
+        || lower.contains("orq quota")
+        || lower.contains("orq state")
+        || lower.contains("orq detect")
+        || lower.contains("orq discover")
     {
-        if let Some(pos) = line.find("--model") {
-            let rest = line[pos + 7..].trim();
-            if let Some(token) = rest.split_whitespace().next() {
-                if !token.starts_with('<') && !token.starts_with('$') && !token.starts_with('{') {
-                    return true;
-                }
+        return false;
+    }
+
+    // Check if line contains a delegation verb
+    let is_delegation = has_word_token(&lower, "orq-agent")
+        || (has_word_token(&lower, "orq") && has_word_token(&lower, "delegate"))
+        || (has_word_token(&lower, "orq") && has_word_token(&lower, "route"))
+        || (has_word_token(&lower, "delegate") && (lower.contains("--agent") || lower.contains("--model")));
+
+    if !is_delegation {
+        return false;
+    }
+
+    if let Some(pos) = line.find("--model") {
+        let rest = line[pos + 7..].trim();
+        let val = rest.strip_prefix('=').unwrap_or(rest).trim_start();
+        if let Some(token) = val.split_whitespace().next() {
+            let clean = token.trim_matches(|c| c == '"' || c == '\'' || c == '`');
+            if !clean.is_empty()
+                && !clean.starts_with('<')
+                && !clean.starts_with('$')
+                && !clean.starts_with('{')
+            {
+                return true;
+            }
+        }
+    }
+
+    if let Some(pos) = line.find("--agent") {
+        let rest = line[pos + 7..].trim();
+        let val = rest.strip_prefix('=').unwrap_or(rest).trim_start();
+        if let Some(token) = val.split_whitespace().next() {
+            let clean = token.trim_matches(|c| c == '"' || c == '\'' || c == '`');
+            if !clean.is_empty()
+                && !clean.starts_with('<')
+                && !clean.starts_with('$')
+                && !clean.starts_with('{')
+            {
+                return true;
             }
         }
     }
@@ -1373,230 +1562,68 @@ fn is_hardcoded_model_invocation(line: &str) -> bool {
     false
 }
 
-// Law 5: plan con valor/urgencia/dependencia
-pub fn check_pi_law5_plan_criteria(handoffs_path: &Path) -> Result<PiLawCheck> {
-    let law = "Ley 5: plan con valor/urgencia/dependencia".to_string();
-
-    if !handoffs_path.exists() {
-        return Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::NotAvailable,
-            evidence: format!("path: {}", handoffs_path.display()),
-            message: "directorio de handoffs no existe".to_string(),
-        });
-    }
-
-    let mut plan_files = Vec::new();
-    if let Ok(entries) = fs::read_dir(handoffs_path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("md") {
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if name.contains("plan") || name.starts_with("orq-") {
-                    plan_files.push(p);
-                }
-            }
-        }
-    }
-
-    if plan_files.is_empty() {
-        return Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::NotAvailable,
-            evidence: format!("path: {}", handoffs_path.display()),
-            message: "no se encontraron handoffs de plan para auditar".to_string(),
-        });
-    }
-
-    plan_files.sort_by(|a, b| {
-        let ma = fs::metadata(a).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
-        let mb = fs::metadata(b).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
-        mb.cmp(&ma)
-    });
-
-    let mut found_valid_plan = false;
-    let mut detected_recency_violation = false;
-    let mut checked_plans = Vec::new();
-
-    for p in &plan_files {
-        let content = match fs::read_to_string(p) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let lower = content.to_lowercase();
-        let fname = p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        let has_valor = lower.contains("valor");
-        let has_urgencia = lower.contains("urgencia");
-        let has_dependencia = lower.contains("dependencia");
-
-        if has_valor && has_urgencia && has_dependencia {
-            found_valid_plan = true;
-            checked_plans.push(format!("{}: OK (valor, urgencia, dependencia)", fname));
-            break;
-        }
-
-        if (lower.contains("recencia")
-            || lower.contains("mas reciente")
-            || lower.contains("más reciente"))
-            && (!has_valor || !has_urgencia || !has_dependencia)
-        {
-            detected_recency_violation = true;
-            checked_plans.push(format!(
-                "{}: VIOLATION (priorización por recencia sin 3 criterios)",
-                fname
-            ));
-        } else {
-            checked_plans.push(format!("{}: sin criterios completos", fname));
-        }
-    }
-
-    if found_valid_plan {
-        Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Ok,
-            evidence: checked_plans.join("; "),
-            message: "plan incluye criterios de Valor, Urgencia y Dependencia".to_string(),
-        })
-    } else if detected_recency_violation {
-        Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Violation,
-            evidence: checked_plans.join("; "),
-            message: "se detectó priorización por recencia sin criterios de Valor, Urgencia y Dependencia".to_string(),
-        })
-    } else {
-        Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Violation,
-            evidence: checked_plans.join("; "),
-            message: "ningún plan auditado contiene los 3 criterios (Valor, Urgencia, Dependencia)".to_string(),
-        })
-    }
+fn has_word_token(text: &str, word: &str) -> bool {
+    text.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+        .any(|w| w == word)
 }
 
-// Law 6: sin auto-revisión
-pub fn check_pi_law6_no_self_review(
+// Law 6: Usar orq review 4r del orquestador (no checklist inventado)
+pub fn check_pi_law6_review_4r(
     db_path_str: Option<&str>,
     handoffs_path: &Path,
 ) -> Result<PiLawCheck> {
-    let law = "Ley 6: sin auto-revisión".to_string();
+    let law = "Ley 6: Usar orq review 4r del orquestador".to_string();
 
-    let mut audited_pairs = Vec::new();
-    let mut self_reviews = Vec::new();
+    let mut found_review_evidence = Vec::new();
+    let mut invalid_review_evidence = Vec::new();
 
-    // 1. Audit SQLite delegate receipts
+    // 1. Check DB receipts for review 4r / exec
     let path = db_path_str.map(Path::new);
     if let Ok(store) = crate::state::open(path) {
         if let Ok(receipts) = store.list_delegate_receipts() {
             for r in &receipts {
                 let cmd_str = r.command.join(" ").to_lowercase();
-                let is_review = cmd_str.contains("review") || cmd_str.contains("4r");
-                if is_review {
-                    for other in &receipts {
-                        if other.correlation_id == r.correlation_id
-                            && other.agent == r.agent
-                            && other.command != r.command
-                        {
-                            self_reviews.push((
-                                r.agent.clone(),
-                                r.agent.clone(),
-                                format!("receipt:{}", r.correlation_id),
-                            ));
-                        } else if other.correlation_id == r.correlation_id
-                            && other.agent != r.agent
-                        {
-                            audited_pairs.push((
-                                other.agent.clone(),
-                                r.agent.clone(),
-                                format!("receipt:{}", r.correlation_id),
-                            ));
-                        }
-                    }
+                if cmd_str.contains("review 4r") || cmd_str.contains("review") || cmd_str.contains("4r") || cmd_str.contains("orq-agent exec") {
+                    found_review_evidence.push(format!("receipt:{} [{}]", r.correlation_id, cmd_str));
                 }
             }
         }
     }
 
-    // 2. Audit handoff merge files (*merge*.md or *.json in handoffs_path)
+    // 2. Check review handoffs in handoffs_path
     if handoffs_path.exists() {
-        if let Ok(entries) = fs::read_dir(handoffs_path) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if p.is_file() && (fname.contains("merge") || fname.ends_with(".json")) {
-                    if let Ok(content) = fs::read_to_string(&p) {
-                        if fname.ends_with(".json") {
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-                                let rev = v.get("review_agent").and_then(|a| a.as_str());
-                                let imp = v.get("implementer_agent").and_then(|a| a.as_str());
-                                if let (Some(r), Some(i)) = (rev, imp) {
-                                    if r.eq_ignore_ascii_case(i) {
-                                        self_reviews
-                                            .push((i.to_string(), r.to_string(), fname.to_string()));
-                                    } else {
-                                        audited_pairs
-                                            .push((i.to_string(), r.to_string(), fname.to_string()));
-                                    }
-                                }
-                            }
-                        } else {
-                            let (imp, rev) = extract_agents_from_handoff(&content);
-                            if let (Some(i), Some(r)) = (imp, rev) {
-                                if i.eq_ignore_ascii_case(&r) {
-                                    self_reviews.push((i, r, fname.to_string()));
-                                } else {
-                                    audited_pairs.push((i, r, fname.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
+        let reviews = get_review_handoffs(handoffs_path);
+        for (p, content) in reviews {
+            let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+            let lower = content.to_lowercase();
+            if lower.contains("orq review 4r") || lower.contains("orq-agent exec") || lower.contains("review 4r") {
+                found_review_evidence.push(format!("{}: cita orq review 4r / orq-agent exec", fname));
+            } else {
+                invalid_review_evidence.push(format!("{}: no cita orq review 4r ni orq-agent exec", fname));
             }
         }
     }
 
-    if !self_reviews.is_empty() {
-        let evidence = self_reviews
-            .iter()
-            .map(|(i, r, src)| format!("{}: implementador='{}' == revisor='{}'", src, i, r))
-            .collect::<Vec<_>>()
-            .join("; ");
-        Ok(PiLawCheck {
-            law,
-            status: ComplianceStatus::Violation,
-            evidence,
-            message: format!(
-                "detectada auto-revisión en {} caso(s)",
-                self_reviews.len()
-            ),
-        })
-    } else if !audited_pairs.is_empty() {
-        let evidence = audited_pairs
-            .iter()
-            .map(|(i, r, src)| format!("{}: implementador='{}', revisor='{}'", src, i, r))
-            .collect::<Vec<_>>()
-            .join("; ");
+    if !found_review_evidence.is_empty() {
         Ok(PiLawCheck {
             law,
             status: ComplianceStatus::Ok,
-            evidence,
-            message: format!(
-                "auditados {} casos de revisión/merge, sin auto-revisión",
-                audited_pairs.len()
-            ),
+            evidence: found_review_evidence.join("; "),
+            message: "revisión 4R formal ejecutada vía orquestador".to_string(),
+        })
+    } else if !invalid_review_evidence.is_empty() {
+        Ok(PiLawCheck {
+            law,
+            status: ComplianceStatus::Violation,
+            evidence: invalid_review_evidence.join("; "),
+            message: "se detectaron revisiones sin invocar orq review 4r ni orq-agent exec".to_string(),
         })
     } else {
         Ok(PiLawCheck {
             law,
             status: ComplianceStatus::NotAvailable,
             evidence: "[]".to_string(),
-            message: "no se encontraron handoffs de merge o receipts de revisión para auditar"
-                .to_string(),
+            message: "no se encontraron handoffs de revisión o receipts 4r para auditar".to_string(),
         })
     }
 }
@@ -1612,7 +1639,8 @@ fn extract_agents_from_handoff(content: &str) -> (Option<String>, Option<String>
                 || lower.contains("**revisor:**")
                 || lower.contains("review_agent"))
         {
-            reviewer = extract_agent_name_from_line(line, "revisor");
+            reviewer = extract_agent_name_from_line(line, "revisor")
+                .or_else(|| extract_agent_name_from_line(line, "review_agent"));
         }
         if implementer.is_none()
             && (lower.contains("agente:")
@@ -1633,7 +1661,7 @@ fn extract_agent_name_from_line(line: &str, key: &str) -> Option<String> {
     let lower = line.to_lowercase();
     let pos = lower.find(key)?;
     let after = &line[pos + key.len()..];
-    let after_clean = after.trim_start_matches(|c: char| c == ':' || c == '*' || c.is_whitespace());
+    let after_clean = after.trim_start_matches(|c: char| c == ':' || c == '*' || c == '`' || c.is_whitespace());
     let token = after_clean
         .split(|c: char| c.is_whitespace() || c == '·' || c == '|' || c == ',')
         .next()?;
@@ -1759,15 +1787,15 @@ Found 2 memories:
         }
     }
 
-    // ─── Tests for Pi Supervision (6 Laws) ───────────────────────────────────
+    // ─── Tests for Pi Supervision (6 Laws + Mandato 15) ──────────────────────
 
     #[tokio::test]
-    async fn test_pi_law1_guardia_missing_and_passing() {
+    async fn test_pi_guard_executable_missing_and_passing() {
         let dir = tempfile::tempdir().unwrap();
         let agents_path = dir.path();
 
         // Missing scripts
-        let check_missing = check_pi_law1_guardia(agents_path).await.unwrap();
+        let check_missing = check_pi_guard_executable(agents_path).await.unwrap();
         assert_eq!(check_missing.status, ComplianceStatus::Violation);
 
         // Created dummy scripts that exit 0
@@ -1776,58 +1804,91 @@ Found 2 memories:
         fs::write(scripts.join("guardia-pi.sh"), "#!/usr/bin/env bash\nexit 0\n").unwrap();
         fs::write(scripts.join("test-guardia-pi.sh"), "#!/usr/bin/env bash\necho 'TODO OK'\nexit 0\n").unwrap();
 
-        let check_ok = check_pi_law1_guardia(agents_path).await.unwrap();
+        let check_ok = check_pi_guard_executable(agents_path).await.unwrap();
         assert_eq!(check_ok.status, ComplianceStatus::Ok);
 
         // Failing test script
         fs::write(scripts.join("test-guardia-pi.sh"), "#!/usr/bin/env bash\nexit 1\n").unwrap();
-        let check_fail = check_pi_law1_guardia(agents_path).await.unwrap();
+        let check_fail = check_pi_guard_executable(agents_path).await.unwrap();
         assert_eq!(check_fail.status, ComplianceStatus::Violation);
     }
 
     #[test]
-    fn test_pi_law2_laws_documented() {
+    fn test_pi_law1_backlog() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_path = dir.path();
+        let handoffs_path = dir.path();
 
-        // Missing file
-        let check_missing = check_pi_law2_documented(agents_path).unwrap();
-        assert_eq!(check_missing.status, ComplianceStatus::Violation);
+        // No handoffs -> NotAvailable
+        let check_empty = check_pi_law1_backlog(handoffs_path).unwrap();
+        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
 
-        // Incomplete laws file
-        let orq_dir = agents_path.join("orquestadores");
-        fs::create_dir_all(&orq_dir).unwrap();
-        let pi_md = orq_dir.join("pi.md");
-        fs::write(&pi_md, "# Pi\n1. Leer backlog\n2. Priorizar valor urgencia dependencia\n").unwrap();
-        let check_incomplete = check_pi_law2_documented(agents_path).unwrap();
-        assert_eq!(check_incomplete.status, ComplianceStatus::Violation);
+        // Plan with Backlog leído -> Ok
+        let plan_file = handoffs_path.join("orq-plan-1.md");
+        fs::write(&plan_file, "# Plan\n## Backlog leído\n- Issue #1\n").unwrap();
+        let check_ok = check_pi_law1_backlog(handoffs_path).unwrap();
+        assert_eq!(check_ok.status, ComplianceStatus::Ok);
 
-        // Complete 6 laws
-        let complete_text = r#"
-# Orquestador PI
-1. Leer el backlog completo antes de priorizar (Backlog leído)
-2. Rankear por valor/urgencia/dependencia
-3. Macro antes que micro
-4. Revisor de 4R distinto del implementador (review_agent != implementer_agent)
-5. Delegar vía orq route / orq delegate (enrutado adaptativo)
-6. Usar orq review 4r del orquestador
-"#;
-        fs::write(&pi_md, complete_text).unwrap();
-        let check_complete = check_pi_law2_documented(agents_path).unwrap();
-        assert_eq!(check_complete.status, ComplianceStatus::Ok);
+        // Plan missing Backlog leído -> Violation
+        fs::write(&plan_file, "# Plan\n## Tareas\n- Issue #1\n").unwrap();
+        let check_fail = check_pi_law1_backlog(handoffs_path).unwrap();
+        assert_eq!(check_fail.status, ComplianceStatus::Violation);
     }
 
     #[test]
-    fn test_pi_law3_separation_of_duties() {
+    fn test_pi_law2_ranking_criteria() {
         let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("test_state.sqlite");
-        let store = crate::state::open(Some(&db_path)).unwrap();
+        let handoffs_path = dir.path();
 
-        // Empty DB -> NotAvailable
-        let check_empty = check_pi_law3_separation_of_duties(Some(db_path.to_str().unwrap())).unwrap();
+        // No handoffs -> NotAvailable
+        let check_empty = check_pi_law2_ranking_criteria(handoffs_path).unwrap();
         assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
 
-        // Single agent -> Violation
+        // Plan with Valor, Urgencia, Dependencia -> Ok
+        let plan_file = handoffs_path.join("orq-plan-1.md");
+        fs::write(&plan_file, "# Plan\nValor: Alto | Urgencia: Alta | Dependencia: Ninguna\n").unwrap();
+        let check_ok = check_pi_law2_ranking_criteria(handoffs_path).unwrap();
+        assert_eq!(check_ok.status, ComplianceStatus::Ok);
+
+        // Plan missing Dependencia -> Violation
+        fs::write(&plan_file, "# Plan\nValor: Alto | Urgencia: Alta\n").unwrap();
+        let check_fail = check_pi_law2_ranking_criteria(handoffs_path).unwrap();
+        assert_eq!(check_fail.status, ComplianceStatus::Violation);
+    }
+
+    #[test]
+    fn test_pi_law3_macro_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let handoffs_path = dir.path();
+
+        // No handoffs -> NotAvailable
+        let check_empty = check_pi_law3_macro_first(handoffs_path).unwrap();
+        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+
+        // Plan with core / fundamento / blocker -> Ok
+        let plan_file = handoffs_path.join("orq-plan-1.md");
+        fs::write(&plan_file, "# Plan\nPriorizamos el core y blocker estructural.\n").unwrap();
+        let check_ok = check_pi_law3_macro_first(handoffs_path).unwrap();
+        assert_eq!(check_ok.status, ComplianceStatus::Ok);
+
+        // Plan missing macro justification -> Violation
+        fs::write(&plan_file, "# Plan\nSolo micro-optimizaciones cosméticas.\n").unwrap();
+        let check_fail = check_pi_law3_macro_first(handoffs_path).unwrap();
+        assert_eq!(check_fail.status, ComplianceStatus::Violation);
+    }
+
+    #[test]
+    fn test_pi_law4_separation_of_duties() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test_state.sqlite");
+        let handoffs_path = dir.path().join("handoffs");
+        fs::create_dir_all(&handoffs_path).unwrap();
+        let store = crate::state::open(Some(&db_path)).unwrap();
+
+        // Empty DB and empty handoffs -> NotAvailable
+        let check_empty = check_pi_law4_separation_of_duties(Some(db_path.to_str().unwrap()), &handoffs_path).unwrap();
+        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+
+        // Single agent in receipts -> Violation
         let r1 = crate::receipt::DelegateReceipt {
             schema_version: 1,
             correlation_id: "c1".to_string(),
@@ -1848,7 +1909,7 @@ Found 2 memories:
         };
         store.insert_delegate_receipt(&r1, "task1").unwrap();
 
-        let check_single = check_pi_law3_separation_of_duties(Some(db_path.to_str().unwrap())).unwrap();
+        let check_single = check_pi_law4_separation_of_duties(Some(db_path.to_str().unwrap()), &handoffs_path).unwrap();
         assert_eq!(check_single.status, ComplianceStatus::Violation);
 
         // Add receipt with second distinct agent -> Ok
@@ -1872,77 +1933,110 @@ Found 2 memories:
         };
         store.insert_delegate_receipt(&r2, "task2").unwrap();
 
-        let check_multi = check_pi_law3_separation_of_duties(Some(db_path.to_str().unwrap())).unwrap();
+        let check_multi = check_pi_law4_separation_of_duties(Some(db_path.to_str().unwrap()), &handoffs_path).unwrap();
         assert_eq!(check_multi.status, ComplianceStatus::Ok);
+
+        // Self-review in handoff -> Violation
+        fs::write(handoffs_path.join("orq-merge-1.md"), "**Agente:** agy · **Revisor:** agy\n").unwrap();
+        let check_self = check_pi_law4_separation_of_duties(Some(db_path.to_str().unwrap()), &handoffs_path).unwrap();
+        assert_eq!(check_self.status, ComplianceStatus::Violation);
     }
 
     #[test]
-    fn test_pi_law4_routing_delegation() {
+    fn test_pi_law5_routing_delegation() {
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
         // No handoffs -> NotAvailable
-        let check_empty = check_pi_law4_routing_delegation(handoffs_path).unwrap();
+        let check_empty = check_pi_law5_routing_delegation(handoffs_path).unwrap();
         assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
 
         // Clean handoff -> Ok
         let clean_file = handoffs_path.join("clean.md");
         fs::write(&clean_file, "# Handoff\n**Modelo:** claude\nrtk orq delegate --task foo\n").unwrap();
-        let check_clean = check_pi_law4_routing_delegation(handoffs_path).unwrap();
+        let check_clean = check_pi_law5_routing_delegation(handoffs_path).unwrap();
         assert_eq!(check_clean.status, ComplianceStatus::Ok);
 
-        // Hardcoded model in command -> Violation
+        // Hardcoded agent in delegation command -> Violation
         let bad_file = handoffs_path.join("bad.md");
-        fs::write(&bad_file, "# Handoff\norq-agent exec --model claude-3-5-sonnet --task-file /tmp/t.md\n").unwrap();
-        let check_bad = check_pi_law4_routing_delegation(handoffs_path).unwrap();
+        fs::write(&bad_file, "# Handoff\norq delegate --agent claude-code --task bar\n").unwrap();
+        let check_bad = check_pi_law5_routing_delegation(handoffs_path).unwrap();
         assert_eq!(check_bad.status, ComplianceStatus::Violation);
     }
 
     #[test]
-    fn test_pi_law5_plan_criteria() {
+    fn test_pi_law5_false_positives_exclusion() {
+        // Non-delegation commands with --model or --agent must NOT be flagged
+        assert!(!is_hardcoded_model_invocation("orq log --model claude-3-5-sonnet"));
+        assert!(!is_hardcoded_model_invocation("smoke --agent hermes --model qwen-2.5-coder"));
+        assert!(!is_hardcoded_model_invocation("orq smoke --agent hermes --model qwen"));
+        assert!(!is_hardcoded_model_invocation("rtk cargo test --manifest-path orq-agent/Cargo.toml smoke"));
+        assert!(!is_hardcoded_model_invocation("rtk orq delegate --task foo"));
+        assert!(!is_hardcoded_model_invocation("orq delegate --agent <agent> --model <model>"));
+        assert!(!is_hardcoded_model_invocation("orq delegate --agent $AGENT"));
+        assert!(!is_hardcoded_model_invocation("Ejemplo: orq delegate --agent claude-code"));
+        assert!(!is_hardcoded_model_invocation("# Repo: agent-orchestrator"));
+
+        // Real hardcoded delegations MUST be flagged
+        assert!(is_hardcoded_model_invocation("orq delegate --agent claude-code"));
+        assert!(is_hardcoded_model_invocation("orq delegate --model gpt-4o"));
+        assert!(is_hardcoded_model_invocation("orq-agent exec --model claude-3-5-sonnet --task-file /tmp/t.md"));
+        assert!(is_hardcoded_model_invocation("rtk orq delegate --agent hermes --task foo"));
+    }
+
+    #[test]
+    fn test_pi_law6_review_4r() {
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
-        // No plans -> NotAvailable
-        let check_empty = check_pi_law5_plan_criteria(handoffs_path).unwrap();
+        // No handoffs -> NotAvailable
+        let check_empty = check_pi_law6_review_4r(None, handoffs_path).unwrap();
         assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
 
-        // Plan with all 3 criteria -> Ok
-        let plan_file = handoffs_path.join("orq-plan-test.md");
-        fs::write(
-            &plan_file,
-            "# Plan\nCriterios de priorización: Valor técnico, Urgencia operativa y Dependencia arquitectónica.\n",
-        )
+        // Valid review citing orq review 4r -> Ok
+        let review_ok = handoffs_path.join("orq-review-1.md");
+        fs::write(&review_ok, "# Review PR #159\nEjecutado orq review 4r #159 con veredicto PASS.\n").unwrap();
+        let check_ok = check_pi_law6_review_4r(None, handoffs_path).unwrap();
+        assert_eq!(check_ok.status, ComplianceStatus::Ok);
+
+        // Invalid review without orq review 4r -> Violation
+        let review_bad = handoffs_path.join("orq-review-2.md");
+        fs::write(&review_bad, "# Review\nChecklist manual inventado: todo aprobado sin herramientas.\n").unwrap();
+        let _ = fs::remove_file(&review_ok);
+        let check_bad = check_pi_law6_review_4r(None, handoffs_path).unwrap();
+        assert_eq!(check_bad.status, ComplianceStatus::Violation);
+    }
+
+    #[tokio::test]
+    async fn test_compliance_run_all_default_checks_with_agent_hermes() {
+        // Test regression of run_all: compliance --agent hermes runs rtk, engram, vg checks
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vault_dir = temp_dir.path().join("vault");
+        let git_refs = vault_dir.join(".git/refs/heads");
+        fs::create_dir_all(&git_refs).unwrap();
+        fs::write(vault_dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(git_refs.join("main"), "commit1\n").unwrap();
+
+        let kuzu_file = temp_dir.path().join("vault.kuzu");
+        fs::write(&kuzu_file, "kuzu db content\n").unwrap();
+
+        let report = run_compliance(ComplianceArgs {
+            agent: Some("hermes".to_string()),
+            vault_path: Some(vault_dir.to_str().unwrap().to_string()),
+            kuzu_path: Some(kuzu_file.to_str().unwrap().to_string()),
+            engram_bin: Some("nonexistent_engram_bin_for_test".to_string()),
+            ..Default::default()
+        })
+        .await
         .unwrap();
-        let check_ok = check_pi_law5_plan_criteria(handoffs_path).unwrap();
-        assert_eq!(check_ok.status, ComplianceStatus::Ok);
 
-        // Plan missing criteria -> Violation
-        fs::write(&plan_file, "# Plan\nPriorizado por recencia de issues.\n").unwrap();
-        let check_fail = check_pi_law5_plan_criteria(handoffs_path).unwrap();
-        assert_eq!(check_fail.status, ComplianceStatus::Violation);
-    }
-
-    #[test]
-    fn test_pi_law6_no_self_review() {
-        let dir = tempfile::tempdir().unwrap();
-        let handoffs_path = dir.path();
-
-        // No merge handoffs -> NotAvailable
-        let check_empty = check_pi_law6_no_self_review(None, handoffs_path).unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
-
-        // Valid merge (distinct reviewer) -> Ok
-        let merge_ok = handoffs_path.join("orq-merge-10.md");
-        fs::write(&merge_ok, "# Merge 10\n**Agente:** agy · **Revisor:** hermes\n").unwrap();
-        let check_ok = check_pi_law6_no_self_review(None, handoffs_path).unwrap();
-        assert_eq!(check_ok.status, ComplianceStatus::Ok);
-
-        // Self-review (reviewer == agent) -> Violation
-        let merge_bad = handoffs_path.join("orq-merge-11.md");
-        fs::write(&merge_bad, "# Merge 11\n**Agente:** agy · **Revisor:** agy\n").unwrap();
-        let check_bad = check_pi_law6_no_self_review(None, handoffs_path).unwrap();
-        assert_eq!(check_bad.status, ComplianceStatus::Violation);
+        assert_eq!(report.agent, Some("hermes".to_string()));
+        // All 3 default checks MUST be present (run_all was true)
+        assert!(report.checks.rtk_usage.is_some());
+        assert!(report.checks.engram_summary.is_some());
+        assert!(report.checks.vg_sync.is_some());
+        // pi_supervision must be None for non-pi agent
+        assert!(report.checks.pi_supervision.is_none());
     }
 
     #[tokio::test]
@@ -1956,23 +2050,11 @@ Found 2 memories:
         fs::create_dir_all(&orq_dir).unwrap();
         fs::create_dir_all(&handoffs).unwrap();
 
-        // 1. Scripts
+        // 1. Guard scripts
         fs::write(scripts.join("guardia-pi.sh"), "#!/usr/bin/env bash\nexit 0\n").unwrap();
         fs::write(scripts.join("test-guardia-pi.sh"), "#!/usr/bin/env bash\nexit 0\n").unwrap();
 
-        // 2. Laws
-        let complete_text = r#"
-# Orquestador PI
-1. Leer el backlog completo antes de priorizar (Backlog leído)
-2. Rankear por valor/urgencia/dependencia
-3. Macro antes que micro
-4. Revisor de 4R distinto del implementador (review_agent != implementer_agent)
-5. Delegar vía orq route / orq delegate (enrutado adaptativo)
-6. Usar orq review 4r del orquestador
-"#;
-        fs::write(orq_dir.join("pi.md"), complete_text).unwrap();
-
-        // 3. State DB with >= 2 agents
+        // 2. State DB with >= 2 agents
         let db_path = agents_dir.join("state.sqlite");
         let store = crate::state::open(Some(&db_path)).unwrap();
         let make_receipt = |id: &str, agent: &str| crate::receipt::DelegateReceipt {
@@ -1980,7 +2062,7 @@ Found 2 memories:
             correlation_id: id.to_string(),
             agent: agent.to_string(),
             model: "model".to_string(),
-            command: vec!["cmd".to_string()],
+            command: vec!["orq".to_string(), "review".to_string(), "4r".to_string()],
             status: crate::receipt::DelegateStatus::Validated,
             reason: None,
             verdict: crate::receipt::DelegateVerdict::Util,
@@ -1996,14 +2078,28 @@ Found 2 memories:
         store.insert_delegate_receipt(&make_receipt("c1", "agy"), "task1").unwrap();
         store.insert_delegate_receipt(&make_receipt("c2", "hermes"), "task2").unwrap();
 
-        // 4. Clean handoff (no hardcoded model)
+        // 3. Plan handoff with Backlog leído, 3 criteria (Valor, Urgencia, Dependencia), and macro/fundamento justification
+        let plan_text = r#"# HANDOFF: Plan de trabajo
+**Supervisor:** pi · **Agente:** agy
+## Backlog leído
+- Issue #81: Architecture and core fundamentals
+- Issue #79: Delegate state machine
+## Priorización
+Priorizamos el core y fundamentos estructurales antes que micro-tareas.
+| Issue | Valor | Urgencia | Dependencia |
+| #81 | Alto | Alta | Ninguna |
+"#;
+        fs::write(handoffs.join("orq-plan-1.md"), plan_text).unwrap();
+
+        // 4. Clean delegation handoff (no hardcoded model/agent)
         fs::write(handoffs.join("orq-clean.md"), "# Handoff\nrtk orq delegate --task foo\n").unwrap();
 
-        // 5. Plan with 3 criteria
-        fs::write(handoffs.join("orq-plan-1.md"), "# Plan\nValor, Urgencia, Dependencia\n").unwrap();
-
-        // 6. Merge with distinct reviewer
-        fs::write(handoffs.join("orq-merge-1.md"), "# Merge\n**Agente:** agy · **Revisor:** hermes\n").unwrap();
+        // 5. Review handoff citing orq review 4r with distinct reviewer
+        let review_text = r#"# HANDOFF: Review PR #159
+**Agente:** agy · **Revisor:** hermes
+Ejecutado orq review 4r #159 con veredicto PASS.
+"#;
+        fs::write(handoffs.join("orq-merge-1.md"), review_text).unwrap();
 
         let report = check_pi_supervision(
             Some(agents_dir.to_str().unwrap()),
@@ -2013,18 +2109,33 @@ Found 2 memories:
         .await
         .unwrap();
 
+        eprintln!("DEBUG FULL REPORT: {:#?}", report);
+
         assert_eq!(report.status, ComplianceStatus::Ok);
+        assert_eq!(report.guard_executable.status, ComplianceStatus::Ok);
         assert_eq!(report.checks.len(), 6);
         for c in &report.checks {
-            assert_eq!(c.status, ComplianceStatus::Ok);
+            assert_eq!(c.status, ComplianceStatus::Ok, "Check failed: {}", c.law);
         }
 
         // Test run_compliance integration
+        let vault_dir = dir.path().join("vault");
+        let git_refs = vault_dir.join(".git/refs/heads");
+        fs::create_dir_all(&git_refs).unwrap();
+        fs::write(vault_dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(git_refs.join("main"), "commit1\n").unwrap();
+
+        let kuzu_file = dir.path().join("vault.kuzu");
+        fs::write(&kuzu_file, "kuzu db content\n").unwrap();
+
         let comp_report = run_compliance(ComplianceArgs {
             agent: Some("pi".to_string()),
             agents_path: Some(agents_dir.to_str().unwrap().to_string()),
             handoffs_path: Some(handoffs.to_str().unwrap().to_string()),
             db_path: Some(db_path.to_str().unwrap().to_string()),
+            vault_path: Some(vault_dir.to_str().unwrap().to_string()),
+            kuzu_path: Some(kuzu_file.to_str().unwrap().to_string()),
+            engram_bin: Some("nonexistent_engram_bin_for_test".to_string()),
             rtk_usage: false,
             engram_summary: false,
             vg_sync: false,
@@ -2036,6 +2147,9 @@ Found 2 memories:
         assert_eq!(comp_report.status, ComplianceStatus::Ok);
         assert_eq!(comp_report.exit_code, 0);
         assert!(comp_report.checks.pi_supervision.is_some());
+        assert!(comp_report.checks.rtk_usage.is_some());
+        assert!(comp_report.checks.engram_summary.is_some());
+        assert!(comp_report.checks.vg_sync.is_some());
     }
 }
 
