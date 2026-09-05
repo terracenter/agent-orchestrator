@@ -141,7 +141,7 @@ func TestBuildAGYCommandWithHandoff(t *testing.T) {
 	wants := []string{
 		"cd /home/freddy/Workspace",
 		"rtk agy --model gemini-3.7-flash-high",
-		"--dangerously-skip-permissions",
+		"--mode accept-edits",
 		"--add-dir /home/freddy/Workspace/Desarrollo/agent-orchestrator",
 		"--add-dir /home/freddy/Workspace/.agents",
 		`--print="Olvida el historial anterior. Lee y ejecuta /home/freddy/Workspace/.agents/handoffs/orq-delegate-agy-cli-autonomo-2026-08-29.md"`,
@@ -150,6 +150,10 @@ func TestBuildAGYCommandWithHandoff(t *testing.T) {
 		if !strings.Contains(res.AutonomousCommand, want) {
 			t.Errorf("AutonomousCommand missing %q:\n%s", want, res.AutonomousCommand)
 		}
+	}
+
+	if strings.Contains(res.AutonomousCommand, "--dangerously-skip-permissions") {
+		t.Errorf("AutonomousCommand should not emit --dangerously-skip-permissions: %s", res.AutonomousCommand)
 	}
 
 	if strings.Contains(res.AutonomousCommand, "--effort") {
