@@ -261,8 +261,7 @@ impl MarketFeed {
 }
 
 pub fn parse_market_feed(content: &str) -> Result<MarketFeed> {
-    let feed: MarketFeed =
-        serde_json::from_str(content).wrap_err("parsing market feed json")?;
+    let feed: MarketFeed = serde_json::from_str(content).wrap_err("parsing market feed json")?;
     Ok(feed)
 }
 
@@ -323,12 +322,8 @@ pub fn merge_feed_into_catalog(
         let agent_models = catalog.agents.entry(agent).or_default();
         if let Some(existing) = agent_models.iter_mut().find(|m| m.id == feed_entry.id) {
             let mut changed = false;
-            let was_deprecated = existing
-                .status
-                .as_deref()
-                .map(str::to_lowercase)
-                .as_deref()
-                == Some("deprecated");
+            let was_deprecated =
+                existing.status.as_deref().map(str::to_lowercase).as_deref() == Some("deprecated");
 
             if let Some(ref status) = feed_entry.status {
                 if existing.status.as_ref() != Some(status) {
@@ -336,12 +331,8 @@ pub fn merge_feed_into_catalog(
                     changed = true;
                 }
             }
-            let is_deprecated_now = existing
-                .status
-                .as_deref()
-                .map(str::to_lowercase)
-                .as_deref()
-                == Some("deprecated");
+            let is_deprecated_now =
+                existing.status.as_deref().map(str::to_lowercase).as_deref() == Some("deprecated");
             if !was_deprecated && is_deprecated_now {
                 deprecated += 1;
             }
@@ -395,11 +386,7 @@ pub fn merge_feed_into_catalog(
                     .confidence
                     .unwrap_or_else(|| "market_feed_candidate".to_string()),
                 notes: feed_entry.notes.unwrap_or_default(),
-                fetched_at: Some(
-                    feed_entry
-                        .fetched_at
-                        .unwrap_or_else(|| now_iso.to_string()),
-                ),
+                fetched_at: Some(feed_entry.fetched_at.unwrap_or_else(|| now_iso.to_string())),
                 cost_hint: feed_entry.cost_hint,
                 promo: feed_entry.promo,
                 status: feed_entry.status.or_else(|| Some("active".to_string())),
@@ -544,9 +531,7 @@ pub fn list(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        default_catalog, list, merge_feed_into_catalog, parse_catalog, parse_market_feed,
-    };
+    use super::{default_catalog, list, merge_feed_into_catalog, parse_catalog, parse_market_feed};
 
     #[test]
     fn default_catalog_reports_qwen_flash() {
@@ -588,7 +573,10 @@ mod tests {
             r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"m1","source":"s","confidence":"c","notes":"n","promo":true},{"id":"m2","source":"s","confidence":"c","notes":"n","promo":false}]}}"#,
         )
         .unwrap();
-        assert_eq!(catalog.agents["qwen-code"][0].promo, Some("true".to_string()));
+        assert_eq!(
+            catalog.agents["qwen-code"][0].promo,
+            Some("true".to_string())
+        );
         assert_eq!(catalog.agents["qwen-code"][1].promo, None);
     }
 
@@ -631,12 +619,8 @@ mod tests {
         )
         .unwrap();
 
-        let summary1 = merge_feed_into_catalog(
-            &mut catalog,
-            &feed,
-            "test_feed",
-            "2026-09-04T18:00:00Z",
-        );
+        let summary1 =
+            merge_feed_into_catalog(&mut catalog, &feed, "test_feed", "2026-09-04T18:00:00Z");
         assert_eq!(summary1.added, 1); // qwen3.8-max
         assert_eq!(summary1.updated, 1); // qwen3.6-flash
         assert_eq!(summary1.deprecated, 1); // old-qwen
@@ -652,12 +636,8 @@ mod tests {
         assert_eq!(m_flash.fetched_at, Some("2026-09-04T18:00:00Z".to_string()));
 
         // Second run with the same feed must be idempotent (0 added, 0 newly deprecated)
-        let summary2 = merge_feed_into_catalog(
-            &mut catalog,
-            &feed,
-            "test_feed",
-            "2026-09-04T18:05:00Z",
-        );
+        let summary2 =
+            merge_feed_into_catalog(&mut catalog, &feed, "test_feed", "2026-09-04T18:05:00Z");
         assert_eq!(summary2.added, 0);
         assert_eq!(summary2.deprecated, 0);
         assert_eq!(summary2.total_models, 3);

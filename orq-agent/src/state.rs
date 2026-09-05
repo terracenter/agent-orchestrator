@@ -1,6 +1,4 @@
-use crate::receipt::{
-    delegate_receipt_sha256, receipt_sha256, DelegateReceipt, ExecReceipt,
-};
+use crate::receipt::{delegate_receipt_sha256, receipt_sha256, DelegateReceipt, ExecReceipt};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -506,7 +504,9 @@ impl StateStore {
             crate::receipt::DelegateStatus::Validated
             | crate::receipt::DelegateStatus::Executed => crate::receipt::ExecStatus::Succeeded,
             crate::receipt::DelegateStatus::Planned
-            | crate::receipt::DelegateStatus::CommandGenerated => crate::receipt::ExecStatus::Blocked,
+            | crate::receipt::DelegateStatus::CommandGenerated => {
+                crate::receipt::ExecStatus::Blocked
+            }
             crate::receipt::DelegateStatus::Failed => {
                 if receipt.reason.as_deref() == Some("timeout_sin_evidencia") {
                     crate::receipt::ExecStatus::TimedOut
@@ -543,10 +543,12 @@ impl StateStore {
         };
         let legacy_hash = receipt_sha256(&legacy_exec_receipt)
             .map_err(|error| StoreError::Config(format!("hash legacy receipt: {error}")))?;
-        let legacy_receipt_json = serde_json::to_string(&legacy_exec_receipt)
-            .map_err(|source| StoreError::Serialization {
-                context: "serialize legacy exec receipt",
-                source,
+        let legacy_receipt_json =
+            serde_json::to_string(&legacy_exec_receipt).map_err(|source| {
+                StoreError::Serialization {
+                    context: "serialize legacy exec receipt",
+                    source,
+                }
             })?;
         let _ = self.conn.execute(
             "INSERT OR REPLACE INTO receipts(correlation_id, agent_id, model_id, task_kind, status,

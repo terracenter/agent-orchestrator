@@ -1,6 +1,6 @@
 use color_eyre::eyre::Result;
 
-use crate::{adapters, models as domain_models};
+use crate::{adapters, models as domain_models, runtime};
 
 pub(crate) struct ModelsArgs {
     pub(crate) agent: String,
@@ -11,6 +11,12 @@ pub(crate) struct ModelsArgs {
 pub(crate) struct ModelsRefreshArgs {
     pub(crate) feed: Option<String>,
     pub(crate) catalog: Option<String>,
+}
+
+pub(crate) struct ModelsSnapshotArgs {
+    pub(crate) output: Option<String>,
+    pub(crate) adapters_config: Option<String>,
+    pub(crate) models_config: Option<String>,
 }
 
 pub(crate) async fn run(args: ModelsArgs) -> Result<domain_models::ModelsReport> {
@@ -40,4 +46,12 @@ pub(crate) async fn run_refresh(
     tokio::fs::write(&catalog_path, json_bytes).await?;
 
     Ok(summary)
+}
+
+pub(crate) async fn run_snapshot(args: ModelsSnapshotArgs) -> Result<runtime::ModelsSnapshot> {
+    let output_path = args.output.as_deref().map(std::path::Path::new);
+    let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
+    let models_config_path = args.models_config.as_deref().map(std::path::Path::new);
+
+    runtime::run_models_snapshot(output_path, adapters_config_path, models_config_path).await
 }

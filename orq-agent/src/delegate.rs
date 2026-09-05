@@ -67,10 +67,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         .clone()
         .unwrap_or_else(|| format!("orq-delegate-{}-{}", now_unix_nanos(), std::process::id()));
 
-    let target_agent = request
-        .agent
-        .clone()
-        .unwrap_or_else(|| "agy".to_string());
+    let target_agent = request.agent.clone().unwrap_or_else(|| "agy".to_string());
     let target_model = request
         .model
         .clone()
@@ -100,9 +97,11 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             DelegateStatus::Planned
         };
         let next_step = if must_stop {
-            "ejecutar el comando sugerido en el agente externo y volver con recibo verificable".to_string()
+            "ejecutar el comando sugerido en el agente externo y volver con recibo verificable"
+                .to_string()
         } else {
-            "delegacion planificada; ejecutar con --execute para correr el agente externo".to_string()
+            "delegacion planificada; ejecutar con --execute para correr el agente externo"
+                .to_string()
         };
 
         let receipt = DelegateReceipt {
@@ -174,7 +173,9 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         run_process(cmd, timeout_secs, cmd_for_receipt).await?
     } else {
         // Fallback: spawn bash command directly
-        let cmd_str = auto_cmd.clone().unwrap_or_else(|| format!("rtk {}", target_agent));
+        let cmd_str = auto_cmd
+            .clone()
+            .unwrap_or_else(|| format!("rtk {}", target_agent));
         let mut cmd = Command::new("bash");
         cmd.arg("-c")
             .arg(&cmd_str)
@@ -184,7 +185,12 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        run_process(cmd, timeout_secs, vec!["bash".to_string(), "-c".to_string(), cmd_str]).await?
+        run_process(
+            cmd,
+            timeout_secs,
+            vec!["bash".to_string(), "-c".to_string(), cmd_str],
+        )
+        .await?
     };
 
     // Post-execution git inspection
@@ -270,9 +276,16 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
     };
 
     let next_step = match status {
-        DelegateStatus::Validated => "delegacion validada exitosamente con evidencia de trabajo".to_string(),
-        DelegateStatus::Executed => "delegacion ejecutada en background; verificar estado final antes de cerrar".to_string(),
-        DelegateStatus::Failed => format!("delegacion fallida (reason={}); revisar logs o reintentar", reason.as_deref().unwrap_or("unknown")),
+        DelegateStatus::Validated => {
+            "delegacion validada exitosamente con evidencia de trabajo".to_string()
+        }
+        DelegateStatus::Executed => {
+            "delegacion ejecutada en background; verificar estado final antes de cerrar".to_string()
+        }
+        DelegateStatus::Failed => format!(
+            "delegacion fallida (reason={}); revisar logs o reintentar",
+            reason.as_deref().unwrap_or("unknown")
+        ),
         _ => "verificar estado de delegacion".to_string(),
     };
 
@@ -430,7 +443,11 @@ fn extract_pr_or_ref_from_text(text: &str) -> Option<String> {
         }
         if let Some(pos) = trimmed.find("PR #") {
             let candidate = &trimmed[pos..];
-            let pr = candidate.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+            let pr = candidate
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ");
             return Some(pr);
         }
     }
@@ -476,10 +493,22 @@ fn build_task_text(request: &DelegateRequest) -> String {
         }
     }
     if let Some(ref h) = request.handoff {
-        return format!("ejecutar handoff {}", Path::new(h).file_name().and_then(|n| n.to_str()).unwrap_or(h));
+        return format!(
+            "ejecutar handoff {}",
+            Path::new(h)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(h)
+        );
     }
     if let Some(ref wh) = request.write_handoff {
-        return format!("ejecutar handoff {}", Path::new(wh).file_name().and_then(|n| n.to_str()).unwrap_or(wh));
+        return format!(
+            "ejecutar handoff {}",
+            Path::new(wh)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(wh)
+        );
     }
     "tarea delegada".to_string()
 }
@@ -521,7 +550,10 @@ fn build_autonomous_command(
     task: &str,
 ) -> Option<String> {
     let norm = agent.to_ascii_lowercase();
-    let workspace = request.workspace.as_deref().unwrap_or("/home/freddy/Workspace");
+    let workspace = request
+        .workspace
+        .as_deref()
+        .unwrap_or("/home/freddy/Workspace");
     let repo = request
         .repo_path
         .as_deref()
@@ -531,7 +563,10 @@ fn build_autonomous_command(
         .as_deref()
         .unwrap_or("/home/freddy/Workspace/.agents");
 
-    let handoff_target = request.handoff.as_deref().or(request.write_handoff.as_deref());
+    let handoff_target = request
+        .handoff
+        .as_deref()
+        .or(request.write_handoff.as_deref());
     let print_instruction = if let Some(h) = handoff_target {
         format!("Olvida el historial anterior. Lee y ejecuta {}", h)
     } else if task.ends_with(".md") || task.contains("handoffs/") {
@@ -578,7 +613,8 @@ async fn write_delegation_artifacts(
     }
 
     if let Some(ref receipt_path) = request.write_receipt {
-        let json_data = serde_json::to_string_pretty(&output.receipt).wrap_err("serialize receipt")?;
+        let json_data =
+            serde_json::to_string_pretty(&output.receipt).wrap_err("serialize receipt")?;
         write_file_safely(receipt_path, json_data.as_bytes(), request.force).await?;
         output.written_receipt = Some(receipt_path.clone());
     }
@@ -589,7 +625,10 @@ async fn write_delegation_artifacts(
 async fn write_file_safely(path: &str, data: &[u8], force: bool) -> Result<()> {
     let clean_path = Path::new(path);
     if !force && clean_path.exists() {
-        color_eyre::eyre::bail!("file already exists at '{}' (use --force to overwrite)", path);
+        color_eyre::eyre::bail!(
+            "file already exists at '{}' (use --force to overwrite)",
+            path
+        );
     }
     if let Some(parent) = clean_path.parent() {
         if !parent.as_os_str().is_empty() {

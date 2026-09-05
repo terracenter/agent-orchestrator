@@ -1376,7 +1376,9 @@ fn compliance_cli_help() {
     cmd.args(["compliance", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Audit agent compliance for workspace rules (rtk, engram, vg)"))
+        .stdout(predicate::str::contains(
+            "Audit agent compliance for workspace rules (rtk, engram, vg)",
+        ))
         .stdout(predicate::str::contains("--rtk-usage"))
         .stdout(predicate::str::contains("--engram-summary"))
         .stdout(predicate::str::contains("--vg-sync"));
@@ -1498,7 +1500,10 @@ fn compliance_cli_vg_sync_stale_when_vault_newer() {
     // Set kuzu marker timestamp to older time so vault ref is newer
     let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
     let times = std::fs::FileTimes::new().set_modified(old_time);
-    let file = std::fs::File::options().write(true).open(&kuzu_marker).unwrap();
+    let file = std::fs::File::options()
+        .write(true)
+        .open(&kuzu_marker)
+        .unwrap();
     let _ = file.set_times(times);
 
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
@@ -1535,7 +1540,10 @@ fn compliance_cli_vg_sync_fresh() {
     // Set vault ref timestamp to older time so kuzu marker is newer
     let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
     let times = std::fs::FileTimes::new().set_modified(old_time);
-    let file = std::fs::File::options().write(true).open(&main_ref).unwrap();
+    let file = std::fs::File::options()
+        .write(true)
+        .open(&main_ref)
+        .unwrap();
     let _ = file.set_times(times);
 
     let kuzu_dir = tempfile::tempdir().unwrap();
@@ -1571,12 +1579,7 @@ fn compliance_cli_vg_sync_not_available() {
         .env_remove("VAULT_PATH")
         .env_remove("ORQ_KUZU_PATH")
         .env_remove("KUZU_PATH")
-        .args([
-            "compliance",
-            "--vg-sync",
-            "--format",
-            "json",
-        ])
+        .args(["compliance", "--vg-sync", "--format", "json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"status\": \"not_available\""))
@@ -1767,8 +1770,12 @@ fn route_cli_fallback_when_top_model_status_down() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"selected_agent\": \"fallback-agent\""))
-        .stdout(predicate::str::contains("\"selected_model\": \"second-model\""))
+        .stdout(predicate::str::contains(
+            "\"selected_agent\": \"fallback-agent\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"selected_model\": \"second-model\"",
+        ))
         .stdout(predicate::str::contains("\"fallback_applied\": true"));
 }
 
@@ -1858,8 +1865,12 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"selected_agent\": \"agent-promo\""))
-        .stdout(predicate::str::contains("\"selected_model\": \"model-promo\""))
+        .stdout(predicate::str::contains(
+            "\"selected_agent\": \"agent-promo\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"selected_model\": \"model-promo\"",
+        ))
         .stdout(predicate::str::contains("\"fallback_applied\": true"));
 
     // 2. Cheap vs expensive with promo: cheap-agent/cheap-model is kept (not displaced by expensive model with promo)
@@ -1884,8 +1895,12 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"selected_agent\": \"cheap-agent\""))
-        .stdout(predicate::str::contains("\"selected_model\": \"cheap-model\""))
+        .stdout(predicate::str::contains(
+            "\"selected_agent\": \"cheap-agent\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"selected_model\": \"cheap-model\"",
+        ))
         .stdout(predicate::str::contains("\"fallback_applied\": false"));
 }
 
@@ -1901,4 +1916,252 @@ fn delegate_cli_help() {
         .stdout(predicate::str::contains("--execute"));
 }
 
+#[test]
+fn agents_discover_cli_with_fake_runner() {
+    let runner = fake_runner("qwen-discover", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let adapters_file = state_dir.path().join("adapters.json");
+    let models_file = state_dir.path().join("models.json");
 
+    fs::write(
+        &adapters_file,
+        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    fs::write(
+        &models_file,
+        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "agents",
+            "discover",
+            "--adapters-config",
+            adapters_file.to_str().unwrap(),
+            "--models-config",
+            models_file.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"snapshot_at\""))
+        .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("\"id\": \"qwen-code\""))
+        .stdout(predicate::str::contains("\"version\": \"1.4.2\""))
+        .stdout(predicate::str::contains("\"agents_persisted\": 1"));
+
+    assert!(db.exists());
+}
+
+#[test]
+fn agents_refresh_cli_with_fake_runner() {
+    let runner = fake_runner("qwen-refresh", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let adapters_file = state_dir.path().join("adapters.json");
+    let models_file = state_dir.path().join("models.json");
+
+    fs::write(
+        &adapters_file,
+        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    fs::write(
+        &models_file,
+        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "agents",
+            "refresh",
+            "qwen-code",
+            "--adapters-config",
+            adapters_file.to_str().unwrap(),
+            "--models-config",
+            models_file.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"refreshed_at\""))
+        .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("\"id\": \"qwen-code\""))
+        .stdout(predicate::str::contains("\"version\": \"1.4.2\""))
+        .stdout(predicate::str::contains("\"models_persisted\""));
+}
+
+#[test]
+fn agents_doctor_cli_reports_health() {
+    let fake_rtk = fake_runner("doctor-rtk", "#!/usr/bin/env bash\necho 'rtk 0.3.0'\n");
+    let fake_vg = fake_runner("doctor-vg", "#!/usr/bin/env bash\necho 'vg 1.0.0'\n");
+    let fake_engram = fake_runner(
+        "doctor-engram",
+        "#!/usr/bin/env bash\necho 'engram 0.4.1'\n",
+    );
+
+    let state_dir = tempfile::tempdir().unwrap();
+    let adapters_file = state_dir.path().join("adapters.json");
+    fs::write(
+        &adapters_file,
+        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_RTK_BIN", &fake_rtk)
+        .env("ORQ_VG_BIN", &fake_vg)
+        .env("ORQ_ENGRAM_BIN", &fake_engram)
+        .args([
+            "agents",
+            "doctor",
+            "--adapters-config",
+            adapters_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"doctor_at\""))
+        .stdout(predicate::str::contains("\"status\": \"ok\""))
+        .stdout(predicate::str::contains("\"exit_code\": 0"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("wrapper:rtk"))
+        .stdout(predicate::str::contains("wrapper:vg"))
+        .stdout(predicate::str::contains("wrapper:engram"));
+}
+
+#[test]
+fn agents_doctor_cli_fails_on_missing_required_wrapper() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let adapters_file = state_dir.path().join("adapters.json");
+    fs::write(
+        &adapters_file,
+        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_RTK_BIN", "/tmp/non-existent-rtk-bin-xyz-98765")
+        .args([
+            "agents",
+            "doctor",
+            "--adapters-config",
+            adapters_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("\"status\": \"missing\""))
+        .stdout(predicate::str::contains("\"exit_code\": 1"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn models_snapshot_cli_exports_json() {
+    let runner = fake_runner("qwen-snap", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let state_dir = tempfile::tempdir().unwrap();
+    let snap_out = state_dir.path().join("snapshot-export.json");
+    let adapters_file = state_dir.path().join("adapters.json");
+    let models_file = state_dir.path().join("models.json");
+
+    fs::write(
+        &adapters_file,
+        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    fs::write(
+        &models_file,
+        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .args([
+            "models",
+            "snapshot",
+            "--output",
+            snap_out.to_str().unwrap(),
+            "--adapters-config",
+            adapters_file.to_str().unwrap(),
+            "--models-config",
+            models_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"snapshot_id\""))
+        .stdout(predicate::str::contains("\"fetched_at\""))
+        .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("\"id\": \"qwen-code\""));
+
+    assert!(snap_out.exists());
+    let snap_content = fs::read_to_string(snap_out).unwrap();
+    assert!(snap_content.contains("\"snapshot_id\""));
+    assert!(snap_content.contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn orq_alias_supports_agents_and_models_snapshot() {
+    let runner = fake_runner("qwen-alias", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let adapters_file = state_dir.path().join("adapters.json");
+    let models_file = state_dir.path().join("models.json");
+
+    fs::write(
+        &adapters_file,
+        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    fs::write(
+        &models_file,
+        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("orq").unwrap();
+    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "agents",
+            "discover",
+            "--adapters-config",
+            adapters_file.to_str().unwrap(),
+            "--models-config",
+            models_file.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
