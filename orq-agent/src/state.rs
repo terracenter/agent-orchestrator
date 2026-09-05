@@ -446,6 +446,7 @@ impl StateStore {
             })
     }
 
+    #[allow(dead_code)]
     pub fn insert_delegate_receipt(
         &self,
         receipt: &DelegateReceipt,
@@ -589,6 +590,7 @@ impl StateStore {
         })
     }
 
+    #[allow(dead_code)]
     pub fn find_delegate_receipt(&self, correlation_id: &str) -> Result<Option<DelegateReceipt>> {
         self.conn
             .query_row(

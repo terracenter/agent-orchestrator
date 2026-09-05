@@ -2,6 +2,7 @@ use color_eyre::eyre::Result;
 
 use crate::{adapters, delegate, policy};
 
+#[allow(dead_code)]
 pub(crate) struct DelegateArgs {
     pub(crate) task: Option<String>,
     pub(crate) agent: Option<String>,
@@ -20,6 +21,7 @@ pub(crate) struct DelegateArgs {
     pub(crate) adapters_config: Option<String>,
 }
 
+#[allow(dead_code)]
 pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> {
     let policy_config_path = args.policy_config.as_deref().map(std::path::Path::new);
     let (policy_config, _) = policy::load_config(policy_config_path).await?;
