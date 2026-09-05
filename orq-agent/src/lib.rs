@@ -239,6 +239,60 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
+    /// Delegate execution to an external or autonomous agent and record verifiable receipt.
+    Delegate {
+        /// Task prompt or description to delegate.
+        #[arg(long)]
+        task: Option<String>,
+        /// Target agent runner (e.g. agy, hermes, openclaw, pi).
+        #[arg(long)]
+        agent: Option<String>,
+        /// Target model identifier.
+        #[arg(long)]
+        model: Option<String>,
+        /// Source handoff markdown path.
+        #[arg(long)]
+        handoff: Option<String>,
+        /// Repository directory path.
+        #[arg(long)]
+        repo_path: Option<String>,
+        /// Agents workspace directory path.
+        #[arg(long)]
+        agents_dir: Option<String>,
+        /// Workspace root path.
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Path to write generated handoff markdown file.
+        #[arg(long)]
+        write_handoff: Option<String>,
+        /// Path to write generated receipt JSON file.
+        #[arg(long)]
+        write_receipt: Option<String>,
+        /// Force overwrite existing handoff or receipt files.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        /// Execute the agent runner directly instead of emitting plan/command only.
+        #[arg(long, default_value_t = false)]
+        execute: bool,
+        /// Timeout in seconds for direct execution.
+        #[arg(long, default_value_t = 120)]
+        timeout: u64,
+        /// Correlation id propagated from caller.
+        #[arg(long)]
+        correlation_id: Option<String>,
+        /// Optional policy config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        policy_config: Option<String>,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
@@ -606,6 +660,46 @@ async fn run_command(command: Commands) -> Result<()> {
             }
             Ok(())
         }
+        Commands::Delegate {
+            task,
+            agent,
+            model,
+            handoff,
+            repo_path,
+            agents_dir,
+            workspace,
+            write_handoff,
+            write_receipt,
+            force,
+            execute,
+            timeout,
+            correlation_id,
+            policy_config,
+            adapters_config,
+            db_path,
+            format,
+        } => {
+            let output = commands::delegate::run(commands::delegate::DelegateArgs {
+                task,
+                agent,
+                model,
+                handoff,
+                repo_path,
+                agents_dir,
+                workspace,
+                write_handoff,
+                write_receipt,
+                force,
+                execute,
+                timeout_seconds: timeout,
+                correlation_id,
+                policy_config,
+                adapters_config,
+            })
+            .await?;
+            persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate");
+            print_json(format, &output)
+        }
     }
 }
 
@@ -662,6 +756,20 @@ fn persist_exec_receipt(db_path: Option<&str>, receipt: &receipt::ExecReceipt, t
     };
     if let Err(err) = store.insert_receipt(receipt, task_kind) {
         eprintln!("warning: failed to persist execution receipt: {err}");
+    }
+}
+
+fn persist_delegate_receipt(
+    db_path: Option<&str>,
+    receipt: &receipt::DelegateReceipt,
+    task_kind: &str,
+) {
+    let path = db_path.map(std::path::Path::new);
+    let Ok(store) = state::open(path) else {
+        return;
+    };
+    if let Err(err) = store.insert_delegate_receipt(receipt, task_kind) {
+        eprintln!("warning: failed to persist delegate receipt: {err}");
     }
 }
 

@@ -94,7 +94,6 @@ pub fn receipt_sha256(receipt: &ExecReceipt) -> Result<String> {
     Ok(hex_sha256(&receipt_json))
 }
 
-#[allow(dead_code)]
 pub fn delegate_receipt_sha256(receipt: &DelegateReceipt) -> Result<String> {
     let receipt_json =
         serde_json::to_vec(receipt).wrap_err("serializing delegate receipt for sha256")?;

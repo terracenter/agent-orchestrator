@@ -114,7 +114,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             status: status.clone(),
             reason: None,
             verdict: DelegateVerdict::Indeterminado,
-            evidence: "ninguna".to_string(),
+            evidence: "none".to_string(),
             stdout_tail: String::new(),
             stderr_tail: String::new(),
             started_at_unix,
@@ -128,7 +128,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             status,
             reason: None,
             verdict: DelegateVerdict::Indeterminado,
-            evidence: "ninguna".to_string(),
+            evidence: "none".to_string(),
             agent: target_agent,
             model: target_model,
             prompt,
@@ -149,7 +149,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
 
     // Execution mode: verify git pre-state
     let pre_head = get_git_head(&repo_dir).await;
-    let pre_untracked_count = get_git_status_count(&repo_dir).await;
+    let pre_branch = get_git_branch(&repo_dir).await;
 
     // Check adapter
     let adapter_opt = find_adapter_in_registry(&target_agent, &request.adapters_registry);
@@ -189,20 +189,23 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
 
     // Post-execution git inspection
     let post_head = get_git_head(&repo_dir).await;
-    let post_untracked_count = get_git_status_count(&repo_dir).await;
+    let post_branch = get_git_branch(&repo_dir).await;
 
     let has_new_commit = match (&pre_head, &post_head) {
         (Some(pre), Some(post)) => pre != post,
         (None, Some(_)) => true,
         _ => false,
     };
-    let has_file_changes = post_untracked_count != pre_untracked_count && post_untracked_count > 0;
-
-    let is_plan_only = is_plan_only_text(&stdout);
+    let has_new_branch = match (&pre_branch, &post_branch) {
+        (Some(pre), Some(post)) => pre != post,
+        (None, Some(_)) => true,
+        _ => false,
+    };
+    let extracted_ref = extract_pr_or_ref_from_text(&stdout);
 
     let (status, reason, verdict, evidence) = if timed_out {
         if has_new_commit {
-            let commit_hash = post_head.clone().unwrap_or_else(|| "commit_detected".to_string());
+            let commit_hash = post_head.clone().unwrap_or_else(|| "none".to_string());
             (
                 DelegateStatus::Executed,
                 Some("timeout_con_evidencia".to_string()),
@@ -214,42 +217,43 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                 DelegateStatus::Failed,
                 Some("timeout_sin_evidencia".to_string()),
                 DelegateVerdict::NonUtil,
-                "ninguna".to_string(),
+                "none".to_string(),
             )
         }
     } else if exit_code == Some(0) || exit_code.is_none() {
         if has_new_commit {
-            let commit_hash = post_head.clone().unwrap_or_else(|| "commit_detected".to_string());
+            let commit_hash = post_head.clone().unwrap_or_else(|| "none".to_string());
             (
                 DelegateStatus::Validated,
                 None,
                 DelegateVerdict::Util,
                 commit_hash,
             )
-        } else if has_file_changes {
+        } else if has_new_branch {
+            let branch_ref = format!("branch:{}", post_branch.as_deref().unwrap_or("unknown"));
             (
                 DelegateStatus::Validated,
                 None,
                 DelegateVerdict::Util,
-                "worktree_changes".to_string(),
+                branch_ref,
             )
-        } else if is_plan_only {
+        } else if let Some(ref_str) = extracted_ref {
             (
-                DelegateStatus::Failed,
-                Some("plan_solo".to_string()),
-                DelegateVerdict::NonUtil,
-                "ninguna".to_string(),
+                DelegateStatus::Validated,
+                None,
+                DelegateVerdict::Util,
+                ref_str,
             )
         } else {
             (
                 DelegateStatus::Failed,
                 Some("no_executed".to_string()),
                 DelegateVerdict::NonUtil,
-                "ninguna".to_string(),
+                "none".to_string(),
             )
         }
     } else if has_new_commit {
-        let commit_hash = post_head.clone().unwrap_or_else(|| "commit_detected".to_string());
+        let commit_hash = post_head.clone().unwrap_or_else(|| "none".to_string());
         (
             DelegateStatus::Executed,
             Some("exit_non_zero_with_commit".to_string()),
@@ -261,7 +265,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             DelegateStatus::Failed,
             Some("no_executed".to_string()),
             DelegateVerdict::NonUtil,
-            "ninguna".to_string(),
+            "none".to_string(),
         )
     };
 
@@ -397,6 +401,43 @@ async fn get_git_head(repo_dir: &Path) -> Option<String> {
     None
 }
 
+async fn get_git_branch(repo_dir: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .ok()?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !text.is_empty() && text != "HEAD" {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn extract_pr_or_ref_from_text(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(pos) = trimmed.find("https://github.com/") {
+            let candidate = &trimmed[pos..];
+            let url = candidate.split_whitespace().next().unwrap_or(candidate);
+            if url.contains("/pull/") {
+                return Some(url.to_string());
+            }
+        }
+        if let Some(pos) = trimmed.find("PR #") {
+            let candidate = &trimmed[pos..];
+            let pr = candidate.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+            return Some(pr);
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
 async fn get_git_status_count(repo_dir: &Path) -> usize {
     let output = Command::new("git")
         .args(["status", "--porcelain"])
@@ -413,6 +454,7 @@ async fn get_git_status_count(repo_dir: &Path) -> usize {
     0
 }
 
+#[allow(dead_code)]
 fn is_plan_only_text(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     (lower.contains("plan de acción")
@@ -556,4 +598,346 @@ async fn write_file_safely(path: &str, data: &[u8], force: bool) -> Result<()> {
     }
     tokio::fs::write(clean_path, data).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::AdaptersRegistry;
+    use crate::policy::PolicyConfig;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::tempdir;
+
+    fn setup_git_repo(dir: &Path) {
+        let run_cmd = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .status()
+                .expect("run git command");
+            assert!(status.success());
+        };
+        run_cmd(&["init"]);
+        run_cmd(&["config", "user.name", "Freddy Taborda"]);
+        run_cmd(&["config", "user.email", "terracenter@gmail.com"]);
+        fs::write(dir.join("README.md"), "initial").unwrap();
+        run_cmd(&["add", "README.md"]);
+        run_cmd(&["commit", "-m", "initial commit"]);
+    }
+
+    fn make_executable_script(dir: &Path, name: &str, content: &str) -> PathBuf {
+        let script_path = dir.join(name);
+        fs::write(&script_path, content).unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+        script_path
+    }
+
+    fn test_policy_config() -> PolicyConfig {
+        PolicyConfig {
+            schema_version: 1,
+            approval_required_model_patterns: vec![],
+            blocked_adapter_statuses: vec![],
+            gated_adapter_statuses: vec![],
+        }
+    }
+
+    fn test_empty_adapters_registry() -> AdaptersRegistry {
+        AdaptersRegistry {
+            schema_version: 1,
+            adapters: vec![],
+        }
+    }
+
+    fn test_adapters_registry(agent_name: &str, script_path: &Path) -> AdaptersRegistry {
+        let json = format!(
+            r#"{{"schema_version":1,"adapters":[{{"name":"{}","binary":"{}","status":"available","argv":["$MODEL","$TASK"]}}]}}"#,
+            agent_name,
+            script_path.display()
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_state_planned_transition() {
+        let request = DelegateRequest {
+            task: Some("dummy task".to_string()),
+            agent: Some("custom-no-auto-cmd".to_string()),
+            model: Some("custom-model".to_string()),
+            handoff: None,
+            repo_path: None,
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: false,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-plan-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: test_empty_adapters_registry(),
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Planned);
+        assert_eq!(output.verdict, DelegateVerdict::Indeterminado);
+        assert_eq!(output.evidence, "none");
+        assert!(output.command.is_none());
+        assert_eq!(output.receipt.status, DelegateStatus::Planned);
+    }
+
+    #[tokio::test]
+    async fn test_state_command_generated_transition() {
+        let request = DelegateRequest {
+            task: Some("corregir bug".to_string()),
+            agent: Some("agy".to_string()),
+            model: Some("gemini-3.7-flash-high".to_string()),
+            handoff: None,
+            repo_path: None,
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: false,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-cmd-gen-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: test_empty_adapters_registry(),
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::CommandGenerated);
+        assert_eq!(output.verdict, DelegateVerdict::Indeterminado);
+        assert_eq!(output.evidence, "none");
+        assert!(output.command.is_some());
+        assert_eq!(output.receipt.status, DelegateStatus::CommandGenerated);
+    }
+
+    #[tokio::test]
+    async fn test_state_validated_with_commit() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        let script = make_executable_script(
+            temp.path(),
+            "runner_commit.sh",
+            "#!/usr/bin/env bash\necho 'change' >> README.md\ngit add README.md\ngit commit -m 'new fix'\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("fix file".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-val-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Validated);
+        assert_eq!(output.verdict, DelegateVerdict::Util);
+        assert_ne!(output.evidence, "none");
+        assert_ne!(output.evidence, "worktree_changes");
+        assert_eq!(output.reason, None);
+        assert_eq!(output.receipt.status, DelegateStatus::Validated);
+    }
+
+    #[tokio::test]
+    async fn test_state_validated_with_new_branch() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        let script = make_executable_script(
+            temp.path(),
+            "runner_branch.sh",
+            "#!/usr/bin/env bash\ngit checkout -b feature-test-branch\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("create branch".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-val-branch-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Validated);
+        assert_eq!(output.verdict, DelegateVerdict::Util);
+        assert_eq!(output.evidence, "branch:feature-test-branch");
+        assert_eq!(output.reason, None);
+    }
+
+    #[tokio::test]
+    async fn test_state_failed_plan_only_detection() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        let script = make_executable_script(
+            temp.path(),
+            "runner_plan_only.sh",
+            "#!/usr/bin/env bash\necho 'Plan de acción:'\necho '1. Modificar archivo'\necho '¿Desea continuar?'\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("plan task".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-plan-only-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Failed);
+        assert_eq!(output.verdict, DelegateVerdict::NonUtil);
+        assert_eq!(output.reason, Some("no_executed".to_string()));
+        assert_eq!(output.evidence, "none");
+    }
+
+    #[tokio::test]
+    async fn test_state_failed_timeout_without_evidence() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        let script = make_executable_script(
+            temp.path(),
+            "runner_timeout_no_ev.sh",
+            "#!/usr/bin/env bash\nsleep 3\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("slow task".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: true,
+            timeout_seconds: 1,
+            correlation_id: Some("corr-timeout-no-ev".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Failed);
+        assert_eq!(output.verdict, DelegateVerdict::NonUtil);
+        assert_eq!(output.reason, Some("timeout_sin_evidencia".to_string()));
+        assert_eq!(output.evidence, "none");
+    }
+
+    #[tokio::test]
+    async fn test_state_executed_timeout_with_commit() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        let script = make_executable_script(
+            temp.path(),
+            "runner_timeout_with_commit.sh",
+            "#!/usr/bin/env bash\necho 'partial' >> README.md\ngit add README.md\ngit commit -m 'partial work'\nsleep 3\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("slow task with commit".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: true,
+            timeout_seconds: 1,
+            correlation_id: Some("corr-timeout-commit".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Executed);
+        assert_eq!(output.verdict, DelegateVerdict::Util);
+        assert_eq!(output.reason, Some("timeout_con_evidencia".to_string()));
+        assert_ne!(output.evidence, "none");
+    }
+
+    #[tokio::test]
+    async fn test_git_verification_exit_zero_without_evidence() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        // Command exits 0 but does not create commit, branch or change
+        let script = make_executable_script(
+            temp.path(),
+            "runner_exit_zero_no_changes.sh",
+            "#!/usr/bin/env bash\necho 'all good but no real changes done'\nexit 0\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("noop task".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-exit-zero-no-ev".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Failed);
+        assert_eq!(output.verdict, DelegateVerdict::NonUtil);
+        assert_eq!(output.reason, Some("no_executed".to_string()));
+        assert_eq!(output.evidence, "none");
+    }
 }

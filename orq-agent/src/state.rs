@@ -446,7 +446,6 @@ impl StateStore {
             })
     }
 
-    #[allow(dead_code)]
     pub fn insert_delegate_receipt(
         &self,
         receipt: &DelegateReceipt,
@@ -503,12 +502,26 @@ impl StateStore {
             })?;
 
         // Also insert into receipts table for backwards compatibility
-        let legacy_status = match receipt.status {
-            crate::receipt::DelegateStatus::Validated => "succeeded",
-            crate::receipt::DelegateStatus::Executed => "succeeded",
-            crate::receipt::DelegateStatus::Failed => "failed",
-            crate::receipt::DelegateStatus::Planned => "planned",
-            crate::receipt::DelegateStatus::CommandGenerated => "command_generated",
+        let legacy_exec_status = match receipt.status {
+            crate::receipt::DelegateStatus::Validated
+            | crate::receipt::DelegateStatus::Executed => crate::receipt::ExecStatus::Succeeded,
+            crate::receipt::DelegateStatus::Planned
+            | crate::receipt::DelegateStatus::CommandGenerated => crate::receipt::ExecStatus::Blocked,
+            crate::receipt::DelegateStatus::Failed => {
+                if receipt.reason.as_deref() == Some("timeout_sin_evidencia") {
+                    crate::receipt::ExecStatus::TimedOut
+                } else {
+                    crate::receipt::ExecStatus::Failed
+                }
+            }
+        };
+        let legacy_status = match legacy_exec_status {
+            crate::receipt::ExecStatus::Succeeded => "succeeded",
+            crate::receipt::ExecStatus::Blocked => "blocked",
+            crate::receipt::ExecStatus::TimedOut => "timed_out",
+            crate::receipt::ExecStatus::Failed => "failed",
+            crate::receipt::ExecStatus::SpawnFailed => "spawn_failed",
+            crate::receipt::ExecStatus::InvalidRequest => "invalid_request",
         };
         let legacy_exec_receipt = ExecReceipt {
             schema_version: receipt.schema_version,
@@ -516,11 +529,7 @@ impl StateStore {
             agent: receipt.agent.clone(),
             model: receipt.model.clone(),
             command: receipt.command.clone(),
-            status: match receipt.status {
-                crate::receipt::DelegateStatus::Validated => crate::receipt::ExecStatus::Succeeded,
-                crate::receipt::DelegateStatus::Executed => crate::receipt::ExecStatus::Succeeded,
-                _ => crate::receipt::ExecStatus::Failed,
-            },
+            status: legacy_exec_status,
             policy_reason: receipt.reason.clone().unwrap_or_default(),
             started_at_unix: receipt.started_at_unix,
             duration_ms: receipt.duration_ms,
@@ -532,6 +541,8 @@ impl StateStore {
             cleanup_attempted: false,
             cleanup_succeeded: false,
         };
+        let legacy_hash = receipt_sha256(&legacy_exec_receipt)
+            .map_err(|error| StoreError::Config(format!("hash legacy receipt: {error}")))?;
         let legacy_receipt_json = serde_json::to_string(&legacy_exec_receipt)
             .map_err(|source| StoreError::Serialization {
                 context: "serialize legacy exec receipt",
@@ -551,7 +562,7 @@ impl StateStore {
                 secrets_read,
                 legacy_receipt_json,
                 created_at_i64,
-                receipt_hash,
+                legacy_hash,
             ],
         );
 
@@ -560,32 +571,11 @@ impl StateStore {
             agent_id: receipt.agent.clone(),
             model_id: receipt.model.clone(),
             task_kind: task_kind.to_string(),
-            status,
+            status: legacy_status.to_string(),
             duration_ms: receipt.duration_ms,
             secrets_read: receipt.secrets_read,
-            receipt_hash,
-            receipt: ExecReceipt {
-                schema_version: receipt.schema_version,
-                correlation_id: receipt.correlation_id.clone(),
-                agent: receipt.agent.clone(),
-                model: receipt.model.clone(),
-                command: receipt.command.clone(),
-                status: match receipt.status {
-                    crate::receipt::DelegateStatus::Validated => crate::receipt::ExecStatus::Succeeded,
-                    crate::receipt::DelegateStatus::Executed => crate::receipt::ExecStatus::Succeeded,
-                    _ => crate::receipt::ExecStatus::Failed,
-                },
-                policy_reason: receipt.reason.clone().unwrap_or_default(),
-                started_at_unix: receipt.started_at_unix,
-                duration_ms: receipt.duration_ms,
-                timeout_seconds: receipt.timeout_seconds,
-                exit_code: receipt.exit_code,
-                stdout_tail: receipt.stdout_tail.clone(),
-                stderr_tail: receipt.stderr_tail.clone(),
-                secrets_read: receipt.secrets_read,
-                cleanup_attempted: false,
-                cleanup_succeeded: false,
-            },
+            receipt_hash: legacy_hash,
+            receipt: legacy_exec_receipt,
             created_at_unix,
         })
     }
@@ -1723,7 +1713,11 @@ mod tests {
             .insert_delegate_receipt(&receipt, "delegate")
             .expect("insert delegate receipt");
         assert_eq!(stored.correlation_id, "del-corr-1");
-        assert_eq!(stored.status, "validated");
+        assert_eq!(stored.status, "succeeded");
+        assert_eq!(
+            stored.receipt_hash,
+            receipt_sha256(&stored.receipt).expect("hash stored legacy receipt")
+        );
 
         let found = store
             .find_delegate_receipt("del-corr-1")
@@ -1740,5 +1734,14 @@ mod tests {
             .expect("find legacy receipt")
             .expect("legacy receipt exists");
         assert_eq!(found_legacy.correlation_id, "del-corr-1");
+        assert_eq!(found_legacy.status, "succeeded");
+        assert_eq!(
+            found_legacy.receipt.status,
+            crate::receipt::ExecStatus::Succeeded
+        );
+        assert_eq!(
+            found_legacy.receipt_hash,
+            receipt_sha256(&found_legacy.receipt).expect("hash legacy receipt")
+        );
     }
 }

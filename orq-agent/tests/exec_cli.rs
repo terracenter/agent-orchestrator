@@ -1889,3 +1889,16 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
         .stdout(predicate::str::contains("\"fallback_applied\": false"));
 }
 
+#[test]
+fn delegate_cli_help() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["delegate", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Delegate execution"))
+        .stdout(predicate::str::contains("--task"))
+        .stdout(predicate::str::contains("--agent"))
+        .stdout(predicate::str::contains("--execute"));
+}
+
+
