@@ -203,7 +203,7 @@ fn state_status_creates_temp_db_without_secrets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 3"))
+        .stdout(predicate::str::contains("\"schema_version\": 4"))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
         .stdout(predicate::str::contains("agents"))
         .stdout(predicate::str::contains("models"));
@@ -1107,7 +1107,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 3"))
+        .stdout(predicate::str::contains("\"schema_version\": 4"))
         .stdout(predicate::str::contains("quota_snapshots"));
 
     // Migrate again explicitly
@@ -1123,7 +1123,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 3"));
+        .stdout(predicate::str::contains("\"schema_version\": 4"));
 }
 
 #[test]
@@ -1888,4 +1888,17 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
         .stdout(predicate::str::contains("\"selected_model\": \"cheap-model\""))
         .stdout(predicate::str::contains("\"fallback_applied\": false"));
 }
+
+#[test]
+fn delegate_cli_help() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["delegate", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Delegate execution"))
+        .stdout(predicate::str::contains("--task"))
+        .stdout(predicate::str::contains("--agent"))
+        .stdout(predicate::str::contains("--execute"));
+}
+
 

@@ -58,3 +58,28 @@ orq receipt verify --path receipt.json
 
 El recibo debe poder enviarse a SGE Observer como evento operacional sin exponer secretos.
 
+## Estados de Delegación y `DelegateReceipt` (#79)
+
+`orq-agent delegate` genera y valida recibos de delegación estructurados (`DelegateReceipt`):
+
+| Estado (`status`) | Descripción | Criterio de Transición |
+|---|---|---|
+| `planned` | Tarea analizada y prompt generado sin ejecución ni template de comando autónomo. | `--execute` omitido / no template |
+| `command_generated` | Comando autónomo estructurado generado para el agente destino (ej. `agy`, `hermes`, `openclaw`). | `--execute` omitido + template disponible |
+| `executed` | Ejecución finalizada con código de salida non-zero o timeout, pero con evidencia comprobable generada (ej. commit nuevo). | `--execute` activo + nuevo commit |
+| `validated` | Ejecución exitosa (exit 0) certificada mediante evidencia verificable en git (commit nuevo, rama nueva o ref extraída). | `--execute` activo + exit 0 + evidencia |
+| `failed` | Ejecución fallida por falta de evidencia comprobable (`no_executed`), detección de respuesta que es solo plan (`plan_solo` sin cambios), o timeout sin cambios (`timeout_sin_evidencia`). | Fallo, plan-only o sin evidencia |
+
+### Veredicto y Evidencia
+
+- **Veredicto (`verdict`)**:
+  - `util`: Aportó cambios o evidencia verificable al repositorio.
+  - `non_util`: No generó cambios útiles o falló sin evidencia.
+  - `indeterminado`: Estado planificado o comando generado sin ejecución.
+- **Evidencia (`evidence`)**:
+  - Hash SHA-1/SHA-256 del commit creado en HEAD (`post_head`).
+  - Identificador de rama nueva creada (`branch:<nombre>`).
+  - Enlace o referencia a PR detectado.
+  - `"none"` cuando no se generó evidencia verificable.
+
+
