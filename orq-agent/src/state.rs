@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 4;
+const LATEST_SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -121,6 +121,85 @@ pub struct QuotaSnapshotInput {
     pub reset_at_unix: Option<u64>,
     pub captured_at_unix: Option<u64>,
     pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EmpiricalRecord {
+    pub id: i64,
+    pub correlation_id: String,
+    pub user_id: String,
+    pub repo: String,
+    pub language_stack: String,
+    pub task_type: String,
+    pub risk_level: String,
+    pub agent_id: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub mode: String,
+    pub timestamp_bucket: String,
+    pub s_rec: f64,
+    pub c_law: f64,
+    pub q_tech: f64,
+    pub d_doc: f64,
+    pub e_cost: f64,
+    pub h_inv: f64,
+    pub penalties: f64,
+    pub score: f64,
+    pub created_at_unix: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EmpiricalRecordInput {
+    pub correlation_id: String,
+    pub user_id: String,
+    pub repo: String,
+    pub language_stack: String,
+    pub task_type: String,
+    pub risk_level: String,
+    pub agent_id: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub mode: String,
+    pub timestamp_bucket: String,
+    pub s_rec: f64,
+    pub c_law: f64,
+    pub q_tech: f64,
+    pub d_doc: f64,
+    pub e_cost: f64,
+    pub h_inv: f64,
+    pub penalties: f64,
+    pub score: f64,
+    pub created_at_unix: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EmpiricalHistoryFilter {
+    pub agent_id: Option<String>,
+    pub model_id: Option<String>,
+    pub repo: Option<String>,
+    pub task_type: Option<String>,
+    pub user_id: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AggregatedScore {
+    pub agent_id: String,
+    pub model_id: String,
+    pub repo: Option<String>,
+    pub task_type: Option<String>,
+    pub sample_count: usize,
+    pub mean_score: f64,
+    pub decay_weighted_score: f64,
+    pub mean_s_rec: f64,
+    pub mean_c_law: f64,
+    pub mean_q_tech: f64,
+    pub mean_d_doc: f64,
+    pub mean_e_cost: f64,
+    pub mean_h_inv: f64,
+    pub mean_penalties: f64,
+    pub latest_timestamp_unix: Option<u64>,
+    pub decay_half_life_days: f64,
 }
 
 pub fn default_db_path() -> Result<PathBuf> {
@@ -268,10 +347,22 @@ impl StateStore {
             })?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (4, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite { context: "record migration 4", source })?;
+        self.conn
+            .execute_batch(MIGRATION_V5)
+            .map_err(|source| StoreError::Sqlite {
+                context: "apply migration 5 (empirical_history)",
+                source,
+            })?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
-            .map_err(|source| StoreError::Sqlite { context: "record migration 4", source })?;
+            .map_err(|source| StoreError::Sqlite { context: "record migration 5", source })?;
         Ok(())
     }
 
@@ -1047,6 +1138,280 @@ impl StateStore {
         collect_rows(rows, "read all quota snapshots")
     }
 
+    pub fn insert_empirical_record(&self, input: &EmpiricalRecordInput) -> Result<EmpiricalRecord> {
+        let created_at_unix = input.created_at_unix.unwrap_or_else(now_unix);
+        let created_at_i64 = i64::try_from(created_at_unix).map_err(|_| {
+            StoreError::Config("created_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+
+        self.conn.execute(
+            "INSERT INTO empirical_history(
+                correlation_id, user_id, repo, language_stack, task_type, risk_level,
+                agent_id, provider_id, model_id, mode, timestamp_bucket,
+                s_rec, c_law, q_tech, d_doc, e_cost, h_inv, penalties, score, created_at_unix
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+             ON CONFLICT(correlation_id) DO UPDATE SET
+                user_id=excluded.user_id, repo=excluded.repo, language_stack=excluded.language_stack,
+                task_type=excluded.task_type, risk_level=excluded.risk_level, agent_id=excluded.agent_id,
+                provider_id=excluded.provider_id, model_id=excluded.model_id, mode=excluded.mode,
+                timestamp_bucket=excluded.timestamp_bucket, s_rec=excluded.s_rec, c_law=excluded.c_law,
+                q_tech=excluded.q_tech, d_doc=excluded.d_doc, e_cost=excluded.e_cost, h_inv=excluded.h_inv,
+                penalties=excluded.penalties, score=excluded.score, created_at_unix=excluded.created_at_unix",
+            params![
+                input.correlation_id,
+                input.user_id,
+                input.repo,
+                input.language_stack,
+                input.task_type,
+                input.risk_level,
+                input.agent_id,
+                input.provider_id,
+                input.model_id,
+                input.mode,
+                input.timestamp_bucket,
+                input.s_rec,
+                input.c_law,
+                input.q_tech,
+                input.d_doc,
+                input.e_cost,
+                input.h_inv,
+                input.penalties,
+                input.score,
+                created_at_i64,
+            ],
+        ).map_err(|source| StoreError::Sqlite { context: "insert empirical record", source })?;
+
+        let id = self.conn.last_insert_rowid();
+
+        Ok(EmpiricalRecord {
+            id,
+            correlation_id: input.correlation_id.clone(),
+            user_id: input.user_id.clone(),
+            repo: input.repo.clone(),
+            language_stack: input.language_stack.clone(),
+            task_type: input.task_type.clone(),
+            risk_level: input.risk_level.clone(),
+            agent_id: input.agent_id.clone(),
+            provider_id: input.provider_id.clone(),
+            model_id: input.model_id.clone(),
+            mode: input.mode.clone(),
+            timestamp_bucket: input.timestamp_bucket.clone(),
+            s_rec: input.s_rec,
+            c_law: input.c_law,
+            q_tech: input.q_tech,
+            d_doc: input.d_doc,
+            e_cost: input.e_cost,
+            h_inv: input.h_inv,
+            penalties: input.penalties,
+            score: input.score,
+            created_at_unix,
+        })
+    }
+
+    pub fn list_empirical_history(
+        &self,
+        filter: &EmpiricalHistoryFilter,
+    ) -> Result<Vec<EmpiricalRecord>> {
+        let mut sql = "SELECT id, correlation_id, user_id, repo, language_stack, task_type, risk_level, \
+                       agent_id, provider_id, model_id, mode, timestamp_bucket, \
+                       s_rec, c_law, q_tech, d_doc, e_cost, h_inv, penalties, score, created_at_unix \
+                       FROM empirical_history WHERE 1=1".to_string();
+        let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if let Some(ref a) = filter.agent_id {
+            sql.push_str(" AND agent_id = ?");
+            params_vec.push(Box::new(a.clone()));
+        }
+        if let Some(ref m) = filter.model_id {
+            sql.push_str(" AND model_id = ?");
+            params_vec.push(Box::new(m.clone()));
+        }
+        if let Some(ref r) = filter.repo {
+            sql.push_str(" AND repo = ?");
+            params_vec.push(Box::new(r.clone()));
+        }
+        if let Some(ref t) = filter.task_type {
+            sql.push_str(" AND task_type = ?");
+            params_vec.push(Box::new(t.clone()));
+        }
+        if let Some(ref u) = filter.user_id {
+            sql.push_str(" AND user_id = ?");
+            params_vec.push(Box::new(u.clone()));
+        }
+
+        sql.push_str(" ORDER BY created_at_unix DESC, id DESC");
+
+        if let Some(limit) = filter.limit {
+            sql.push_str(&format!(" LIMIT {limit}"));
+        }
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare list empirical history",
+                source,
+            })?;
+
+        let rusqlite_params: Vec<&dyn rusqlite::ToSql> =
+            params_vec.iter().map(|b| b.as_ref()).collect();
+
+        let rows = stmt
+            .query_map(rusqlite_params.as_slice(), |row| {
+                let created_at_i64: i64 = row.get(20)?;
+                let created_at_unix = u64::try_from(created_at_i64).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        20,
+                        rusqlite::types::Type::Integer,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(EmpiricalRecord {
+                    id: row.get(0)?,
+                    correlation_id: row.get(1)?,
+                    user_id: row.get(2)?,
+                    repo: row.get(3)?,
+                    language_stack: row.get(4)?,
+                    task_type: row.get(5)?,
+                    risk_level: row.get(6)?,
+                    agent_id: row.get(7)?,
+                    provider_id: row.get(8)?,
+                    model_id: row.get(9)?,
+                    mode: row.get(10)?,
+                    timestamp_bucket: row.get(11)?,
+                    s_rec: row.get(12)?,
+                    c_law: row.get(13)?,
+                    q_tech: row.get(14)?,
+                    d_doc: row.get(15)?,
+                    e_cost: row.get(16)?,
+                    h_inv: row.get(17)?,
+                    penalties: row.get(18)?,
+                    score: row.get(19)?,
+                    created_at_unix,
+                })
+            })
+            .map_err(|source| StoreError::Sqlite {
+                context: "query list empirical history",
+                source,
+            })?;
+
+        collect_rows(rows, "read empirical history")
+    }
+
+    /// Computes the aggregate score for an agent/model pair with temporal decay.
+    ///
+    /// More recent records have higher weights according to the exponential half-life decay formula:
+    /// `weight_i = 0.5 ^ (delta_t / half_life)`, where `half_life` is 7.0 days.
+    ///
+    /// Note: `route_scores` is a fast, derived routing matrix cache,
+    /// whereas `empirical_history` represents the complete and auditable historical record.
+    pub fn aggregate_scores(
+        &self,
+        agent_id: &str,
+        model_id: &str,
+        repo: Option<&str>,
+        task_type: Option<&str>,
+    ) -> Result<AggregatedScore> {
+        let filter = EmpiricalHistoryFilter {
+            agent_id: Some(agent_id.to_string()),
+            model_id: Some(model_id.to_string()),
+            repo: repo.map(ToString::to_string),
+            task_type: task_type.map(ToString::to_string),
+            user_id: None,
+            limit: None,
+        };
+
+        let records = self.list_empirical_history(&filter)?;
+        let half_life_days = 7.0;
+        let half_life_secs = half_life_days * 86400.0;
+
+        if records.is_empty() {
+            return Ok(AggregatedScore {
+                agent_id: agent_id.to_string(),
+                model_id: model_id.to_string(),
+                repo: repo.map(ToString::to_string),
+                task_type: task_type.map(ToString::to_string),
+                sample_count: 0,
+                mean_score: 0.0,
+                decay_weighted_score: 0.0,
+                mean_s_rec: 0.0,
+                mean_c_law: 0.0,
+                mean_q_tech: 0.0,
+                mean_d_doc: 0.0,
+                mean_e_cost: 0.0,
+                mean_h_inv: 0.0,
+                mean_penalties: 0.0,
+                latest_timestamp_unix: None,
+                decay_half_life_days: half_life_days,
+            });
+        }
+
+        let now = now_unix();
+        let count = records.len();
+        let mut total_score = 0.0;
+        let mut total_s_rec = 0.0;
+        let mut total_c_law = 0.0;
+        let mut total_q_tech = 0.0;
+        let mut total_d_doc = 0.0;
+        let mut total_e_cost = 0.0;
+        let mut total_h_inv = 0.0;
+        let mut total_penalties = 0.0;
+
+        let mut weighted_score_sum = 0.0;
+        let mut total_weight = 0.0;
+        let mut latest_ts: Option<u64> = None;
+
+        for rec in &records {
+            total_score += rec.score;
+            total_s_rec += rec.s_rec;
+            total_c_law += rec.c_law;
+            total_q_tech += rec.q_tech;
+            total_d_doc += rec.d_doc;
+            total_e_cost += rec.e_cost;
+            total_h_inv += rec.h_inv;
+            total_penalties += rec.penalties;
+
+            let delta_secs = if now >= rec.created_at_unix {
+                (now - rec.created_at_unix) as f64
+            } else {
+                0.0
+            };
+
+            let weight = 0.5_f64.powf(delta_secs / half_life_secs);
+            weighted_score_sum += weight * rec.score;
+            total_weight += weight;
+
+            if latest_ts.map(|t| rec.created_at_unix > t).unwrap_or(true) {
+                latest_ts = Some(rec.created_at_unix);
+            }
+        }
+
+        let decay_weighted_score = if total_weight > 0.0 {
+            weighted_score_sum / total_weight
+        } else {
+            total_score / count as f64
+        };
+
+        Ok(AggregatedScore {
+            agent_id: agent_id.to_string(),
+            model_id: model_id.to_string(),
+            repo: repo.map(ToString::to_string),
+            task_type: task_type.map(ToString::to_string),
+            sample_count: count,
+            mean_score: total_score / count as f64,
+            decay_weighted_score,
+            mean_s_rec: total_s_rec / count as f64,
+            mean_c_law: total_c_law / count as f64,
+            mean_q_tech: total_q_tech / count as f64,
+            mean_d_doc: total_d_doc / count as f64,
+            mean_e_cost: total_e_cost / count as f64,
+            mean_h_inv: total_h_inv / count as f64,
+            mean_penalties: total_penalties / count as f64,
+            latest_timestamp_unix: latest_ts,
+            decay_half_life_days: half_life_days,
+        })
+    }
+
     fn schema_version(&self) -> Result<i64> {
         self.conn
             .query_row(
@@ -1228,6 +1593,34 @@ CREATE TABLE IF NOT EXISTS delegate_receipts (
     receipt_hash TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_delegate_receipts_agent_model ON delegate_receipts(agent_id, model_id);
+"#;
+
+const MIGRATION_V5: &str = r#"
+CREATE TABLE IF NOT EXISTS empirical_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    correlation_id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    language_stack TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    timestamp_bucket TEXT NOT NULL,
+    s_rec REAL NOT NULL,
+    c_law REAL NOT NULL,
+    q_tech REAL NOT NULL,
+    d_doc REAL NOT NULL,
+    e_cost REAL NOT NULL,
+    h_inv REAL NOT NULL,
+    penalties REAL NOT NULL DEFAULT 0,
+    score REAL NOT NULL,
+    created_at_unix INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_empirical_history_agent_model_repo_task ON empirical_history(agent_id, model_id, repo, task_type);
+CREATE INDEX IF NOT EXISTS idx_empirical_history_created_at ON empirical_history(created_at_unix);
 "#;
 
 #[cfg(test)]
@@ -1672,14 +2065,17 @@ mod tests {
         let store = open(Some(&path)).expect("open state upgrades from v2 to v4");
         let status = store.status().expect("status");
 
-        assert_eq!(status.schema_version, 4);
-        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4]);
+        assert_eq!(status.schema_version, 5);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5]);
         assert!(status
             .tables_present
             .contains(&"quota_snapshots".to_string()));
         assert!(status
             .tables_present
             .contains(&"delegate_receipts".to_string()));
+        assert!(status
+            .tables_present
+            .contains(&"empirical_history".to_string()));
 
         // 3. Verify pre-existing v2 data was preserved
         let agent = store
@@ -1780,5 +2176,241 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].correlation_id, "del-corr-1");
         assert_eq!(all[0].agent, "agy");
+    }
+
+    #[test]
+    fn test_empirical_history_insert_list_and_aggregate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        let now = now_unix();
+        let rec1 = EmpiricalRecordInput {
+            correlation_id: "emp-corr-1".to_string(),
+            user_id: "freddy".to_string(),
+            repo: "agent-orchestrator".to_string(),
+            language_stack: "rust".to_string(),
+            task_type: "feature".to_string(),
+            risk_level: "medio".to_string(),
+            agent_id: "agy".to_string(),
+            provider_id: "google".to_string(),
+            model_id: "gemini-3.7-flash-high".to_string(),
+            mode: "agentic".to_string(),
+            timestamp_bucket: "2026-09-04".to_string(),
+            s_rec: 1.0,
+            c_law: 1.0,
+            q_tech: 1.0,
+            d_doc: 1.0,
+            e_cost: 1.0,
+            h_inv: 0.0,
+            penalties: -1.0,
+            score: 2.0,
+            created_at_unix: Some(now.saturating_sub(86400 * 5)),
+        };
+
+        let rec2 = EmpiricalRecordInput {
+            correlation_id: "emp-corr-2".to_string(),
+            user_id: "freddy".to_string(),
+            repo: "agent-orchestrator".to_string(),
+            language_stack: "rust".to_string(),
+            task_type: "feature".to_string(),
+            risk_level: "medio".to_string(),
+            agent_id: "agy".to_string(),
+            provider_id: "google".to_string(),
+            model_id: "gemini-3.7-flash-high".to_string(),
+            mode: "agentic".to_string(),
+            timestamp_bucket: "2026-09-04".to_string(),
+            s_rec: 0.0,
+            c_law: 1.0,
+            q_tech: 0.0,
+            d_doc: 1.0,
+            e_cost: 1.0,
+            h_inv: 0.0,
+            penalties: 2.5,
+            score: -2.0,
+            created_at_unix: Some(now.saturating_sub(3600)),
+        };
+
+        let inserted1 = store.insert_empirical_record(&rec1).expect("insert rec1");
+        assert_eq!(inserted1.correlation_id, "emp-corr-1");
+        assert_eq!(inserted1.score, 2.0);
+
+        let inserted2 = store.insert_empirical_record(&rec2).expect("insert rec2");
+        assert_eq!(inserted2.correlation_id, "emp-corr-2");
+        assert_eq!(inserted2.score, -2.0);
+
+        // Filter search
+        let list_all = store
+            .list_empirical_history(&EmpiricalHistoryFilter {
+                agent_id: Some("agy".to_string()),
+                model_id: Some("gemini-3.7-flash-high".to_string()),
+                repo: Some("agent-orchestrator".to_string()),
+                task_type: Some("feature".to_string()),
+                user_id: None,
+                limit: None,
+            })
+            .expect("list history");
+        assert_eq!(list_all.len(), 2);
+        assert_eq!(list_all[0].correlation_id, "emp-corr-2"); // ordered by created_at desc
+        assert_eq!(list_all[1].correlation_id, "emp-corr-1");
+
+        // Aggregation
+        let agg = store
+            .aggregate_scores(
+                "agy",
+                "gemini-3.7-flash-high",
+                Some("agent-orchestrator"),
+                Some("feature"),
+            )
+            .expect("aggregate scores");
+        assert_eq!(agg.sample_count, 2);
+        assert_eq!(agg.mean_score, 0.0);
+        assert_eq!(agg.mean_s_rec, 0.5);
+        assert!(agg.decay_weighted_score < 0.0); // more recent rec2 is negative
+
+        // Empty aggregation
+        let empty_agg = store
+            .aggregate_scores("non-existent-agent", "model", None, None)
+            .expect("empty aggregate");
+        assert_eq!(empty_agg.sample_count, 0);
+        assert_eq!(empty_agg.mean_score, 0.0);
+    }
+
+    #[test]
+    fn test_migration_v5_creates_empirical_history_and_preserves_data() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("v4_state.sqlite");
+
+        // Setup manual v4 database
+        {
+            let raw_conn = rusqlite::Connection::open(&path).expect("open raw sqlite");
+            raw_conn
+                .execute_batch(
+                    r#"
+                    CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE agents (
+                        agent_id TEXT PRIMARY KEY,
+                        display_name TEXT NOT NULL,
+                        adapter_status TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at_unix INTEGER NOT NULL
+                    );
+                    CREATE TABLE delegate_receipts (
+                        correlation_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        task_kind TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        verdict TEXT NOT NULL,
+                        evidence TEXT NOT NULL,
+                        reason TEXT,
+                        duration_ms INTEGER NOT NULL,
+                        secrets_read INTEGER NOT NULL DEFAULT 0,
+                        receipt_json TEXT NOT NULL,
+                        created_at_unix INTEGER NOT NULL,
+                        receipt_hash TEXT NOT NULL DEFAULT ''
+                    );
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (1, 1000);
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (2, 2000);
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (3, 3000);
+                    INSERT INTO schema_migrations(version, applied_at_unix) VALUES (4, 4000);
+                    INSERT INTO agents(agent_id, display_name, adapter_status, metadata_json, updated_at_unix)
+                    VALUES ('test-v4-agent', 'Test V4 Agent', 'available', '{}', 4000);
+                    "#,
+                )
+                .expect("setup v4 database");
+        }
+
+        // Open with state::open which runs migrations up to v5
+        let store = open(Some(&path)).expect("upgrade to v5");
+        let status = store.status().expect("status");
+        assert_eq!(status.schema_version, 5);
+        assert!(status
+            .tables_present
+            .contains(&"empirical_history".to_string()));
+        assert!(status
+            .tables_present
+            .contains(&"delegate_receipts".to_string()));
+
+        let agent = store
+            .find_agent("test-v4-agent")
+            .expect("find agent")
+            .expect("exists");
+        assert_eq!(agent.display_name, "Test V4 Agent");
+    }
+
+    #[test]
+    fn test_ingest_from_delegate_receipts_is_idempotent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        let receipt1 = DelegateReceipt {
+            schema_version: 1,
+            correlation_id: "ingest-corr-1".to_string(),
+            agent: "agy".to_string(),
+            model: "gemini-3.7-flash-high".to_string(),
+            command: vec!["rtk".to_string(), "agy".to_string()],
+            status: crate::receipt::DelegateStatus::Validated,
+            reason: None,
+            verdict: crate::receipt::DelegateVerdict::Util,
+            evidence: "123456789abc".to_string(),
+            stdout_tail: "ok".to_string(),
+            stderr_tail: String::new(),
+            started_at_unix: 1788523200,
+            duration_ms: 50,
+            timeout_seconds: 60,
+            exit_code: Some(0),
+            secrets_read: false,
+        };
+
+        let receipt2 = DelegateReceipt {
+            schema_version: 1,
+            correlation_id: "ingest-corr-2".to_string(),
+            agent: "claude-code".to_string(),
+            model: "claude-3-7-sonnet".to_string(),
+            command: vec!["rtk".to_string(), "claude".to_string()],
+            status: crate::receipt::DelegateStatus::Failed,
+            reason: Some("not_executed".to_string()),
+            verdict: crate::receipt::DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            stdout_tail: String::new(),
+            stderr_tail: "err".to_string(),
+            started_at_unix: 1788523300,
+            duration_ms: 10,
+            timeout_seconds: 60,
+            exit_code: Some(1),
+            secrets_read: false,
+        };
+
+        store
+            .insert_delegate_receipt(&receipt1, "delegate")
+            .expect("insert r1");
+        store
+            .insert_delegate_receipt(&receipt2, "delegate")
+            .expect("insert r2");
+
+        // First ingestion
+        let report1 = crate::score::ingest_from_delegate_receipts(&store).expect("ingest 1");
+        assert_eq!(report1.total_receipts_scanned, 2);
+        assert_eq!(report1.records_ingested, 2);
+
+        let history1 = store
+            .list_empirical_history(&EmpiricalHistoryFilter::default())
+            .expect("list history 1");
+        assert_eq!(history1.len(), 2);
+
+        // Second ingestion - should be completely idempotent (upsert)
+        let report2 = crate::score::ingest_from_delegate_receipts(&store).expect("ingest 2");
+        assert_eq!(report2.total_receipts_scanned, 2);
+        assert_eq!(report2.records_ingested, 2);
+
+        let history2 = store
+            .list_empirical_history(&EmpiricalHistoryFilter::default())
+            .expect("list history 2");
+        assert_eq!(history2.len(), 2); // Count remains 2
     }
 }

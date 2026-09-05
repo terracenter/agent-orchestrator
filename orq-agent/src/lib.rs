@@ -14,11 +14,12 @@ mod exec;
 mod models;
 mod policy;
 mod quota;
-mod receipt;
+pub mod receipt;
 mod route;
 pub mod runtime;
+pub mod score;
 mod smoke;
-mod state;
+pub mod state;
 
 #[derive(Debug, Parser)]
 #[command(about = "Real local dispatcher for Orq agents")]
@@ -301,6 +302,76 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Calculate and inspect empirical scoring, weights, and delegation penalties.
+    Score {
+        #[command(subcommand)]
+        command: ScoreSubcommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ScoreSubcommand {
+    /// Print documented weights, metric definitions, and formula.
+    Weights {
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// List empirical execution records from SQLite store.
+    List {
+        /// Filter by agent adapter name.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Filter by model identifier.
+        #[arg(long)]
+        model: Option<String>,
+        /// Filter by repository name.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Filter by task type.
+        #[arg(long)]
+        task_type: Option<String>,
+        /// Limit number of records returned.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Ingest and compute scores from delegate receipts into empirical history.
+    #[command(name = "ingest-from-receipts")]
+    IngestFromReceipts {
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Compute composite aggregate score with temporal decay for an agent/model.
+    Aggregate {
+        /// Agent adapter name.
+        #[arg(long)]
+        agent: String,
+        /// Model identifier.
+        #[arg(long)]
+        model: String,
+        /// Optional repository filter.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Optional task type filter.
+        #[arg(long)]
+        task_type: Option<String>,
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
@@ -841,7 +912,94 @@ async fn run_command(command: Commands) -> Result<()> {
             persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate");
             print_json(format, &output)
         }
+        Commands::Score { command } => match command {
+            ScoreSubcommand::Weights { format } => {
+                let report = commands::score::run_weights().await?;
+                print_score_weights(format, &report)?;
+                Ok(())
+            }
+            ScoreSubcommand::List {
+                agent,
+                model,
+                repo,
+                task_type,
+                limit,
+                db_path,
+                format,
+            } => {
+                let records = commands::score::run_list(commands::score::ScoreListArgs {
+                    agent,
+                    model,
+                    repo,
+                    task_type,
+                    limit,
+                    db_path,
+                })
+                .await?;
+                print_json(format, &records)
+            }
+            ScoreSubcommand::IngestFromReceipts { db_path, format } => {
+                let report =
+                    commands::score::run_ingest(commands::score::ScoreIngestArgs { db_path })
+                        .await?;
+                print_json(format, &report)
+            }
+            ScoreSubcommand::Aggregate {
+                agent,
+                model,
+                repo,
+                task_type,
+                db_path,
+                format,
+            } => {
+                let agg = commands::score::run_aggregate(commands::score::ScoreAggregateArgs {
+                    agent,
+                    model,
+                    repo,
+                    task_type,
+                    db_path,
+                })
+                .await?;
+                print_json(format, &agg)
+            }
+        },
     }
+}
+
+fn print_score_weights(format: OutputFormat, report: &score::ScoreWeightsReport) -> Result<()> {
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(report)?);
+        }
+        OutputFormat::Text => {
+            println!("=== Orq Composite Scoring Weights ===");
+            println!("Formula: {}", report.formula);
+            println!("Weights:");
+            println!("  w1 (S_rec) = {:.2}", report.weights.w1);
+            println!("  w2 (C_law) = {:.2}", report.weights.w2);
+            println!("  w3 (Q_tech)= {:.2}", report.weights.w3);
+            println!("  w4 (D_doc) = {:.2}", report.weights.w4);
+            println!("  w5 (E_cost)= {:.2}", report.weights.w5);
+            println!("  w6 (H_inv) = {:.2}", report.weights.w6);
+            println!("--------------------------------------");
+            println!("Metrics:");
+            for m in &report.metrics_description {
+                println!(
+                    "  [{:6}] {:30} (weight: {:.2}) - {}",
+                    m.code, m.name, m.weight, m.description
+                );
+            }
+            println!("--------------------------------------");
+            println!("Delegation Penalties (§3.9):");
+            for p in &report.delegation_penalties {
+                println!(
+                    "  [{:9}] {:15} | Impact: {:+4.1} | {}",
+                    p.status, p.verdict, p.impact, p.description
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn receipt_to_exec(receipt: &receipt::ExecReceipt) -> receipt::ExecReceipt {
