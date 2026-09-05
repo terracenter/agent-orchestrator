@@ -5,3 +5,4 @@ pub(crate) mod detect;
 pub(crate) mod models;
 pub(crate) mod quota;
 pub(crate) mod route;
+pub(crate) mod score;

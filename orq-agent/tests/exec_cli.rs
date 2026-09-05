@@ -203,7 +203,7 @@ fn state_status_creates_temp_db_without_secrets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 4"))
+        .stdout(predicate::str::contains("\"schema_version\": 5"))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
         .stdout(predicate::str::contains("agents"))
         .stdout(predicate::str::contains("models"));
@@ -1094,7 +1094,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    // Open first time (migrates to version 3)
+    // Open first time (migrates to version 5)
     let mut status_cmd = Command::cargo_bin("orq-agent").unwrap();
     status_cmd
         .args([
@@ -1107,7 +1107,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 4"))
+        .stdout(predicate::str::contains("\"schema_version\": 5"))
         .stdout(predicate::str::contains("quota_snapshots"));
 
     // Migrate again explicitly
@@ -1123,7 +1123,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 4"));
+        .stdout(predicate::str::contains("\"schema_version\": 5"));
 }
 
 #[test]
@@ -2163,5 +2163,187 @@ fn orq_alias_supports_agents_and_models_snapshot() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+}
+
+#[test]
+fn score_weights_prints_formula_and_weights_json_and_text() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["score", "weights", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Score = w1*S_rec + w2*C_law + w3*Q_tech + w4*D_doc + w5*E_cost - w6*H_inv - Penalties",
+        ))
+        .stdout(predicate::str::contains("\"w1\": 0.3"))
+        .stdout(predicate::str::contains("\"w2\": 0.2"))
+        .stdout(predicate::str::contains("\"w3\": 0.2"))
+        .stdout(predicate::str::contains("\"w4\": 0.1"))
+        .stdout(predicate::str::contains("\"w5\": 0.2"))
+        .stdout(predicate::str::contains("\"w6\": 0.1"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("not_executed"))
+        .stdout(predicate::str::contains("plan_solo"))
+        .stdout(predicate::str::contains("timeout_sin_evidencia"));
+
+    let mut cmd_text = Command::cargo_bin("orq-agent").unwrap();
+    cmd_text
+        .args(["score", "weights", "--format", "text"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "=== Orq Composite Scoring Weights ===",
+        ))
+        .stdout(predicate::str::contains("Formula: Score = w1*S_rec"))
+        .stdout(predicate::str::contains("w1 (S_rec) = 0.30"))
+        .stdout(predicate::str::contains("w6 (H_inv) = 0.10"));
+}
+
+#[test]
+fn score_list_empty_and_filter() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "score",
+            "list",
+            "--agent",
+            "agy",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[]"));
+}
+
+#[test]
+fn score_ingest_from_receipts_and_aggregate() {
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    // Insert delegate receipts directly into SQLite
+    {
+        let store = orq_agent::state::open(Some(&db)).unwrap();
+        let receipt1 = orq_agent::receipt::DelegateReceipt {
+            schema_version: 1,
+            correlation_id: "ingest-cli-1".to_string(),
+            agent: "agy".to_string(),
+            model: "gemini-3.7-flash-high".to_string(),
+            command: vec!["rtk".to_string(), "agy".to_string()],
+            status: orq_agent::receipt::DelegateStatus::Validated,
+            reason: None,
+            verdict: orq_agent::receipt::DelegateVerdict::Util,
+            evidence: "commit123456".to_string(),
+            stdout_tail: "finished ok".to_string(),
+            stderr_tail: String::new(),
+            started_at_unix: 1788523200,
+            duration_ms: 100,
+            timeout_seconds: 60,
+            exit_code: Some(0),
+            secrets_read: false,
+        };
+        let receipt2 = orq_agent::receipt::DelegateReceipt {
+            schema_version: 1,
+            correlation_id: "ingest-cli-2".to_string(),
+            agent: "agy".to_string(),
+            model: "gemini-3.7-flash-high".to_string(),
+            command: vec!["rtk".to_string(), "agy".to_string()],
+            status: orq_agent::receipt::DelegateStatus::Failed,
+            reason: Some("not_executed".to_string()),
+            verdict: orq_agent::receipt::DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            stdout_tail: String::new(),
+            stderr_tail: "failed".to_string(),
+            started_at_unix: 1788523300,
+            duration_ms: 10,
+            timeout_seconds: 60,
+            exit_code: Some(1),
+            secrets_read: false,
+        };
+        store
+            .insert_delegate_receipt(&receipt1, "delegate")
+            .unwrap();
+        store
+            .insert_delegate_receipt(&receipt2, "delegate")
+            .unwrap();
+    }
+
+    // Run score ingest-from-receipts
+    let mut ingest_cmd = Command::cargo_bin("orq-agent").unwrap();
+    ingest_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "score",
+            "ingest-from-receipts",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"total_receipts_scanned\": 2"))
+        .stdout(predicate::str::contains("\"records_ingested\": 2"))
+        .stdout(predicate::str::contains("\"secrets_read\": false"));
+
+    // Run score list
+    let mut list_cmd = Command::cargo_bin("orq-agent").unwrap();
+    list_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "score",
+            "list",
+            "--agent",
+            "agy",
+            "--model",
+            "gemini-3.7-flash-high",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ingest-cli-1"))
+        .stdout(predicate::str::contains("ingest-cli-2"));
+
+    // Run score aggregate
+    let mut agg_cmd = Command::cargo_bin("orq-agent").unwrap();
+    agg_cmd
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "score",
+            "aggregate",
+            "--agent",
+            "agy",
+            "--model",
+            "gemini-3.7-flash-high",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"sample_count\": 2"))
+        .stdout(predicate::str::contains("\"agent_id\": \"agy\""))
+        .stdout(predicate::str::contains(
+            "\"model_id\": \"gemini-3.7-flash-high\"",
+        ))
+        .stdout(predicate::str::contains("\"decay_weighted_score\""));
+}
+
+#[test]
+fn orq_alias_supports_score_subcommands() {
+    let mut cmd = Command::cargo_bin("orq").unwrap();
+    cmd.args(["score", "weights", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"w1\": 0.3"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
 }
