@@ -1,4 +1,6 @@
-use crate::receipt::{receipt_sha256, ExecReceipt};
+use crate::receipt::{
+    delegate_receipt_sha256, receipt_sha256, DelegateReceipt, ExecReceipt,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -6,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 3;
+const LATEST_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -256,10 +258,22 @@ impl StateStore {
             })?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (3, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite { context: "record migration 3", source })?;
+        self.conn
+            .execute_batch(MIGRATION_V4)
+            .map_err(|source| StoreError::Sqlite {
+                context: "apply migration 4 (delegate_receipts)",
+                source,
+            })?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
-            .map_err(|source| StoreError::Sqlite { context: "record migration 3", source })?;
+            .map_err(|source| StoreError::Sqlite { context: "record migration 4", source })?;
         Ok(())
     }
 
@@ -428,6 +442,173 @@ impl StateStore {
             .optional()
             .map_err(|source| StoreError::Sqlite {
                 context: "find receipt",
+                source,
+            })
+    }
+
+    pub fn insert_delegate_receipt(
+        &self,
+        receipt: &DelegateReceipt,
+        task_kind: &str,
+    ) -> Result<StoredReceipt> {
+        let receipt_hash = delegate_receipt_sha256(receipt)
+            .map_err(|error| StoreError::Config(format!("hash delegate receipt: {error}")))?;
+        let receipt_json =
+            serde_json::to_string(receipt).map_err(|source| StoreError::Serialization {
+                context: "serialize delegate receipt",
+                source,
+            })?;
+        let duration_ms = i64::try_from(receipt.duration_ms).map_err(|_| {
+            StoreError::Config("receipt duration_ms exceeds SQLite INTEGER range".to_string())
+        })?;
+        let created_at_unix = now_unix();
+        let created_at_i64 = i64::try_from(created_at_unix).map_err(|_| {
+            StoreError::Config("receipt created_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+        let status = serde_json::to_value(&receipt.status)
+            .ok()
+            .and_then(|v| v.as_str().map(ToString::to_string))
+            .unwrap_or_else(|| "unknown".to_string());
+        let verdict = serde_json::to_value(&receipt.verdict)
+            .ok()
+            .and_then(|v| v.as_str().map(ToString::to_string))
+            .unwrap_or_else(|| "indeterminado".to_string());
+        let secrets_read = i64::from(receipt.secrets_read);
+
+        self.conn
+            .execute(
+                "INSERT INTO delegate_receipts(correlation_id, agent_id, model_id, task_kind, status,
+                 verdict, evidence, reason, duration_ms, secrets_read, receipt_json, created_at_unix, receipt_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    receipt.correlation_id,
+                    receipt.agent,
+                    receipt.model,
+                    task_kind,
+                    status,
+                    verdict,
+                    receipt.evidence,
+                    receipt.reason,
+                    duration_ms,
+                    secrets_read,
+                    receipt_json,
+                    created_at_i64,
+                    receipt_hash,
+                ],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "insert delegate receipt",
+                source,
+            })?;
+
+        // Also insert into receipts table for backwards compatibility
+        let legacy_status = match receipt.status {
+            crate::receipt::DelegateStatus::Validated => "succeeded",
+            crate::receipt::DelegateStatus::Executed => "succeeded",
+            crate::receipt::DelegateStatus::Failed => "failed",
+            crate::receipt::DelegateStatus::Planned => "planned",
+            crate::receipt::DelegateStatus::CommandGenerated => "command_generated",
+        };
+        let legacy_exec_receipt = ExecReceipt {
+            schema_version: receipt.schema_version,
+            correlation_id: receipt.correlation_id.clone(),
+            agent: receipt.agent.clone(),
+            model: receipt.model.clone(),
+            command: receipt.command.clone(),
+            status: match receipt.status {
+                crate::receipt::DelegateStatus::Validated => crate::receipt::ExecStatus::Succeeded,
+                crate::receipt::DelegateStatus::Executed => crate::receipt::ExecStatus::Succeeded,
+                _ => crate::receipt::ExecStatus::Failed,
+            },
+            policy_reason: receipt.reason.clone().unwrap_or_default(),
+            started_at_unix: receipt.started_at_unix,
+            duration_ms: receipt.duration_ms,
+            timeout_seconds: receipt.timeout_seconds,
+            exit_code: receipt.exit_code,
+            stdout_tail: receipt.stdout_tail.clone(),
+            stderr_tail: receipt.stderr_tail.clone(),
+            secrets_read: receipt.secrets_read,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+        };
+        let legacy_receipt_json = serde_json::to_string(&legacy_exec_receipt)
+            .map_err(|source| StoreError::Serialization {
+                context: "serialize legacy exec receipt",
+                source,
+            })?;
+        let _ = self.conn.execute(
+            "INSERT OR REPLACE INTO receipts(correlation_id, agent_id, model_id, task_kind, status,
+             duration_ms, secrets_read, receipt_json, created_at_unix, receipt_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                receipt.correlation_id,
+                receipt.agent,
+                receipt.model,
+                task_kind,
+                legacy_status,
+                duration_ms,
+                secrets_read,
+                legacy_receipt_json,
+                created_at_i64,
+                receipt_hash,
+            ],
+        );
+
+        Ok(StoredReceipt {
+            correlation_id: receipt.correlation_id.clone(),
+            agent_id: receipt.agent.clone(),
+            model_id: receipt.model.clone(),
+            task_kind: task_kind.to_string(),
+            status,
+            duration_ms: receipt.duration_ms,
+            secrets_read: receipt.secrets_read,
+            receipt_hash,
+            receipt: ExecReceipt {
+                schema_version: receipt.schema_version,
+                correlation_id: receipt.correlation_id.clone(),
+                agent: receipt.agent.clone(),
+                model: receipt.model.clone(),
+                command: receipt.command.clone(),
+                status: match receipt.status {
+                    crate::receipt::DelegateStatus::Validated => crate::receipt::ExecStatus::Succeeded,
+                    crate::receipt::DelegateStatus::Executed => crate::receipt::ExecStatus::Succeeded,
+                    _ => crate::receipt::ExecStatus::Failed,
+                },
+                policy_reason: receipt.reason.clone().unwrap_or_default(),
+                started_at_unix: receipt.started_at_unix,
+                duration_ms: receipt.duration_ms,
+                timeout_seconds: receipt.timeout_seconds,
+                exit_code: receipt.exit_code,
+                stdout_tail: receipt.stdout_tail.clone(),
+                stderr_tail: receipt.stderr_tail.clone(),
+                secrets_read: receipt.secrets_read,
+                cleanup_attempted: false,
+                cleanup_succeeded: false,
+            },
+            created_at_unix,
+        })
+    }
+
+    pub fn find_delegate_receipt(&self, correlation_id: &str) -> Result<Option<DelegateReceipt>> {
+        self.conn
+            .query_row(
+                "SELECT receipt_json FROM delegate_receipts WHERE correlation_id=?1",
+                params![correlation_id],
+                |row| {
+                    let json: String = row.get(0)?;
+                    let receipt = serde_json::from_str(&json).map_err(|source| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(source),
+                        )
+                    })?;
+                    Ok(receipt)
+                },
+            )
+            .optional()
+            .map_err(|source| StoreError::Sqlite {
+                context: "find delegate receipt",
                 source,
             })
     }
@@ -1009,6 +1190,25 @@ CREATE INDEX IF NOT EXISTS idx_route_scores_agent_model_task ON route_scores(age
 CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider_scope ON quota_snapshots(provider, scope, captured_at_unix DESC);
 "#;
 
+const MIGRATION_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS delegate_receipts (
+    correlation_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    task_kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    reason TEXT,
+    duration_ms INTEGER NOT NULL,
+    secrets_read INTEGER NOT NULL DEFAULT 0,
+    receipt_json TEXT NOT NULL,
+    created_at_unix INTEGER NOT NULL,
+    receipt_hash TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_delegate_receipts_agent_model ON delegate_receipts(agent_id, model_id);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1448,14 +1648,17 @@ mod tests {
         }
 
         // 2. Open with state::open (which runs migrate())
-        let store = open(Some(&path)).expect("open state upgrades from v2 to v3");
+        let store = open(Some(&path)).expect("open state upgrades from v2 to v4");
         let status = store.status().expect("status");
 
-        assert_eq!(status.schema_version, 3);
-        assert_eq!(status.migrations_applied, vec![1, 2, 3]);
+        assert_eq!(status.schema_version, 4);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4]);
         assert!(status
             .tables_present
             .contains(&"quota_snapshots".to_string()));
+        assert!(status
+            .tables_present
+            .contains(&"delegate_receipts".to_string()));
 
         // 3. Verify pre-existing v2 data was preserved
         let agent = store
@@ -1487,5 +1690,53 @@ mod tests {
             .expect("latest snapshots");
         assert_eq!(latest.len(), 1);
         assert_eq!(latest[0].scope, "gemini-weekly");
+    }
+
+    #[test]
+    fn test_delegate_receipt_insert_and_find() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        let receipt = DelegateReceipt {
+            schema_version: 1,
+            correlation_id: "del-corr-1".to_string(),
+            agent: "agy".to_string(),
+            model: "gemini-3.7-flash-high".to_string(),
+            command: vec!["rtk".to_string(), "agy".to_string()],
+            status: crate::receipt::DelegateStatus::Validated,
+            reason: None,
+            verdict: crate::receipt::DelegateVerdict::Util,
+            evidence: "abcdef123456".to_string(),
+            stdout_tail: "finished successfully".to_string(),
+            stderr_tail: String::new(),
+            started_at_unix: 1000,
+            duration_ms: 120,
+            timeout_seconds: 60,
+            exit_code: Some(0),
+            secrets_read: false,
+        };
+
+        let stored = store
+            .insert_delegate_receipt(&receipt, "delegate")
+            .expect("insert delegate receipt");
+        assert_eq!(stored.correlation_id, "del-corr-1");
+        assert_eq!(stored.status, "validated");
+
+        let found = store
+            .find_delegate_receipt("del-corr-1")
+            .expect("find delegate receipt")
+            .expect("delegate receipt must exist");
+        assert_eq!(found.correlation_id, "del-corr-1");
+        assert_eq!(found.status, crate::receipt::DelegateStatus::Validated);
+        assert_eq!(found.verdict, crate::receipt::DelegateVerdict::Util);
+        assert_eq!(found.evidence, "abcdef123456");
+
+        // Check fallback in legacy receipts table
+        let found_legacy = store
+            .find_receipt("del-corr-1")
+            .expect("find legacy receipt")
+            .expect("legacy receipt exists");
+        assert_eq!(found_legacy.correlation_id, "del-corr-1");
     }
 }

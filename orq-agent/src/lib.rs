@@ -17,6 +17,7 @@ mod receipt;
 mod route;
 mod smoke;
 mod state;
+pub mod delegate;
 
 #[derive(Debug, Parser)]
 #[command(about = "Real local dispatcher for Orq agents")]
