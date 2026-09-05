@@ -605,6 +605,33 @@ impl StateStore {
             })
     }
 
+    pub fn list_delegate_receipts(&self) -> Result<Vec<DelegateReceipt>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT receipt_json FROM delegate_receipts ORDER BY created_at_unix ASC")
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare list delegate receipts",
+                source,
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                let json: String = row.get(0)?;
+                let receipt = serde_json::from_str(&json).map_err(|source| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(source),
+                    )
+                })?;
+                Ok(receipt)
+            })
+            .map_err(|source| StoreError::Sqlite {
+                context: "query list delegate receipts",
+                source,
+            })?;
+        collect_rows(rows, "list delegate receipts")
+    }
+
     #[allow(dead_code)]
     pub fn upsert_agent(&self, agent: &AgentRecord) -> Result<()> {
         self.conn.execute(
@@ -1743,5 +1770,13 @@ mod tests {
             found_legacy.receipt_hash,
             receipt_sha256(&found_legacy.receipt).expect("hash legacy receipt")
         );
+
+        // Check list_delegate_receipts
+        let all = store
+            .list_delegate_receipts()
+            .expect("list delegate receipts");
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].correlation_id, "del-corr-1");
+        assert_eq!(all[0].agent, "agy");
     }
 }
