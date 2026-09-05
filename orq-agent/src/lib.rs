@@ -5,8 +5,9 @@ use serde::Serialize;
 mod adapters;
 mod certify;
 mod certstore;
-pub mod compliance;
 mod commands;
+pub mod compliance;
+pub mod delegate;
 mod detect;
 mod discover;
 mod exec;
@@ -15,9 +16,9 @@ mod policy;
 mod quota;
 mod receipt;
 mod route;
+pub mod runtime;
 mod smoke;
 mod state;
-pub mod delegate;
 
 #[derive(Debug, Parser)]
 #[command(about = "Real local dispatcher for Orq agents")]
@@ -28,6 +29,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Manage, discover and diagnose local agents.
+    Agents {
+        #[command(subcommand)]
+        command: AgentsSubcommand,
+    },
     /// Detect local agent runners without reading secrets.
     Detect {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
@@ -96,7 +102,7 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
-        /// Subcommand for models management (e.g. refresh).
+        /// Subcommand for models management (e.g. refresh, snapshot).
         #[command(subcommand)]
         command: Option<ModelsSubcommand>,
         /// Output format.
@@ -311,6 +317,51 @@ enum OutputFormat {
 }
 
 #[derive(Debug, Subcommand)]
+enum AgentsSubcommand {
+    /// Scan binaries in PATH and parse runtime into a discover snapshot.
+    Discover {
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Re-inspect a single agent runtime.
+    Refresh {
+        /// Agent adapter name (e.g. qwen-code, claude-code, hermes).
+        agent: String,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Validate health of binaries, wrappers (rtk, vg, engram) and sandbox.
+    Doctor {
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum ModelsSubcommand {
     /// Refresh the models catalog from a market feed.
     Refresh {
@@ -320,6 +371,21 @@ enum ModelsSubcommand {
         /// Optional models catalog JSON path. Uses bundled config or env when omitted.
         #[arg(long)]
         catalog: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Export consolidated timestamped catalog snapshot to JSON.
+    Snapshot {
+        /// Optional output file path for snapshot JSON.
+        #[arg(long)]
+        output: Option<String>,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -412,6 +478,53 @@ pub async fn run_cli() -> Result<()> {
 
 async fn run_command(command: Commands) -> Result<()> {
     match command {
+        Commands::Agents { command } => match command {
+            AgentsSubcommand::Discover {
+                adapters_config,
+                models_config,
+                db_path,
+                format,
+            } => {
+                let report =
+                    commands::agents::run_discover(commands::agents::AgentsDiscoverArgs {
+                        adapters_config,
+                        models_config,
+                        db_path,
+                    })
+                    .await?;
+                print_json(format, &report)
+            }
+            AgentsSubcommand::Refresh {
+                agent,
+                adapters_config,
+                models_config,
+                db_path,
+                format,
+            } => {
+                let report = commands::agents::run_refresh(commands::agents::AgentRefreshArgs {
+                    agent,
+                    adapters_config,
+                    models_config,
+                    db_path,
+                })
+                .await?;
+                print_json(format, &report)
+            }
+            AgentsSubcommand::Doctor {
+                adapters_config,
+                format,
+            } => {
+                let report = commands::agents::run_doctor(commands::agents::DoctorArgs {
+                    adapters_config,
+                })
+                .await?;
+                print_doctor_report(format, &report)?;
+                if report.exit_code != 0 {
+                    std::process::exit(report.exit_code);
+                }
+                Ok(())
+            }
+        },
         Commands::Detect {
             adapters_config,
             format,
@@ -484,6 +597,20 @@ async fn run_command(command: Commands) -> Result<()> {
                 .await?;
                 print_json(refresh_format, &summary)
             }
+            Some(ModelsSubcommand::Snapshot {
+                output,
+                adapters_config: snapshot_adapters_config,
+                models_config: snapshot_models_config,
+                format: snapshot_format,
+            }) => {
+                let snapshot = commands::models::run_snapshot(commands::models::ModelsSnapshotArgs {
+                    output,
+                    adapters_config: snapshot_adapters_config,
+                    models_config: snapshot_models_config,
+                })
+                .await?;
+                print_json(snapshot_format, &snapshot)
+            }
             None => {
                 let agent = agent.ok_or_else(|| {
                     color_eyre::eyre::eyre!("missing required argument '--agent <AGENT>'")
@@ -553,7 +680,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 &certificate.receipt,
                 &certificate.task_kind,
             );
-            record_exec_breaker_outcome(db_path.as_deref(), &certificate.receipt);
+            record_exec_breaker_outcome(db_path.as_deref(), &receipt_to_exec(&certificate.receipt));
             print_json(format, &certificate)
         }
         Commands::Quota { command } => match command {
@@ -716,6 +843,32 @@ async fn run_command(command: Commands) -> Result<()> {
             print_json(format, &output)
         }
     }
+}
+
+fn receipt_to_exec(receipt: &receipt::ExecReceipt) -> receipt::ExecReceipt {
+    receipt.clone()
+}
+
+fn print_doctor_report(format: OutputFormat, report: &runtime::DoctorReport) -> Result<()> {
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(report)?);
+        }
+        OutputFormat::Text => {
+            println!("=== Orq Agents Doctor Report ===");
+            println!("Doctor At:   {}", report.doctor_at);
+            println!("Status:      {}", report.status);
+            println!("Exit Code:   {}", report.exit_code);
+            println!("--------------------------------");
+            for c in &report.components {
+                println!(
+                    "[{:7}] {:20} | Status: {:7} | {}",
+                    c.kind, c.name, c.health, c.details
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn print_compliance_report(
