@@ -3,10 +3,9 @@
 > [!IMPORTANT]
 > **Estado:** Draft / En Revisión  
 > **Fecha:** 2026-09-04  
-> **Autor:** Freddy Taborda (`terracenter@gmail.com`)  
 > **Issue Asociado:** [#81](https://github.com/terracenter/agent-orchestrator/issues/81)  
 > **Repositorio:** `terracenter/agent-orchestrator`  
-> **Documentos Relacionados:** [docs/rdd-recibos-verificables.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/rdd-recibos-verificables.md) (#79), [docs/model-capability-certification.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/model-capability-certification.md), [docs/agent-model-capabilities.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/agent-model-capabilities.md), issue #148 (MarketFeed & Adaptive Fallback).
+> **Documentos Relacionados:** [docs/rdd-recibos-verificables.md](rdd-recibos-verificables.md) (#79), [docs/model-capability-certification.md](model-capability-certification.md), [docs/agent-model-capabilities.md](agent-model-capabilities.md), issue #148 (MarketFeed & Adaptive Fallback).
 
 ---
 
@@ -86,7 +85,7 @@ Se erradica la premisa `agente == modelo`. Un agente es un arnés de ejecución 
 
 #### Jerarquía Conceptual:
 ```text
-Usuario (Freddy Taborda)
+Usuario (operador)
   └── Agente (ej. qwen-code, claude-code, hermes, agy, openclaw)
         └── Proveedor / Backend (ej. bailian, anthropic-api, openrouter, local-ollama)
               └── Modelo (ej. qwen3.8-max, claude-3-7-sonnet, glm-5)
@@ -103,7 +102,7 @@ El schema v2 introducido en el issue #148 (`fetched_at`, `cost_hint`, `promo`, `
   "$schema": "https://json-schema.terracenter.net/orq/v2.1/agent-model-discovery.json",
   "snapshot_id": "snap-20260904-213500-host01",
   "fetched_at": "2026-09-04T21:35:00Z",
-  "user_id": "freddy",
+  "user_id": "<user_id>",
   "agents": [
     {
       "id": "qwen-code",
@@ -111,11 +110,11 @@ El schema v2 introducido en el issue #148 (`fetched_at`, `cost_hint`, `promo`, `
       "vendor": "Alibaba Group",
       "binary": {
         "command": "qwen",
-        "path": "/home/freddy/.local/bin/qwen",
+        "path": "~/.local/bin/qwen",
         "version": "1.4.2"
       },
       "config_metadata": {
-        "settings_path": "/home/freddy/.qwen/settings.json",
+        "settings_path": "~/.qwen/settings.json",
         "has_credentials": true,
         "auth_type": "token_plan_api_key"
       },
@@ -281,10 +280,10 @@ Si un modelo carece de soporte para herramientas críticas (ej. ejecución de sh
 
 - [x] **Checklist Criterio 6:** Dimensiones mínimas, métricas empíricas (calidad técnica, obediencia, compilabilidad, corrección humana, latencia), función de utilidad adaptativa.
 
-El scoring no depende de tablas generales de internet (Leaderboards sintéticos), sino del desempeño comprobable en el entorno específico de **Freddy Taborda** (Linux CachyOS / Debian Proxmox, Go/Rust nativo, cero bloat NPM, cumplimiento estricto de la [LEY_PRINCIPAL.md](file:///home/freddy/Workspace/Obsidian/LEY_PRINCIPAL.md)).
+El scoring no depende de tablas generales de internet (Leaderboards sintéticos), sino del desempeño comprobable en el entorno específico del operador (Linux CachyOS / Debian Proxmox, Go/Rust nativo, cero bloat NPM, cumplimiento estricto de la ley de gobernanza interna del proyecto).
 
 #### Dimensiones Mínimas de Evaluación:
-1. `user_id`: Identificador de usuario (`freddy`).
+1. `user_id`: Identificador de usuario (ej. `<user_id>`).
 2. `repo`: Repositorio específico (`agent-orchestrator`, `sge-go`, `security-manager-ng`, `obsidian`).
 3. `language_stack`: Stack tecnológico (`go`, `rust`, `shell`, `markdown`, `sql`).
 4. `task_type`: Tipo de tarea (`feature`, `bugfix`, `refactor`, `documentation_rdd`, `review_security`).
@@ -348,7 +347,7 @@ Para mantener sincronizada la torre de control central en `sge-panel.humanbyte.n
 {
   "event_type": "agent.discovery.snapshot",
   "timestamp": "2026-09-04T21:35:00Z",
-  "host": "contabo-sge-panel",
+  "host": "<hostname>",
   "host_ip": "127.0.0.1",
   "payload": {
     "snapshot_id": "snap-20260904-213500-host01",

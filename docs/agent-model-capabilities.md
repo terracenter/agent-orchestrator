@@ -56,12 +56,12 @@ Resultados de la auto-detección local mediante `rtk orq agents detect --format 
 
 | Agente | Instalado | Ruta del Binario | Ruta de Configuración | Rol / Nota |
 |--------|-----------|------------------|-----------------------|------------|
-| **openclaw** | Sí | `/home/freddy/.local/share/pi-node/node-v22.23.2-linux-x64/bin/openclaw` | `/home/freddy/.openclaw` | Runner económico para tareas mecánicas (Haiku). Inspección segura. |
-| **agy** | Sí | `/home/freddy/.local/bin/agy` | `/home/freddy/.gemini` | Runner rápido para código y análisis técnico medio (Antigravity CLI). |
-| **hermes** | Sí | `/home/freddy/.local/bin/hermes` | `/home/freddy/.hermes` | Runner para tareas de integración y exploración. |
-| **claude-code**| Sí | `/home/freddy/.local/bin/claude` | `/home/freddy/.claude` | Revisión crítica, seguridad y refutación (review_only). |
-| **pi** | Sí | `/home/freddy/.local/share/pi-node/node-v22.23.2-linux-x64/bin/pi` | PENDIENTE | Supervisor principal; detener y delegar si hay tensión de presupuesto. |
-| **qwen-code** | Sí | `/home/freddy/.local/bin/qwen` o `PATH` | `/home/freddy/.qwen` | Runner multi-modelo para código y tareas técnicas; detección segura sin leer settings ni secretos. |
+| **openclaw** | Sí | `~/.local/share/pi-node/node-v22.23.2-linux-x64/bin/openclaw` | `~/.openclaw` | Runner económico para tareas mecánicas (Haiku). Inspección segura. |
+| **agy** | Sí | `~/.local/bin/agy` | `~/.gemini` | Runner rápido para código y análisis técnico medio (Antigravity CLI). |
+| **hermes** | Sí | `~/.local/bin/hermes` | `~/.hermes` | Runner para tareas de integración y exploración. |
+| **claude-code**| Sí | `~/.local/bin/claude` | `~/.claude` | Revisión crítica, seguridad y refutación (review_only). |
+| **pi** | Sí | `~/.local/share/pi-node/node-v22.23.2-linux-x64/bin/pi` | PENDIENTE | Supervisor principal; detener y delegar si hay tensión de presupuesto. |
+| **qwen-code** | Sí | `~/.local/bin/qwen` o `PATH` | `~/.qwen` | Runner multi-modelo para código y tareas técnicas; detección segura sin leer settings ni secretos. |
 | **codex** | No | PENDIENTE | PENDIENTE | Runner y asistente secundario. |
 | **nvidia-api** | No | PENDIENTE | PENDIENTE | Smoke tests, clasificación barata y tareas mecánicas. |
 
@@ -119,27 +119,27 @@ Este corte no decide routing automáticamente todavía: expone una señal segura
 A continuación se lista el backlog de PRs sugeridos para el orquestador:
 
 *   **PR1: Registry de Modelos**: Estandarizar la definición y el descubrimiento de modelos de proveedores en una estructura de registro centralizada con validaciones estáticas.
-*   **PR2: Delegate OpenClaw/MiniPC**: Implementar mecanismos de delegación dinámica hacia entornos aislados (e.g., OpenClaw corriendo en MiniPC) para tareas mecánicas/costosas de forma segura.
+*   **PR2: Delegate OpenClaw/Host Local**: Implementar mecanismos de delegación dinámica hacia entornos aislados (e.g., OpenClaw corriendo en un host local) para tareas mecánicas/costosas de forma segura.
 *   **PR3: Router de Costo/Capacidad**: Crear un enrutador inteligente que seleccione automáticamente el agente y modelo con el costo óptimo de acuerdo a la complejidad detectada en el prompt.
 *   **PR4: Suite de Tests**: Desarrollar pruebas de integración y smoke tests automáticos para verificar el correcto parsing y la ejecución de las herramientas CLI de los agentes sin comprometer secretos.
 
 ---
 
-## 5. Soporte minipc-local (Modelos Locales)
+## 5. Soporte Host-Local (Modelos Locales vía Ollama)
 
-*   **Capacidad Verificada [V]**: Host `minipc` (CachyOS, AMD Zen4, 30.2 GiB RAM) con IP de Tailscale `100.76.175.78` documentado en el vault ([estaciones-personales.md](file:///home/freddy/Workspace/Obsidian/03.Servidores/Humanbyte/estaciones-personales.md)).
-*   **Comandos Verificados [V]**: Comandos de ejecución mediante el agente `hermes` integrando el proveedor `ollama-minipc` documentados en el vault ([config-limpio.md](file:///home/freddy/Workspace/Obsidian/04.Documentacion/Hermes-Agent/config-limpio.md)):
+*   **Capacidad Verificada [V]**: Host local de desarrollo (CachyOS, AMD Zen4, 30.2 GiB RAM) accesible vía VPN de Tailscale, documentado en el vault privado del operador (no público).
+*   **Comandos Verificados [V]**: Comandos de ejecución mediante el agente `hermes` integrando el proveedor `ollama-local` documentados en el vault privado:
     ```bash
-    hermes --model qwen2.5-coder:7b-instruct-q4_K_M --provider ollama-minipc
+    hermes --model qwen2.5-coder:7b-instruct-q4_K_M --provider ollama-local
     ```
 *   **Modelos Locales Detectados (Documentados) [V]**:
-    *   `qwen2.5-coder:7b-instruct-q4_K_M` (Activo/Producción en el minipc)
+    *   `qwen2.5-coder:7b-instruct-q4_K_M` (Activo/Producción en el host local)
     *   `qwen2.5:7b` (Disponible si se carga en Ollama)
     *   `deepseek-r1:7b` (Disponible si se carga en Ollama)
     *   `llama3.2:latest` (Disponible si se carga en Ollama)
 *   **Limitaciones**:
     *   No hay binarios de inferencia locales (`ollama`, `llama-server`, `llama-cli`, `lmstudio`, `vllm`, `llamacpp`) instalados en el host del orquestador.
-    *   La comunicación con el host `minipc` (`100.76.175.78`) depende enteramente de que la VPN de Tailscale esté activa y ruteable.
+    *   La comunicación con el host local depende enteramente de que la VPN de Tailscale esté activa y ruteable.
     *   Se requiere autorización/evidencia explícita previa para conectarse por SSH al host remoto en flujos automáticos.
 *   **Usos Recomendados de Bajo Riesgo**:
     *   Fallback de Nivel 0 (costo cero de API) para tareas de desarrollo mecánico e implementación de código de nivel medio utilizando el modelo `qwen2.5-coder:7b-instruct-q4_K_M`.
