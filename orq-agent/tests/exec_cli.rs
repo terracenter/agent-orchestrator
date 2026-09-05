@@ -2347,3 +2347,63 @@ fn orq_alias_supports_score_subcommands() {
         .stdout(predicate::str::contains("\"w1\": 0.3"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
 }
+
+#[test]
+fn observer_emit_dry_run_outputs_expected_event_and_no_secrets() {
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args(["observer", "emit", "--dry-run", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"event_type\": \"agent.discovery.snapshot\"",
+        ))
+        .stdout(predicate::str::contains("\"status\": \"dry_run\""))
+        .stdout(predicate::str::contains("\"secrets_read\": false"))
+        .stdout(predicate::str::contains("X-Host-Token").not())
+        .stdout(predicate::str::contains("host-token").not());
+}
+
+#[test]
+fn observer_emit_dry_run_writes_output_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let out_file = temp_dir.path().join("observer-snapshot.json");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "observer",
+        "emit",
+        "--dry-run",
+        "--output",
+        out_file.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"status\": \"dry_run\""))
+    .stdout(predicate::str::contains("\"secrets_read\": false"));
+
+    assert!(out_file.exists());
+    let file_content = fs::read_to_string(&out_file).unwrap();
+    assert!(file_content.contains("\"event_type\": \"agent.discovery.snapshot\""));
+    assert!(file_content.contains("\"verification_signature\": \"sha256:"));
+    assert!(!file_content.contains("X-Host-Token"));
+}
+
+#[test]
+fn observer_emit_fails_cleanly_on_missing_token_without_leak() {
+    let non_existent_token = "/tmp/definitely-non-existent-token-xyz-987.token";
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.args([
+        "observer",
+        "emit",
+        "--token-file",
+        non_existent_token,
+        "--format",
+        "json",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("host token file not found"))
+    .stderr(predicate::str::contains("X-Host-Token").not());
+}

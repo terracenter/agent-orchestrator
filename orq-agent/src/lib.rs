@@ -12,6 +12,7 @@ mod detect;
 mod discover;
 mod exec;
 mod models;
+pub mod observer;
 mod policy;
 mod quota;
 pub mod receipt;
@@ -309,6 +310,11 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
+    /// Emit dated agent and model discovery snapshots to SGE Observer.
+    Observer {
+        #[command(subcommand)]
+        command: ObserverSubcommand,
+    },
     /// Calculate and inspect empirical scoring, weights, and delegation penalties.
     Score {
         #[command(subcommand)]
@@ -451,6 +457,37 @@ enum ModelsSubcommand {
         /// Optional output file path for snapshot JSON.
         #[arg(long)]
         output: Option<String>,
+        /// Optional adapters registry JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        adapters_config: Option<String>,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ObserverSubcommand {
+    /// Emit a dated snapshot of local agents/models to SGE Observer ingest endpoint.
+    Emit {
+        /// Observer ingestion endpoint URL. Defaults to https://sge-panel.humanbyte.net or ORQ_OBSERVER_ENDPOINT.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Observer host token file path. Defaults to ~/.config/sge-observer/agent-orchestrator.host-token or ORQ_OBSERVER_TOKEN_FILE.
+        #[arg(long)]
+        token_file: Option<String>,
+        /// Build and preview event payload without performing HTTP request or requiring token.
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+        /// Optional output file path to write the formatted event JSON.
+        #[arg(long)]
+        output: Option<String>,
+        /// Optional host IP address override. Defaults to 127.0.0.1.
+        #[arg(long)]
+        host_ip: Option<String>,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
@@ -961,6 +998,30 @@ async fn run_command(command: Commands) -> Result<()> {
                 })
                 .await?;
                 print_json(format, &agg)
+            }
+        },
+        Commands::Observer { command } => match command {
+            ObserverSubcommand::Emit {
+                endpoint,
+                token_file,
+                dry_run,
+                output,
+                host_ip,
+                adapters_config,
+                models_config,
+                format,
+            } => {
+                let report = commands::observer::run_emit(commands::observer::ObserverEmitArgs {
+                    endpoint,
+                    token_file,
+                    dry_run,
+                    output,
+                    host_ip,
+                    adapters_config,
+                    models_config,
+                })
+                .await?;
+                print_json(format, &report)
             }
         },
     }
