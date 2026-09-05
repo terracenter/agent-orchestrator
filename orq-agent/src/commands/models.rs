@@ -48,9 +48,7 @@ pub(crate) async fn run_refresh(
     Ok(summary)
 }
 
-pub(crate) async fn run_snapshot(
-    args: ModelsSnapshotArgs,
-) -> Result<runtime::ModelsSnapshot> {
+pub(crate) async fn run_snapshot(args: ModelsSnapshotArgs) -> Result<runtime::ModelsSnapshot> {
     let output_path = args.output.as_deref().map(std::path::Path::new);
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let models_config_path = args.models_config.as_deref().map(std::path::Path::new);

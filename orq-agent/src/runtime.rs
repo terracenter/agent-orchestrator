@@ -190,9 +190,8 @@ pub fn parse_version(output: &str) -> Option<String> {
         for raw_token in trimmed.split(|c: char| {
             c.is_whitespace() || c == '/' || c == '@' || c == '(' || c == ')' || c == ','
         }) {
-            let clean = raw_token.trim_matches(|c: char| {
-                !c.is_alphanumeric() && c != '.' && c != '-' && c != '_'
-            });
+            let clean = raw_token
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '-' && c != '_');
             let candidate = if let Some(stripped) = clean.strip_prefix('v') {
                 stripped
             } else if let Some(stripped) = clean.strip_prefix('V') {
@@ -244,11 +243,11 @@ pub fn check_agent_credentials(agent_name: &str) -> (bool, Option<String>, Optio
     match agent_name {
         "qwen" | "qwen-code" => {
             let settings_path = home.as_ref().map(|h| h.join(".qwen").join("settings.json"));
-            let exists = settings_path
-                .as_ref()
-                .map(|p| p.exists())
-                .unwrap_or(false)
-                || home.as_ref().map(|h| h.join(".qwen").exists()).unwrap_or(false)
+            let exists = settings_path.as_ref().map(|p| p.exists()).unwrap_or(false)
+                || home
+                    .as_ref()
+                    .map(|h| h.join(".qwen").exists())
+                    .unwrap_or(false)
                 || std::env::var_os("QWEN_API_KEY").is_some()
                 || std::env::var_os("BAILIAN_API_KEY").is_some()
                 || local_secrets;
@@ -260,10 +259,7 @@ pub fn check_agent_credentials(agent_name: &str) -> (bool, Option<String>, Optio
         }
         "claude" | "claude-code" => {
             let settings_path = home.as_ref().map(|h| h.join(".claude.json"));
-            let exists = settings_path
-                .as_ref()
-                .map(|p| p.exists())
-                .unwrap_or(false)
+            let exists = settings_path.as_ref().map(|p| p.exists()).unwrap_or(false)
                 || home
                     .as_ref()
                     .map(|h| h.join(".claude").exists())
@@ -1200,10 +1196,7 @@ mod tests {
         );
         assert_eq!(parse_version("agy 2.0.0"), Some("2.0.0".to_string()));
         assert_eq!(parse_version("rtk 0.3.0"), Some("0.3.0".to_string()));
-        assert_eq!(
-            parse_version("some tool without version"),
-            None
-        );
+        assert_eq!(parse_version("some tool without version"), None);
     }
 
     #[tokio::test]
@@ -1286,7 +1279,11 @@ mod tests {
         assert_eq!(report.exit_code, 0);
         assert_eq!(report.status, "ok");
 
-        let rtk_comp = report.components.iter().find(|c| c.name == "wrapper:rtk").unwrap();
+        let rtk_comp = report
+            .components
+            .iter()
+            .find(|c| c.name == "wrapper:rtk")
+            .unwrap();
         assert_eq!(rtk_comp.health, "ok");
         assert_eq!(rtk_comp.version, Some("0.3.0".to_string()));
     }
@@ -1305,7 +1302,11 @@ mod tests {
 
         assert_eq!(report.exit_code, 1);
         assert_eq!(report.status, "missing");
-        let rtk_comp = report.components.iter().find(|c| c.name == "wrapper:rtk").unwrap();
+        let rtk_comp = report
+            .components
+            .iter()
+            .find(|c| c.name == "wrapper:rtk")
+            .unwrap();
         assert_eq!(rtk_comp.health, "missing");
     }
 
@@ -1334,7 +1335,10 @@ mod tests {
         assert_eq!(stored_agent.agent_id, "qwen-code");
         assert_eq!(stored_agent.adapter_status, "available");
 
-        let stored_model = store.find_model("qwen-code", "qwen3.8-max", "general").unwrap().unwrap();
+        let stored_model = store
+            .find_model("qwen-code", "qwen3.8-max", "general")
+            .unwrap()
+            .unwrap();
         assert_eq!(stored_model.model_id, "qwen3.8-max");
         assert!(stored_model.active);
     }

@@ -485,13 +485,12 @@ async fn run_command(command: Commands) -> Result<()> {
                 db_path,
                 format,
             } => {
-                let report =
-                    commands::agents::run_discover(commands::agents::AgentsDiscoverArgs {
-                        adapters_config,
-                        models_config,
-                        db_path,
-                    })
-                    .await?;
+                let report = commands::agents::run_discover(commands::agents::AgentsDiscoverArgs {
+                    adapters_config,
+                    models_config,
+                    db_path,
+                })
+                .await?;
                 print_json(format, &report)
             }
             AgentsSubcommand::Refresh {
@@ -514,10 +513,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 adapters_config,
                 format,
             } => {
-                let report = commands::agents::run_doctor(commands::agents::DoctorArgs {
-                    adapters_config,
-                })
-                .await?;
+                let report =
+                    commands::agents::run_doctor(commands::agents::DoctorArgs { adapters_config })
+                        .await?;
                 print_doctor_report(format, &report)?;
                 if report.exit_code != 0 {
                     std::process::exit(report.exit_code);
@@ -603,12 +601,13 @@ async fn run_command(command: Commands) -> Result<()> {
                 models_config: snapshot_models_config,
                 format: snapshot_format,
             }) => {
-                let snapshot = commands::models::run_snapshot(commands::models::ModelsSnapshotArgs {
-                    output,
-                    adapters_config: snapshot_adapters_config,
-                    models_config: snapshot_models_config,
-                })
-                .await?;
+                let snapshot =
+                    commands::models::run_snapshot(commands::models::ModelsSnapshotArgs {
+                        output,
+                        adapters_config: snapshot_adapters_config,
+                        models_config: snapshot_models_config,
+                    })
+                    .await?;
                 print_json(snapshot_format, &snapshot)
             }
             None => {
@@ -913,10 +912,7 @@ fn print_compliance_report(
                 );
             }
             if let Some(ref pi) = report.checks.pi_supervision {
-                println!(
-                    "[pi-supervision] Status: {:?} | {}",
-                    pi.status, pi.summary
-                );
+                println!("[pi-supervision] Status: {:?} | {}", pi.status, pi.summary);
                 println!(
                     "  - [{:?}] guard_executable (Mandato 15): {}",
                     pi.guard_executable.status, pi.guard_executable.message
@@ -925,10 +921,7 @@ fn print_compliance_report(
                     println!("    Evidence: {}", pi.guard_executable.evidence);
                 }
                 for check in &pi.checks {
-                    println!(
-                        "  - [{:?}] {}: {}",
-                        check.status, check.law, check.message
-                    );
+                    println!("  - [{:?}] {}: {}", check.status, check.law, check.message);
                     if !check.evidence.is_empty() {
                         println!("    Evidence: {}", check.evidence);
                     }

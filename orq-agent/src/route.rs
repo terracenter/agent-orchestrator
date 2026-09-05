@@ -522,7 +522,10 @@ fn select_route(
             quota,
             is_down_or_deprecated: is_model_down_or_deprecated,
             cost_hint,
-            has_promo: promo.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false),
+            has_promo: promo
+                .as_deref()
+                .map(|p| !p.trim().is_empty())
+                .unwrap_or(false),
         });
     }
 
@@ -564,7 +567,9 @@ fn select_route(
                 let diff = (cost_b - cost_a).abs();
                 if diff > 1e-7 {
                     // Lower cost is better: cost_a < cost_b means a is better than b
-                    return cost_a.partial_cmp(&cost_b).unwrap_or(std::cmp::Ordering::Equal);
+                    return cost_a
+                        .partial_cmp(&cost_b)
+                        .unwrap_or(std::cmp::Ordering::Equal);
                 }
                 // Equivalent cost: promo preference
                 if b.has_promo != a.has_promo {
