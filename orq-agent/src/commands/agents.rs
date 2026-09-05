@@ -36,6 +36,7 @@ pub(crate) async fn run_discover(
 
     for adapter in &adapters_registry.adapters {
         let probe = runtime::probe_agent(&adapter.name, &adapter.binary, 5).await;
+        let (_, settings_path, auth_type) = runtime::check_agent_credentials(&adapter.name);
         let mut snapshot_agent = runtime::build_agent_profile(
             &adapter.name,
             &adapter.binary,
@@ -43,8 +44,8 @@ pub(crate) async fn run_discover(
             probe.version.as_deref(),
             probe.detected,
             probe.has_credentials,
-            None,
-            None,
+            settings_path.as_deref(),
+            auth_type.as_deref(),
             &now,
         );
 
@@ -114,6 +115,7 @@ pub(crate) async fn run_refresh(args: AgentRefreshArgs) -> Result<runtime::Agent
 
     let now = models::now_iso8601();
     let probe = runtime::probe_agent(adapter.name(), adapter.binary(), 5).await;
+    let (_, settings_path, auth_type) = runtime::check_agent_credentials(adapter.name());
     let mut snapshot_agent = runtime::build_agent_profile(
         adapter.name(),
         adapter.binary(),
@@ -121,8 +123,8 @@ pub(crate) async fn run_refresh(args: AgentRefreshArgs) -> Result<runtime::Agent
         probe.version.as_deref(),
         probe.detected,
         probe.has_credentials,
-        None,
-        None,
+        settings_path.as_deref(),
+        auth_type.as_deref(),
         &now,
     );
 

@@ -1029,7 +1029,8 @@ pub async fn run_models_snapshot(
     let now = models::now_iso8601();
     let user_id = std::env::var("ORQ_USER_ID")
         .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "freddy".to_string());
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
 
     let snapshot_id = format!(
         "snap-{}-{}",
@@ -1040,6 +1041,7 @@ pub async fn run_models_snapshot(
     let mut agent_snapshots = Vec::new();
     for adapter in &adapters_registry.adapters {
         let probe = probe_agent(&adapter.name, &adapter.binary, 5).await;
+        let (_, settings_path, auth_type) = check_agent_credentials(&adapter.name);
         let mut snapshot_agent = build_agent_profile(
             &adapter.name,
             &adapter.binary,
@@ -1047,8 +1049,8 @@ pub async fn run_models_snapshot(
             probe.version.as_deref(),
             probe.detected,
             probe.has_credentials,
-            None,
-            None,
+            settings_path.as_deref(),
+            auth_type.as_deref(),
             &now,
         );
 
@@ -1176,9 +1178,9 @@ fn hostname_label() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use tokio::sync::Mutex;
 
-    static TEST_ENV_MUTEX: Mutex<()> = Mutex::new(());
+    static TEST_ENV_MUTEX: Mutex<()> = Mutex::const_new(());
 
     #[test]
     fn parse_version_extracts_semver() {
@@ -1201,7 +1203,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_agent_with_fake_binary() {
-        let _guard = TEST_ENV_MUTEX.lock().unwrap();
+        let _guard = TEST_ENV_MUTEX.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let fake_bin = dir.path().join("fake-qwen");
         std::fs::write(&fake_bin, "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n").unwrap();
@@ -1230,7 +1232,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_agent_graceful_degradation_on_missing_binary() {
-        let _guard = TEST_ENV_MUTEX.lock().unwrap();
+        let _guard = TEST_ENV_MUTEX.lock().await;
         let probe = probe_agent("non-existent-agent", "definitely-not-a-bin-xyz123", 1).await;
         assert!(!probe.detected);
         assert_eq!(probe.version, None);
@@ -1240,7 +1242,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_health_check_detects_wrappers() {
-        let _guard = TEST_ENV_MUTEX.lock().unwrap();
+        let _guard = TEST_ENV_MUTEX.lock().await;
         let registry = adapters::parse_registry(
             r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
         )
@@ -1290,7 +1292,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_health_check_fails_when_wrapper_missing() {
-        let _guard = TEST_ENV_MUTEX.lock().unwrap();
+        let _guard = TEST_ENV_MUTEX.lock().await;
         let registry = adapters::parse_registry(
             r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
         )
