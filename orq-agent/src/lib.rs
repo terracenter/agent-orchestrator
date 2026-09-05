@@ -235,6 +235,15 @@ enum Commands {
         /// Optional agent name being audited.
         #[arg(long)]
         agent: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Optional agents workspace path. Uses ORQ_AGENTS_PATH or default ~/.agents when omitted.
+        #[arg(long)]
+        agents_path: Option<String>,
+        /// Optional handoffs directory path. Uses ORQ_HANDOFFS_PATH or default ~/.agents/handoffs when omitted.
+        #[arg(long)]
+        handoffs_path: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -639,6 +648,9 @@ async fn run_command(command: Commands) -> Result<()> {
             engram_summary,
             vg_sync,
             agent,
+            db_path,
+            agents_path,
+            handoffs_path,
             format,
         } => {
             let report = commands::compliance::run(compliance::ComplianceArgs {
@@ -651,6 +663,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 engram_summary,
                 vg_sync,
                 agent,
+                db_path,
+                agents_path,
+                handoffs_path,
             })
             .await?;
 
@@ -743,6 +758,21 @@ fn print_compliance_report(
                     "[vg-sync]        Status: {:?} | Fresh: {} | {}",
                     v.status, v.is_fresh, v.message
                 );
+            }
+            if let Some(ref pi) = report.checks.pi_supervision {
+                println!(
+                    "[pi-supervision] Status: {:?} | {}",
+                    pi.status, pi.summary
+                );
+                for check in &pi.checks {
+                    println!(
+                        "  - [{:?}] {}: {}",
+                        check.status, check.law, check.message
+                    );
+                    if !check.evidence.is_empty() {
+                        println!("    Evidence: {}", check.evidence);
+                    }
+                }
             }
         }
     }
