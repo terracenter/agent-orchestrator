@@ -6,7 +6,7 @@
 > **Autor:** Freddy Taborda (`terracenter@gmail.com`)  
 > **Issue Asociado:** [#81](https://github.com/terracenter/agent-orchestrator/issues/81)  
 > **Repositorio:** `terracenter/agent-orchestrator`  
-> **Documentos Relacionados:** [docs/rdd-recibos-verificables.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/rdd-recibos-verificables.md) (#79), [docs/model-capability-certification.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/model-capability-certification.md), [docs/agent-model-capabilities.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/agent-model-capabilities.md), PR #148 (MarketFeed & Adaptive Fallback).
+> **Documentos Relacionados:** [docs/rdd-recibos-verificables.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/rdd-recibos-verificables.md) (#79), [docs/model-capability-certification.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/model-capability-certification.md), [docs/agent-model-capabilities.md](file:///home/freddy/Workspace/Desarrollo/agent-orchestrator/docs/agent-model-capabilities.md), issue #148 (MarketFeed & Adaptive Fallback).
 
 ---
 
