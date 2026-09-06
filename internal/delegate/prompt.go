@@ -199,7 +199,7 @@ func BuildAGYCommand(opts PlanOptions, decision route.Decision) string {
 		printInstruction = "Olvida el historial anterior."
 	}
 
-	return fmt.Sprintf("cd %s\nrtk agy --model %s --dangerously-skip-permissions --add-dir %s --add-dir %s --print=%q",
+	return fmt.Sprintf("cd %s\nrtk agy --model %s --mode accept-edits --add-dir %s --add-dir %s --print=%q",
 		workspace,
 		model,
 		repo,
@@ -299,6 +299,7 @@ func Prompt(task string, decision route.Decision) string {
 	lines := []string{
 		"OBLIGATORIO: Usa rtk; todo comando de terminal/git/filesystem debe ir prefijado con rtk. Si un comando no usa rtk, reportalo como BUG de orq y no lo ocultes.",
 		"Usa `rtk vg` para consultar el vault cuando aplique — nunca `vg` pelado. Si `rtk vg` falla por PATH, reportalo como BUG-RTK-VG-001 y no lo ocultes.",
+		"Si vas a ejecutar esto en modo headless (--print) y la tarea requiere comandos de shell (go build, go test, git checkout, etc.), verifica antes que esos comandos estén pre-autorizados en el permissions.allow del agente objetivo — --mode accept-edits solo autoriza ediciones de archivo, no comandos de shell arbitrarios.",
 		fmt.Sprintf("Tarea: %s", task),
 		fmt.Sprintf("Routing orq: categoria=%s nivel=%d agente=%s modelo=%s", decision.Category, decision.RecommendedLevel, decision.RecommendedAgent, decision.RecommendedModel),
 	}
