@@ -130,3 +130,28 @@ func TestDecideFallbackAssignment(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyDoesNotMatchGoAsSubstring(t *testing.T) {
+	cases := []string{
+		"revisar el pago del hosting",
+		"renombrar algo en el servidor",
+		"backup de agosto",
+	}
+	for _, task := range cases {
+		if got := Classify(task); got == "codigo" {
+			t.Errorf("Classify(%q) = %q, no debería clasificar como codigo por contener \"go\" como substring", task, got)
+		}
+	}
+
+	goCases := []string{
+		"revisar el código Go de este módulo",
+		"escribir un script en go",
+		"fix de bug en go",
+	}
+	for _, task := range goCases {
+		if got := Classify(task); got != "codigo" {
+			t.Errorf("Classify(%q) = %q, want \"codigo\"", task, got)
+		}
+	}
+}
+

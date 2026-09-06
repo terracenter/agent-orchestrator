@@ -1,6 +1,11 @@
 package route
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var reGoKeyword = regexp.MustCompile(`\bgo\b`)
 
 const (
 	AnthropicOpusCriticalModel = "claude-opus-4-1-20250805"
@@ -42,10 +47,13 @@ func Classify(task string) string {
 			return "documentacion"
 		}
 	}
-	for _, word := range []string{"refactor", "código", "codigo", "go", "test", "bug"} {
+	for _, word := range []string{"refactor", "código", "codigo", "test", "bug"} {
 		if strings.Contains(text, word) {
 			return "codigo"
 		}
+	}
+	if reGoKeyword.MatchString(text) {
+		return "codigo"
 	}
 	return "mecanico"
 }
