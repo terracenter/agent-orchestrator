@@ -247,7 +247,7 @@ Opciones de escritura de archivos:
 
 Propiedades del comando generado para AGY:
 - **Aislamiento de contexto:** Incluye `"Olvida el historial anterior. Lee y ejecuta <handoff>"` para evitar arrastre de contexto o bloqueos de turnos previos.
-- **Permisos no interactivos por sesión:** Emite `--dangerously-skip-permissions` a nivel de invocación CLI para comandos seguros autorizados por el handoff, sin persistir permisos globales en `settings.json`.
+- **Permisos no interactivos por sesión:** Emite `--mode accept-edits` a nivel de invocación CLI para autorizar ediciones de archivo sin prompts interactivos, sin persistir permisos globales en `settings.json`. Este modo NO autoriza comandos de shell arbitrarios — ver la nota agregada en `Prompt()` (issue #185).
 - **Rutas acotadas:** Limita `--add-dir` al repositorio de trabajo y al directorio `.agents`.
 - **Compatibilidad de modelos:** No emite `--effort` por defecto para evitar conflictos con modelos fijos como `gemini-3.7-flash-high` o `gpt-oss-120b-medium`.
 - **Ejecución obligatoria con wrapper:** Prefija la invocación con `rtk` (`rtk agy`).
