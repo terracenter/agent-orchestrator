@@ -598,6 +598,7 @@ impl StateStore {
             | crate::receipt::DelegateStatus::CommandGenerated => {
                 crate::receipt::ExecStatus::Blocked
             }
+            crate::receipt::DelegateStatus::Blocked => crate::receipt::ExecStatus::Blocked,
             crate::receipt::DelegateStatus::Failed => {
                 if receipt.reason.as_deref() == Some("timeout_sin_evidencia") {
                     crate::receipt::ExecStatus::TimedOut

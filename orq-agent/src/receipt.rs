@@ -43,6 +43,7 @@ pub enum DelegateStatus {
     CommandGenerated,
     Executed,
     Validated,
+    Blocked,
     Failed,
 }
 

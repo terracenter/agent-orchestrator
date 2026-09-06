@@ -1,4 +1,4 @@
-use crate::adapters::{find_adapter_in_registry, AdaptersRegistry};
+use crate::adapters::{find_adapter_in_registry, AdapterStatus, AdaptersRegistry};
 use crate::policy;
 use crate::receipt::{
     now_unix, now_unix_nanos, tail_sanitized, DelegateReceipt, DelegateStatus, DelegateVerdict,
@@ -27,6 +27,7 @@ pub struct DelegateRequest {
     pub write_handoff: Option<String>,
     pub write_receipt: Option<String>,
     pub force: bool,
+    pub allow_gated: bool,
     pub execute: bool,
     pub timeout_seconds: u64,
     pub correlation_id: Option<String>,
@@ -150,8 +151,58 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
     let pre_head = get_git_head(&repo_dir).await;
     let pre_branch = get_git_branch(&repo_dir).await;
 
-    // Check adapter
+    // Check adapter and evaluate policy
     let adapter_opt = find_adapter_in_registry(&target_agent, &request.adapters_registry);
+    let adapter_status = adapter_opt
+        .as_ref()
+        .map(|a| a.status())
+        .unwrap_or(AdapterStatus::Missing);
+    let policy_decision = policy::evaluate(
+        &target_agent,
+        &target_model,
+        adapter_status,
+        request.allow_gated,
+        &request.policy_config,
+    );
+    if !policy_decision.allowed {
+        let receipt = DelegateReceipt {
+            schema_version: 1,
+            correlation_id: correlation_id.clone(),
+            agent: target_agent.clone(),
+            model: target_model.clone(),
+            command: Vec::new(),
+            status: DelegateStatus::Blocked,
+            reason: Some(policy_decision.reason.clone()),
+            verdict: DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            started_at_unix,
+            duration_ms: started.elapsed().as_millis(),
+            timeout_seconds: request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS),
+            exit_code: None,
+            secrets_read: false,
+        };
+        return Ok(DelegateOutput {
+            status: DelegateStatus::Blocked,
+            reason: Some(policy_decision.reason),
+            verdict: DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            agent: target_agent,
+            model: target_model,
+            prompt,
+            command: auto_cmd.clone(),
+            autonomous_command: auto_cmd,
+            next_step: "delegacion bloqueada por policy; revisar --allow-gated".to_string(),
+            must_stop_for_delegation: false,
+            supervisor_only,
+            execution_agent_allowed: false,
+            written_handoff: None,
+            written_receipt: None,
+            receipt,
+        });
+    }
+
     let timeout_secs = request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS);
 
     let (exit_code, stdout, stderr, timed_out, command_vec) = if let Some(adapter) = adapter_opt {
@@ -226,7 +277,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                 "none".to_string(),
             )
         }
-    } else if exit_code == Some(0) || exit_code.is_none() {
+    } else if exit_code == Some(0) {
         if has_new_commit {
             let commit_hash = post_head.clone().unwrap_or_else(|| "none".to_string());
             (
@@ -244,12 +295,21 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                 branch_ref,
             )
         } else if let Some(ref_str) = extracted_ref {
-            (
-                DelegateStatus::Validated,
-                None,
-                DelegateVerdict::Util,
-                ref_str,
-            )
+            if let Some(verified_url) = verify_pr_reference(&repo_dir, &ref_str).await {
+                (
+                    DelegateStatus::Validated,
+                    None,
+                    DelegateVerdict::Util,
+                    verified_url,
+                )
+            } else {
+                (
+                    DelegateStatus::Failed,
+                    Some("no_executed".to_string()),
+                    DelegateVerdict::NonUtil,
+                    "none".to_string(),
+                )
+            }
         } else {
             (
                 DelegateStatus::Failed,
@@ -452,6 +512,24 @@ fn extract_pr_or_ref_from_text(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+async fn verify_pr_reference(repo_dir: &Path, candidate: &str) -> Option<String> {
+    // candidate puede ser "PR #999" o una URL github.com/.../pull/999 — extrae el número.
+    let number = candidate
+        .rsplit(|c: char| !c.is_ascii_digit())
+        .find(|s| !s.is_empty())?;
+    let output = Command::new("gh")
+        .args(["pr", "view", number, "--json", "url,state"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    json.get("url")?.as_str().map(|s| s.to_string())
 }
 
 #[allow(dead_code)]
@@ -712,6 +790,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: false,
             timeout_seconds: 10,
             correlation_id: Some("corr-plan-1".to_string()),
@@ -740,6 +819,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: false,
             timeout_seconds: 10,
             correlation_id: Some("corr-cmd-gen-1".to_string()),
@@ -778,6 +858,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-val-1".to_string()),
@@ -817,6 +898,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-val-branch-1".to_string()),
@@ -854,6 +936,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-plan-only-1".to_string()),
@@ -891,6 +974,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: true,
             timeout_seconds: 1,
             correlation_id: Some("corr-timeout-no-ev".to_string()),
@@ -928,6 +1012,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: true,
             timeout_seconds: 1,
             correlation_id: Some("corr-timeout-commit".to_string()),
@@ -966,6 +1051,7 @@ mod tests {
             write_handoff: None,
             write_receipt: None,
             force: false,
+            allow_gated: false,
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-exit-zero-no-ev".to_string()),
@@ -978,5 +1064,84 @@ mod tests {
         assert_eq!(output.verdict, DelegateVerdict::NonUtil);
         assert_eq!(output.reason, Some("no_executed".to_string()));
         assert_eq!(output.evidence, "none");
+    }
+
+    #[tokio::test]
+    async fn test_blocked_when_gated_model_without_allow_gated() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+        let registry = test_adapters_registry(
+            "claude-code",
+            &make_executable_script(
+                temp.path(),
+                "runner_noop.sh",
+                "#!/usr/bin/env bash\necho 'nada'\n",
+            ),
+        );
+
+        let mut policy_cfg = test_policy_config();
+        policy_cfg.approval_required_model_patterns = vec!["opus".to_string()];
+
+        let request = DelegateRequest {
+            task: Some("tarea cualquiera".to_string()),
+            agent: Some("claude-code".to_string()),
+            model: Some("claude-opus-5".to_string()), // matchea approval_required_model_patterns: ["opus"]
+            handoff: None,
+            repo_path: Some(temp.path().to_string_lossy().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            allow_gated: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-blocked-1".to_string()),
+            policy_config: policy_cfg,
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Blocked);
+        assert_eq!(output.verdict, DelegateVerdict::NonUtil);
+        assert_eq!(output.receipt.status, DelegateStatus::Blocked);
+    }
+
+    #[tokio::test]
+    async fn test_fake_pr_claim_without_real_pr_is_not_validated() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+        // Runner falso: imprime una PR que NO existe, no toca git (sin commit, sin cambio de rama).
+        let script = make_executable_script(
+            temp.path(),
+            "runner_fake_pr.sh",
+            "#!/usr/bin/env bash\necho 'PR #999999999 abierto'\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("tarea cualquiera".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("modelo-no-gated".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().to_string_lossy().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            allow_gated: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-fake-pr-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+        };
+
+        let output = run(request).await.expect("run delegate");
+        // El repo de prueba es local (setup_git_repo), sin remote de GitHub real: `gh pr view` debe
+        // fallar a verificar la PR #999999999 y el fix debe rechazarla, no certificarla como Util.
+        assert_ne!(output.status, DelegateStatus::Validated);
+        assert_eq!(output.verdict, DelegateVerdict::NonUtil);
     }
 }

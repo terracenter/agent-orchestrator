@@ -288,6 +288,9 @@ enum Commands {
         /// Force overwrite existing handoff or receipt files.
         #[arg(long, default_value_t = false)]
         force: bool,
+        /// Allow gated agents/models after human approval (mirrors `exec --allow-gated`).
+        #[arg(long, default_value_t = false)]
+        allow_gated: bool,
         /// Execute the agent runner directly instead of emitting plan/command only.
         #[arg(long, default_value_t = false)]
         execute: bool,
@@ -920,6 +923,7 @@ async fn run_command(command: Commands) -> Result<()> {
             write_handoff,
             write_receipt,
             force,
+            allow_gated,
             execute,
             timeout,
             correlation_id,
@@ -939,6 +943,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 write_handoff,
                 write_receipt,
                 force,
+                allow_gated,
                 execute,
                 timeout_seconds: timeout,
                 correlation_id,
