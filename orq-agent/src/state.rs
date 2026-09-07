@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 5;
+const LATEST_SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -62,6 +62,46 @@ pub struct ModelRecord {
     pub gated: bool,
     pub active: bool,
     pub metadata_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CoordinationRecord {
+    pub project: String,
+    pub active_issue: String,
+    pub active_pr: String,
+    pub branch: String,
+    pub agent_id: String,
+    pub model_id: String,
+    pub runtime: String,
+    pub receipt: String,
+    pub status: String,
+    pub next_action: String,
+    pub timestamp: u64,
+    pub source_evidence: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CoordinationInput {
+    pub project: String,
+    pub active_issue: String,
+    pub active_pr: String,
+    pub branch: String,
+    pub agent_id: String,
+    pub model_id: String,
+    pub runtime: String,
+    pub receipt: String,
+    pub status: String,
+    pub next_action: String,
+    pub timestamp: Option<u64>,
+    pub source_evidence: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CoordinationFilter {
+    pub project: Option<String>,
+    pub active_issue: Option<String>,
+    pub status: Option<String>,
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -359,10 +399,22 @@ impl StateStore {
             })?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (5, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite { context: "record migration 5", source })?;
+        self.conn
+            .execute_batch(MIGRATION_V6)
+            .map_err(|source| StoreError::Sqlite {
+                context: "apply migration 6 (coordination_memory)",
+                source,
+            })?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
-            .map_err(|source| StoreError::Sqlite { context: "record migration 5", source })?;
+            .map_err(|source| StoreError::Sqlite { context: "record migration 6", source })?;
         Ok(())
     }
 
@@ -423,6 +475,130 @@ impl StateStore {
             migrations_applied: self.migrations_applied()?,
             secrets_read: false,
         })
+    }
+
+    pub fn upsert_coordination(&self, input: &CoordinationInput) -> Result<CoordinationRecord> {
+        validate_coordination(input)?;
+        let timestamp = input.timestamp.unwrap_or_else(now_unix);
+        let timestamp_i64 = i64::try_from(timestamp).map_err(|_| {
+            StoreError::Config("coordination timestamp exceeds SQLite INTEGER range".to_string())
+        })?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO coordination_events(project, active_issue, active_pr, branch, agent_id,
+             model_id, runtime, receipt, status, next_action, timestamp, source_evidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![input.project, input.active_issue, input.active_pr, input.branch, input.agent_id,
+                input.model_id, input.runtime, input.receipt, input.status, input.next_action,
+                timestamp_i64, input.source_evidence],
+        ).map_err(|source| StoreError::Sqlite { context: "append coordination event", source })?;
+        self.conn.execute(
+            "INSERT INTO coordination_memory(project, active_issue, active_pr, branch, agent_id, model_id,
+             runtime, receipt, status, next_action, timestamp, source_evidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(project, active_issue) DO UPDATE SET active_pr=excluded.active_pr,
+             branch=excluded.branch, agent_id=excluded.agent_id, model_id=excluded.model_id,
+             runtime=excluded.runtime, receipt=excluded.receipt, status=excluded.status,
+             next_action=excluded.next_action, timestamp=excluded.timestamp,
+             source_evidence=excluded.source_evidence
+             WHERE excluded.timestamp >= coordination_memory.timestamp",
+            params![input.project, input.active_issue, input.active_pr, input.branch, input.agent_id,
+                input.model_id, input.runtime, input.receipt, input.status, input.next_action,
+                timestamp_i64, input.source_evidence],
+        ).map_err(|source| StoreError::Sqlite { context: "upsert coordination memory", source })?;
+        Ok(CoordinationRecord {
+            project: input.project.clone(),
+            active_issue: input.active_issue.clone(),
+            active_pr: input.active_pr.clone(),
+            branch: input.branch.clone(),
+            agent_id: input.agent_id.clone(),
+            model_id: input.model_id.clone(),
+            runtime: input.runtime.clone(),
+            receipt: input.receipt.clone(),
+            status: input.status.clone(),
+            next_action: input.next_action.clone(),
+            timestamp,
+            source_evidence: input.source_evidence.clone(),
+        })
+    }
+
+    pub fn list_coordination(
+        &self,
+        filter: &CoordinationFilter,
+    ) -> Result<Vec<CoordinationRecord>> {
+        if let Some(status) = &filter.status {
+            validate_coordination_status(status)?;
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT project, active_issue, active_pr, branch, agent_id, model_id, runtime, receipt,
+             status, next_action, timestamp, source_evidence FROM coordination_memory
+             WHERE (?1 IS NULL OR project = ?1) AND (?2 IS NULL OR active_issue = ?2)
+             AND (?3 IS NULL OR status = ?3) AND (?4 IS NULL OR agent_id = ?4)
+             ORDER BY timestamp DESC, project, active_issue"
+        ).map_err(|source| StoreError::Sqlite { context: "prepare coordination query", source })?;
+        let rows = stmt
+            .query_map(
+                params![
+                    filter.project,
+                    filter.active_issue,
+                    filter.status,
+                    filter.agent_id
+                ],
+                |row| {
+                    let timestamp_i64: i64 = row.get(10)?;
+                    let timestamp = u64::try_from(timestamp_i64).map_err(|source| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            10,
+                            rusqlite::types::Type::Integer,
+                            Box::new(source),
+                        )
+                    })?;
+                    Ok(CoordinationRecord {
+                        project: row.get(0)?,
+                        active_issue: row.get(1)?,
+                        active_pr: row.get(2)?,
+                        branch: row.get(3)?,
+                        agent_id: row.get(4)?,
+                        model_id: row.get(5)?,
+                        runtime: row.get(6)?,
+                        receipt: row.get(7)?,
+                        status: row.get(8)?,
+                        next_action: row.get(9)?,
+                        timestamp,
+                        source_evidence: row.get(11)?,
+                    })
+                },
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "query coordination memory",
+                source,
+            })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|source| StoreError::Sqlite {
+                context: "read coordination memory",
+                source,
+            })
+    }
+
+    pub fn rebuild_coordination(&self) -> Result<Vec<CoordinationRecord>> {
+        self.conn
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+             DELETE FROM coordination_memory;
+             INSERT INTO coordination_memory(project, active_issue, active_pr, branch, agent_id,
+                 model_id, runtime, receipt, status, next_action, timestamp, source_evidence)
+             SELECT e.project, e.active_issue, e.active_pr, e.branch, e.agent_id, e.model_id,
+                 e.runtime, e.receipt, e.status, e.next_action, e.timestamp, e.source_evidence
+             FROM coordination_events e
+             WHERE e.id = (SELECT e2.id FROM coordination_events e2
+                 WHERE e2.project = e.project AND e2.active_issue = e.active_issue
+                 ORDER BY e2.timestamp DESC, e2.id DESC LIMIT 1);
+             COMMIT;",
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "rebuild coordination memory",
+                source,
+            })?;
+        self.list_coordination(&CoordinationFilter::default())
     }
 
     #[allow(dead_code)]
@@ -1627,6 +1803,51 @@ CREATE TABLE IF NOT EXISTS delegate_receipts (
 CREATE INDEX IF NOT EXISTS idx_delegate_receipts_agent_model ON delegate_receipts(agent_id, model_id);
 "#;
 
+fn validate_coordination(input: &CoordinationInput) -> Result<()> {
+    for (name, value) in [
+        ("project", &input.project),
+        ("active_issue", &input.active_issue),
+        ("branch", &input.branch),
+        ("agent_id", &input.agent_id),
+        ("model_id", &input.model_id),
+        ("runtime", &input.runtime),
+        ("receipt", &input.receipt),
+        ("next_action", &input.next_action),
+        ("source_evidence", &input.source_evidence),
+    ] {
+        if value.trim().is_empty() {
+            return Err(StoreError::Config(format!(
+                "coordination {name} cannot be empty"
+            )));
+        }
+    }
+    validate_coordination_status(&input.status)?;
+    let evidence = input.source_evidence.trim();
+    if !(evidence.starts_with("git:")
+        || evidence.starts_with("https://")
+        || evidence.starts_with("issue:")
+        || evidence.starts_with("ci:")
+        || evidence.starts_with("delegate_receipts:")
+        || evidence.starts_with("handoff:"))
+    {
+        return Err(StoreError::Config(
+            "coordination source_evidence must use git:, https://, issue:, ci:, delegate_receipts:, or handoff:"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_coordination_status(status: &str) -> Result<()> {
+    if matches!(status, "queued" | "running" | "failed" | "succeeded") {
+        Ok(())
+    } else {
+        Err(StoreError::Config(format!(
+            "invalid coordination status: {status}"
+        )))
+    }
+}
+
 const MIGRATION_V5: &str = r#"
 CREATE TABLE IF NOT EXISTS empirical_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1653,6 +1874,42 @@ CREATE TABLE IF NOT EXISTS empirical_history (
 );
 CREATE INDEX IF NOT EXISTS idx_empirical_history_agent_model_repo_task ON empirical_history(agent_id, model_id, repo, task_type);
 CREATE INDEX IF NOT EXISTS idx_empirical_history_created_at ON empirical_history(created_at_unix);
+"#;
+
+const MIGRATION_V6: &str = r#"
+CREATE TABLE IF NOT EXISTS coordination_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    active_issue TEXT NOT NULL,
+    active_pr TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    runtime TEXT NOT NULL,
+    receipt TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','failed','succeeded')),
+    next_action TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    source_evidence TEXT NOT NULL,
+    UNIQUE(project, active_issue, timestamp, source_evidence, status)
+);
+CREATE TABLE IF NOT EXISTS coordination_memory (
+    project TEXT NOT NULL,
+    active_issue TEXT NOT NULL,
+    active_pr TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    runtime TEXT NOT NULL,
+    receipt TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','failed','succeeded')),
+    next_action TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    source_evidence TEXT NOT NULL,
+    PRIMARY KEY (project, active_issue)
+);
+CREATE INDEX IF NOT EXISTS idx_coordination_events_project_issue ON coordination_events(project, active_issue, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_coordination_memory_status_agent ON coordination_memory(status, agent_id);
 "#;
 
 #[cfg(test)]
@@ -2097,8 +2354,8 @@ mod tests {
         let store = open(Some(&path)).expect("open state upgrades from v2 to v4");
         let status = store.status().expect("status");
 
-        assert_eq!(status.schema_version, 5);
-        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5]);
+        assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5, 6]);
         assert!(status
             .tables_present
             .contains(&"quota_snapshots".to_string()));
@@ -2358,10 +2615,10 @@ mod tests {
                 .expect("setup v4 database");
         }
 
-        // Open with state::open which runs migrations up to v5
-        let store = open(Some(&path)).expect("upgrade to v5");
+        // Open with state::open which runs all current migrations.
+        let store = open(Some(&path)).expect("upgrade to latest schema");
         let status = store.status().expect("status");
-        assert_eq!(status.schema_version, 5);
+        assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
         assert!(status
             .tables_present
             .contains(&"empirical_history".to_string()));
