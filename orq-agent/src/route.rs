@@ -370,12 +370,13 @@ struct EvaluatedCandidate {
     is_gated: bool,
     quota: CandidateQuota,
     is_down_or_deprecated: bool,
+    is_stale: bool,
     cost_hint: Option<f64>,
     has_promo: bool,
 }
 
 impl EvaluatedCandidate {
-    fn tier(&self, any_healthy: bool) -> i32 {
+    fn tier(&self, any_healthy: bool, any_fresh: bool) -> i32 {
         let is_short_term_critical = self
             .quota
             .short_term_remaining_pct
@@ -391,6 +392,7 @@ impl EvaluatedCandidate {
         // Penalty tiers:
         // -100: Exhausted or model status down/deprecated (when at least one candidate is healthy)
         // -50: Degraded / Warning (status == warning, immediate quota <= 15%, or gated under weekly threshold)
+        // -25: Stale Catalog / Expired fetched_at (when at least one candidate is fresh)
         // 0: Healthy / Baseline
         // Note: Certificates annotate but NEVER reorder candidates (no tier boost).
         // Note: Gated models NEVER displace healthy defaults (no tier boost above 0).
@@ -400,6 +402,8 @@ impl EvaluatedCandidate {
             && (self.quota.is_warning || is_short_term_critical || is_gated_under_weekly_threshold)
         {
             -50
+        } else if any_fresh && self.is_stale {
+            -25
         } else {
             0
         }
@@ -477,18 +481,26 @@ fn select_route(
             continue;
         }
 
-        let (cost_hint, promo, model_status) = if let Some(catalog) = models_catalog {
+        let now_unix = crate::quota::now_unix();
+        let catalog_ttl = crate::models::default_catalog_ttl_secs();
+
+        let (cost_hint, promo, model_status, is_stale) = if let Some(catalog) = models_catalog {
             if let Some(agent_models) = catalog.agents.get(&candidate.agent) {
                 if let Some(m) = agent_models.iter().find(|m| m.id == candidate.model) {
-                    (m.cost_hint, m.promo.clone(), m.status.clone())
+                    (
+                        m.cost_hint,
+                        m.promo.clone(),
+                        m.status.clone(),
+                        m.is_stale(now_unix, catalog_ttl),
+                    )
                 } else {
-                    (None, None, None)
+                    (None, None, None, true)
                 }
             } else {
-                (None, None, None)
+                (None, None, None, true)
             }
         } else {
-            (None, None, None)
+            (None, None, None, false)
         };
 
         let is_model_down_or_deprecated = matches!(
@@ -521,6 +533,7 @@ fn select_route(
             is_gated,
             quota,
             is_down_or_deprecated: is_model_down_or_deprecated,
+            is_stale,
             cost_hint,
             has_promo: promo
                 .as_deref()
@@ -547,16 +560,24 @@ fn select_route(
     let any_healthy = allowed_candidates
         .iter()
         .any(|c| !c.quota.is_exhausted && !c.is_down_or_deprecated);
+    let any_fresh = allowed_candidates
+        .iter()
+        .any(|c| !c.is_stale && !c.quota.is_exhausted && !c.is_down_or_deprecated);
+
     let mut quota_penalized_candidates = Vec::new();
+    let mut stale_candidates = Vec::new();
     for c in &allowed_candidates {
         if c.quota.is_exhausted || c.quota.is_warning || c.is_down_or_deprecated {
             quota_penalized_candidates.push(c.selected.agent.clone());
         }
+        if c.is_stale {
+            stale_candidates.push(c.selected.agent.clone());
+        }
     }
 
     allowed_candidates.sort_by(|a, b| {
-        let tier_b = b.tier(any_healthy);
-        let tier_a = a.tier(any_healthy);
+        let tier_b = b.tier(any_healthy, any_fresh);
+        let tier_a = a.tier(any_healthy, any_fresh);
         if tier_b != tier_a {
             return tier_b.cmp(&tier_a);
         }
@@ -614,6 +635,11 @@ fn select_route(
     {
         chosen.policy_reason = format!(
             "quota_penalized:{}; {}",
+            rule.default_agent, chosen.policy_reason
+        );
+    } else if chosen.fallback_applied && stale_candidates.contains(&rule.default_agent) && any_fresh {
+        chosen.policy_reason = format!(
+            "stale_catalog:{}; {}",
             rule.default_agent, chosen.policy_reason
         );
     }
@@ -2042,5 +2068,178 @@ mod tests {
         assert_eq!(decision.selected_agent, "qwen-code");
         assert_eq!(decision.selected_model, "qwen3.6-flash");
         assert!(!decision.fallback_applied);
+    }
+
+    #[test]
+    fn test_route_stale_model_freshness() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "coding",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.8-max",
+                    "cheap_sufficient": "agy/gemini-3.7-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing stale catalog freshness degradation"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        // Qwen model is stale (fetched_at is old/expired), AGY is fresh
+        let catalog = crate::models::parse_catalog(
+            r#"{
+                "schema_version": 2,
+                "agents": {
+                    "qwen-code": [{
+                        "id": "qwen3.8-max",
+                        "source": "runtime",
+                        "confidence": "high",
+                        "notes": "stale candidate",
+                        "fetched_at": "2020-01-01T00:00:00Z",
+                        "status": "active"
+                    }],
+                    "agy": [{
+                        "id": "gemini-3.7-flash",
+                        "source": "runtime",
+                        "confidence": "high",
+                        "notes": "fresh candidate",
+                        "fetched_at": "2026-09-06T23:00:00Z",
+                        "status": "active"
+                    }]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "coding",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            Some(&catalog),
+        )
+        .unwrap();
+
+        // Fresh AGY is selected over stale Qwen default
+        assert_eq!(decision.selected_agent, "agy");
+        assert_eq!(decision.selected_model, "gemini-3.7-flash");
+        assert!(decision.fallback_applied);
+        assert!(decision.selected_policy_reason.contains("stale_catalog:qwen-code"));
+    }
+
+    #[test]
+    fn test_route_filters_offline_and_unverified_runtime() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "coding",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen-deprecated",
+                    "cheap_sufficient": "agy/gemini-3.7-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing offline/deprecated model filtering"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        // Qwen model has status deprecated
+        let catalog = crate::models::parse_catalog(
+            r#"{
+                "schema_version": 2,
+                "agents": {
+                    "qwen-code": [{
+                        "id": "qwen-deprecated",
+                        "source": "runtime",
+                        "confidence": "high",
+                        "notes": "deprecated model",
+                        "fetched_at": "2026-09-06T23:00:00Z",
+                        "status": "deprecated"
+                    }],
+                    "agy": [{
+                        "id": "gemini-3.7-flash",
+                        "source": "runtime",
+                        "confidence": "high",
+                        "notes": "active model",
+                        "fetched_at": "2026-09-06T23:00:00Z",
+                        "status": "active"
+                    }]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "coding",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            Some(&catalog),
+        )
+        .unwrap();
+
+        // Active AGY is selected over deprecated Qwen default
+        assert_eq!(decision.selected_agent, "agy");
+        assert_eq!(decision.selected_model, "gemini-3.7-flash");
+        assert!(decision.fallback_applied);
     }
 }
