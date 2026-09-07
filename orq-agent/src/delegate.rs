@@ -216,6 +216,8 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         let mut cmd = Command::new(&binary);
         cmd.args(&argv)
             .current_dir(&repo_dir)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
