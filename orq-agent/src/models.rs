@@ -12,6 +12,64 @@ pub const DEFAULT_MODELS_CATALOG_PATH: &str = "config/models-catalog.json";
 pub const DEFAULT_MARKET_FEED_PATH: &str = "config/market-feed.json";
 pub const MODELS_CATALOG_ENV: &str = "ORQ_MODELS_CATALOG";
 pub const MARKET_FEED_ENV: &str = "ORQ_MARKET_FEED";
+pub const DEFAULT_CATALOG_TTL_SECS: u64 = 86_400;
+pub const CATALOG_TTL_ENV: &str = "ORQ_CATALOG_TTL_SECS";
+
+pub fn default_catalog_ttl_secs() -> u64 {
+    std::env::var(CATALOG_TTL_ENV)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_CATALOG_TTL_SECS)
+}
+
+pub fn parse_iso8601_to_unix(iso_str: &str) -> Option<u64> {
+    let trimmed = iso_str.trim();
+    if trimmed.len() < 19 {
+        return None;
+    }
+    let (date_part, time_part) = trimmed.split_once('T')?;
+    let date_components: Vec<&str> = date_part.split('-').collect();
+    if date_components.len() != 3 {
+        return None;
+    }
+    let year: i64 = date_components[0].parse().ok()?;
+    let month: u32 = date_components[1].parse().ok()?;
+    let day: u32 = date_components[2].parse().ok()?;
+
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    let time_clean = time_part.trim_end_matches('Z').split('+').next()?.split('-').next()?;
+    let time_components: Vec<&str> = time_clean.split(':').collect();
+    if time_components.len() < 3 {
+        return None;
+    }
+    let hours: u64 = time_components[0].parse().ok()?;
+    let minutes: u64 = time_components[1].parse().ok()?;
+    let seconds_str = time_components[2].split('.').next()?;
+    let seconds: u64 = seconds_str.parse().ok()?;
+
+    if hours > 23 || minutes > 59 || seconds > 59 {
+        return None;
+    }
+
+    let (y, m) = if month <= 2 {
+        (year - 1, month + 9)
+    } else {
+        (year, month - 3)
+    };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u32;
+    let doy = (153 * m + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + (doe as i64) - 719468;
+    if days < 0 {
+        return None;
+    }
+    let total_secs = (days as u64) * 86400 + hours * 3600 + minutes * 60 + seconds;
+    Some(total_secs)
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ModelsCatalog {
@@ -71,6 +129,17 @@ impl ModelCandidate {
             self.status.as_deref().map(str::to_lowercase).as_deref(),
             Some("down") | Some("offline")
         )
+    }
+
+    pub fn fetched_at_unix(&self) -> Option<u64> {
+        self.fetched_at.as_deref().and_then(parse_iso8601_to_unix)
+    }
+
+    pub fn is_stale(&self, now_unix: u64, ttl_secs: u64) -> bool {
+        match self.fetched_at_unix() {
+            Some(ts) => now_unix.saturating_sub(ts) > ttl_secs,
+            None => true,
+        }
     }
 }
 
@@ -440,6 +509,53 @@ pub async fn load_catalog(path: Option<&Path>) -> Result<(ModelsCatalog, String)
     Ok((parse_catalog(&content)?, path.display().to_string()))
 }
 
+pub async fn save_catalog(path: Option<&Path>, catalog: &ModelsCatalog) -> Result<String> {
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf.as_path()
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .wrap_err_with(|| format!("creating directory {}", parent.display()))?;
+        }
+    }
+    let content = serde_json::to_string_pretty(catalog)
+        .wrap_err("serializing models catalog json")?;
+    tokio::fs::write(path, content)
+        .await
+        .wrap_err_with(|| format!("writing models catalog {}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+#[allow(dead_code)]
+pub fn save_catalog_sync(path: Option<&Path>, catalog: &ModelsCatalog) -> Result<String> {
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf.as_path()
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .wrap_err_with(|| format!("creating directory {}", parent.display()))?;
+        }
+    }
+    let content = serde_json::to_string_pretty(catalog)
+        .wrap_err("serializing models catalog json")?;
+    std::fs::write(path, content)
+        .wrap_err_with(|| format!("writing models catalog {}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
 pub async fn load_market_feed(path: Option<&Path>) -> Result<(MarketFeed, String)> {
     let path_buf;
     let path = match path {
@@ -642,5 +758,45 @@ mod tests {
         assert_eq!(summary2.deprecated, 0);
         assert_eq!(summary2.total_models, 3);
         assert_eq!(catalog.agents["qwen-code"].len(), 3);
+    }
+
+    #[test]
+    fn test_parse_iso8601_to_unix_roundtrip() {
+        let unix_sec = 1788557700; // 2026-09-04T21:35:00Z
+        let iso_str = super::format_unix_iso8601(unix_sec);
+        assert_eq!(iso_str, "2026-09-04T21:35:00Z");
+        let parsed = super::parse_iso8601_to_unix(&iso_str).expect("parse valid ISO string");
+        assert_eq!(parsed, unix_sec);
+    }
+
+    #[test]
+    fn test_model_candidate_is_stale() {
+        let candidate_fresh = super::ModelCandidate {
+            id: "m1".to_string(),
+            source: "runtime".to_string(),
+            confidence: "high".to_string(),
+            notes: "".to_string(),
+            fetched_at: Some("2026-09-04T21:35:00Z".to_string()),
+            cost_hint: None,
+            promo: None,
+            status: Some("active".to_string()),
+        };
+        let candidate_no_fetched = super::ModelCandidate {
+            id: "m2".to_string(),
+            source: "runtime".to_string(),
+            confidence: "high".to_string(),
+            notes: "".to_string(),
+            fetched_at: None,
+            cost_hint: None,
+            promo: None,
+            status: Some("active".to_string()),
+        };
+
+        let now_unix = 1788557700 + 3600; // 1 hour later
+        assert!(!candidate_fresh.is_stale(now_unix, 86400));
+        assert!(candidate_no_fetched.is_stale(now_unix, 86400));
+
+        let now_unix_stale = 1788557700 + 100_000; // > 86400 seconds later
+        assert!(candidate_fresh.is_stale(now_unix_stale, 86400));
     }
 }

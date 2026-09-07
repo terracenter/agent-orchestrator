@@ -1143,6 +1143,7 @@ pub fn persist_runtime_agent(store: &StateStore, agent: &RuntimeAgentSnapshot) -
                 "source_type": model.source_type,
                 "verified": model.verified,
                 "last_verified_at": model.last_verified_at,
+                "fetched_at": agent.probed_at,
                 "cost_hint": model.cost_hint,
                 "capabilities": model.capabilities,
                 "source": "runtime_doctor",

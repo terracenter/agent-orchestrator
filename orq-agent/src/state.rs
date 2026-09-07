@@ -774,6 +774,37 @@ impl StateStore {
     }
 
     #[allow(dead_code)]
+    pub fn list_agent_models(&self, agent_id: &str) -> Result<Vec<ModelRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT agent_id, model_id, task_kind, gated, active, metadata_json FROM models WHERE agent_id=?1",
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare list agent models",
+                source,
+            })?;
+        let rows = stmt
+            .query_map(params![agent_id], |row| {
+                let gated_i64: i64 = row.get(3)?;
+                let active_i64: i64 = row.get(4)?;
+                Ok(ModelRecord {
+                    agent_id: row.get(0)?,
+                    model_id: row.get(1)?,
+                    task_kind: row.get(2)?,
+                    gated: gated_i64 != 0,
+                    active: active_i64 != 0,
+                    metadata_json: row.get(5)?,
+                })
+            })
+            .map_err(|source| StoreError::Sqlite {
+                context: "query list agent models",
+                source,
+            })?;
+        collect_rows(rows, "list agent models")
+    }
+
+    #[allow(dead_code)]
     pub fn record_breaker_outcome(
         &self,
         agent_id: &str,
