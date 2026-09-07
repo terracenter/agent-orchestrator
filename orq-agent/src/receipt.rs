@@ -74,6 +74,10 @@ pub struct DelegateReceipt {
     pub timeout_seconds: u64,
     pub exit_code: Option<i32>,
     pub secrets_read: bool,
+    #[serde(default)]
+    pub cleanup_attempted: bool,
+    #[serde(default)]
+    pub cleanup_succeeded: bool,
 }
 
 pub fn now_unix() -> u64 {
@@ -169,6 +173,8 @@ mod tests {
             timeout_seconds: 30,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         let serialized = serde_json::to_string(&receipt).expect("serialize");

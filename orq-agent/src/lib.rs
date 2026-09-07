@@ -3,6 +3,7 @@ use color_eyre::eyre::Result;
 use serde::Serialize;
 
 mod adapters;
+mod capabilities;
 mod certify;
 mod certstore;
 mod commands;
@@ -11,6 +12,7 @@ pub mod delegate;
 mod detect;
 mod discover;
 mod exec;
+mod home_sandbox;
 mod models;
 pub mod observer;
 mod policy;
@@ -86,6 +88,16 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Task kind used to resolve capability grants. Defaults to "unspecified" (no extra
+        /// capabilities) when omitted.
+        #[arg(long)]
+        task_kind: Option<String>,
+        /// Optional home capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        home_capabilities_config: Option<String>,
+        /// Optional task capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        task_capabilities_config: Option<String>,
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
@@ -167,6 +179,12 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional home capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        home_capabilities_config: Option<String>,
+        /// Optional task capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        task_capabilities_config: Option<String>,
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
@@ -207,6 +225,16 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Task kind used to resolve capability grants. Defaults to "unspecified" (no extra
+        /// capabilities) when omitted.
+        #[arg(long)]
+        task_kind: Option<String>,
+        /// Optional home capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        home_capabilities_config: Option<String>,
+        /// Optional task capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        task_capabilities_config: Option<String>,
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
@@ -306,6 +334,16 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Task kind used to resolve capability grants. Defaults to "unspecified" (no extra
+        /// capabilities) when omitted.
+        #[arg(long)]
+        task_kind: Option<String>,
+        /// Optional home capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        home_capabilities_config: Option<String>,
+        /// Optional task capabilities config JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        task_capabilities_config: Option<String>,
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
@@ -665,6 +703,9 @@ async fn run_command(command: Commands) -> Result<()> {
             correlation_id,
             policy_config,
             adapters_config,
+            task_kind,
+            home_capabilities_config,
+            task_capabilities_config,
             db_path,
             format,
         } => {
@@ -672,6 +713,14 @@ async fn run_command(command: Commands) -> Result<()> {
             let (policy_config, _) = policy::load_config(policy_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let home_capabilities_path = home_capabilities_config
+                .as_deref()
+                .map(std::path::Path::new);
+            let (home_capabilities, _) = home_sandbox::load_config(home_capabilities_path).await?;
+            let task_capabilities_path = task_capabilities_config
+                .as_deref()
+                .map(std::path::Path::new);
+            let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
             let receipt = exec::run(exec::ExecRequest {
                 agent,
                 model,
@@ -681,6 +730,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 correlation_id,
                 policy_config,
                 adapters_registry,
+                task_kind: task_kind.unwrap_or_else(|| "unspecified".to_string()),
+                home_capabilities,
+                task_capabilities,
             })
             .await?;
             persist_exec_receipt(db_path.as_deref(), &receipt, "exec");
@@ -766,6 +818,8 @@ async fn run_command(command: Commands) -> Result<()> {
             output,
             policy_config,
             adapters_config,
+            home_capabilities_config,
+            task_capabilities_config,
             db_path,
             format,
         } => {
@@ -773,6 +827,14 @@ async fn run_command(command: Commands) -> Result<()> {
             let (policy_config, _) = policy::load_config(policy_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let home_capabilities_path = home_capabilities_config
+                .as_deref()
+                .map(std::path::Path::new);
+            let (home_capabilities, _) = home_sandbox::load_config(home_capabilities_path).await?;
+            let task_capabilities_path = task_capabilities_config
+                .as_deref()
+                .map(std::path::Path::new);
+            let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
             let certificate = certify::run(certify::CertifyRequest {
                 agent,
                 model,
@@ -783,6 +845,8 @@ async fn run_command(command: Commands) -> Result<()> {
                 output,
                 policy_config,
                 adapters_registry,
+                home_capabilities,
+                task_capabilities,
             })
             .await?;
             persist_exec_receipt(
@@ -854,6 +918,9 @@ async fn run_command(command: Commands) -> Result<()> {
             correlation_id,
             policy_config,
             adapters_config,
+            task_kind,
+            home_capabilities_config,
+            task_capabilities_config,
             db_path,
             format,
         } => {
@@ -861,6 +928,14 @@ async fn run_command(command: Commands) -> Result<()> {
             let (policy_config, _) = policy::load_config(policy_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let home_capabilities_path = home_capabilities_config
+                .as_deref()
+                .map(std::path::Path::new);
+            let (home_capabilities, _) = home_sandbox::load_config(home_capabilities_path).await?;
+            let task_capabilities_path = task_capabilities_config
+                .as_deref()
+                .map(std::path::Path::new);
+            let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
             let receipt = smoke::run(
                 agent,
                 model,
@@ -869,6 +944,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 correlation_id,
                 policy_config,
                 adapters_registry,
+                task_kind.unwrap_or_else(|| "unspecified".to_string()),
+                home_capabilities,
+                task_capabilities,
             )
             .await?;
             persist_exec_receipt(db_path.as_deref(), &receipt, "smoke");
@@ -929,6 +1007,9 @@ async fn run_command(command: Commands) -> Result<()> {
             correlation_id,
             policy_config,
             adapters_config,
+            task_kind,
+            home_capabilities_config,
+            task_capabilities_config,
             db_path,
             format,
         } => {
@@ -949,6 +1030,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 correlation_id,
                 policy_config,
                 adapters_config,
+                task_kind,
+                home_capabilities_config,
+                task_capabilities_config,
             })
             .await?;
             persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate");

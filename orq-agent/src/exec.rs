@@ -1,8 +1,11 @@
 use crate::adapters::{find_adapter_in_registry, AdaptersRegistry};
+use crate::capabilities::{self, TaskCapabilitiesConfig};
+use crate::home_sandbox::{self, HomeCapabilitiesConfig, SandboxHome};
 use crate::policy;
 use crate::receipt::{now_unix, now_unix_nanos, tail_sanitized, ExecReceipt, ExecStatus};
 use color_eyre::eyre::Result;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -23,6 +26,9 @@ pub struct ExecRequest {
     pub correlation_id: Option<String>,
     pub policy_config: policy::PolicyConfig,
     pub adapters_registry: AdaptersRegistry,
+    pub task_kind: String,
+    pub home_capabilities: HomeCapabilitiesConfig,
+    pub task_capabilities: TaskCapabilitiesConfig,
 }
 
 pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
@@ -138,11 +144,42 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         }
     }));
 
+    let Some(real_home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Ok(invalid_receipt(
+            &request,
+            correlation_id,
+            started_at_unix,
+            started,
+            "HOME is not set; cannot prepare a confined sandbox HOME".to_string(),
+        ));
+    };
+    let sandbox = match SandboxHome::prepare(
+        adapter.name(),
+        &request.home_capabilities,
+        &real_home,
+        &home_sandbox::sandbox_root(),
+    ) {
+        Ok(sandbox) => sandbox,
+        Err(error) => {
+            return Ok(invalid_receipt(
+                &request,
+                correlation_id,
+                started_at_unix,
+                started,
+                format!("preparing sandbox HOME: {error}"),
+            ));
+        }
+    };
+    let task_capability = capabilities::resolve(&request.task_capabilities, &request.task_kind);
+    let granted_env = capabilities::granted_env(&task_capability);
+
     let mut command = Command::new(&binary);
     command
         .args(&argv)
         .env_clear()
         .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", sandbox.path())
+        .envs(granted_env)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -152,6 +189,7 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
+            let cleanup_succeeded = sandbox.cleanup().await;
             return Ok(ExecReceipt {
                 schema_version: 1,
                 correlation_id,
@@ -167,8 +205,8 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
                 stdout_tail: String::new(),
                 stderr_tail: format!("spawning agent {} via {}: {error}", adapter.name(), binary),
                 secrets_read: false,
-                cleanup_attempted: false,
-                cleanup_succeeded: false,
+                cleanup_attempted: true,
+                cleanup_succeeded,
             });
         }
     };
@@ -186,7 +224,7 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
     let wait_result =
         time::timeout(Duration::from_secs(request.timeout_seconds), child.wait()).await;
 
-    let (status, exit_code, timeout_message, cleanup_attempted, cleanup_succeeded) =
+    let (status, exit_code, timeout_message, proc_cleanup_attempted, proc_cleanup_succeeded) =
         match wait_result {
             Ok(Ok(status)) => (
                 if status.success() {
@@ -235,6 +273,10 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         stderr_bytes.extend_from_slice(message.as_bytes());
         stderr_tail = tail_sanitized(&stderr_bytes, OUTPUT_TAIL_BYTES);
     }
+
+    let sandbox_removed = sandbox.cleanup().await;
+    let cleanup_attempted = true;
+    let cleanup_succeeded = (!proc_cleanup_attempted || proc_cleanup_succeeded) && sandbox_removed;
 
     Ok(ExecReceipt {
         schema_version: 1,

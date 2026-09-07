@@ -59,6 +59,15 @@ fn exec_supports_external_adapters_registry() {
         r#"{"schema_version":1,"adapters":[{"name":"custom-agent","binary":"custom-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-custom-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"custom-agent":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -75,6 +84,8 @@ fn exec_supports_external_adapters_registry() {
             task.to_str().unwrap(),
             "--adapters-config",
             registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
             "--db-path",
             db.to_str().unwrap(),
             "--timeout",
@@ -2246,6 +2257,8 @@ fn score_ingest_from_receipts_and_aggregate() {
             timeout_seconds: 60,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         let receipt2 = orq_agent::receipt::DelegateReceipt {
             schema_version: 1,
@@ -2264,6 +2277,8 @@ fn score_ingest_from_receipts_and_aggregate() {
             timeout_seconds: 60,
             exit_code: Some(1),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         store
             .insert_delegate_receipt(&receipt1, "delegate")
@@ -2406,4 +2421,423 @@ fn observer_emit_fails_cleanly_on_missing_token_without_leak() {
     .failure()
     .stderr(predicate::str::contains("host token file not found"))
     .stderr(predicate::str::contains("X-Host-Token").not());
+}
+
+// --- Issue #175: isolated sandbox HOME + task_kind capability grants ---
+
+#[test]
+fn exec_confines_home_and_denies_inherited_env_by_default() {
+    let real_home = tempfile::tempdir().unwrap();
+    fs::write(
+        real_home.path().join("sentinel-file.secret"),
+        "must-not-leak",
+    )
+    .unwrap();
+
+    let runner = fake_runner(
+        "confinement-runner",
+        "#!/usr/bin/env bash\necho \"REPORTED_HOME=$HOME\"\necho \"SENTINEL_VAR=${ORQ_TEST_SENTINEL_VAR:-absent}\"\n",
+    );
+    let task =
+        std::env::temp_dir().join(format!("orq-agent-confine-task-{}.md", std::process::id()));
+    fs::write(&task, "hello confinement").unwrap();
+
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-confine-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"confine-agent":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-confine-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"confine-agent","binary":"confine-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("HOME", real_home.path())
+        .env("ORQ_TEST_SENTINEL_VAR", "leaked-secret-value")
+        .env("ORQ_AGENT_BIN_CONFINE_AGENT", runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "confine-agent",
+            "--model",
+            "confine-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"succeeded\""))
+        .stdout(predicate::str::contains("SENTINEL_VAR=absent"))
+        .stdout(predicate::str::contains("leaked-secret-value").not())
+        .stdout(
+            predicate::str::contains(format!("REPORTED_HOME={}", real_home.path().display())).not(),
+        );
+}
+
+#[test]
+fn exec_home_sandbox_exposes_only_declared_paths() {
+    let real_home = tempfile::tempdir().unwrap();
+    fs::write(real_home.path().join("allowed.txt"), "allowed-content").unwrap();
+    fs::write(real_home.path().join("forbidden.txt"), "forbidden-content").unwrap();
+
+    let runner = fake_runner(
+        "minimal-config-runner",
+        "#!/usr/bin/env bash\ncat \"$HOME/allowed.txt\" 2>/dev/null || echo NO-ALLOWED\nif [ -f \"$HOME/forbidden.txt\" ]; then echo FORBIDDEN-PRESENT; else echo FORBIDDEN-ABSENT; fi\n",
+    );
+    let task =
+        std::env::temp_dir().join(format!("orq-agent-minimal-task-{}.md", std::process::id()));
+    fs::write(&task, "hello minimal").unwrap();
+
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-minimal-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"minimal-agent":{"home_paths":["allowed.txt"]}}}"#,
+    )
+    .unwrap();
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-minimal-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"minimal-agent","binary":"minimal-config-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("HOME", real_home.path())
+        .env("ORQ_AGENT_BIN_MINIMAL_AGENT", runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "minimal-agent",
+            "--model",
+            "minimal-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"succeeded\""))
+        .stdout(predicate::str::contains("allowed-content"))
+        .stdout(predicate::str::contains("FORBIDDEN-ABSENT"))
+        .stdout(predicate::str::contains("forbidden-content").not());
+}
+
+#[test]
+fn exec_unregistered_home_capability_adapter_fails_closed() {
+    let real_home = tempfile::tempdir().unwrap();
+    let runner = fake_runner(
+        "undeclared-runner",
+        "#!/usr/bin/env bash\necho should-not-run\n",
+    );
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-undeclared-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello undeclared").unwrap();
+
+    // Home capabilities config that declares a *different* adapter, not "undeclared-agent".
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-undeclared-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"some-other-agent":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-undeclared-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"undeclared-agent","binary":"undeclared-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("HOME", real_home.path())
+        .env("ORQ_AGENT_BIN_UNDECLARED_AGENT", runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "undeclared-agent",
+            "--model",
+            "undeclared-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"invalid_request\""))
+        .stdout(predicate::str::contains(
+            "no home capability declared for adapter 'undeclared-agent'",
+        ))
+        .stdout(predicate::str::contains("should-not-run").not());
+}
+
+#[test]
+fn exec_cleans_up_sandbox_home_after_success_and_failure() {
+    let sandbox_root = tempfile::tempdir().unwrap();
+    let real_home = tempfile::tempdir().unwrap();
+    let runner_ok = fake_runner("cleanup-ok-runner", "#!/usr/bin/env bash\necho done-ok\n");
+    let runner_fail = fake_runner(
+        "cleanup-fail-runner",
+        "#!/usr/bin/env bash\necho failing-on-purpose >&2\nexit 1\n",
+    );
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-cleanup-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[
+            {"name":"cleanup-agent-ok","binary":"cleanup-ok-runner","status":"available","argv":["$MODEL","$TASK"]},
+            {"name":"cleanup-agent-fail","binary":"cleanup-fail-runner","status":"available","argv":["$MODEL","$TASK"]}
+        ]}"#,
+    )
+    .unwrap();
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-cleanup-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"cleanup-agent-ok":{"home_paths":[]},"cleanup-agent-fail":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
+    let task =
+        std::env::temp_dir().join(format!("orq-agent-cleanup-task-{}.md", std::process::id()));
+    fs::write(&task, "hello cleanup").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd_ok = Command::cargo_bin("orq-agent").unwrap();
+    cmd_ok
+        .env("HOME", real_home.path())
+        .env("ORQ_SANDBOX_HOME_ROOT", sandbox_root.path())
+        .env("ORQ_AGENT_BIN_CLEANUP_AGENT_OK", runner_ok)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "cleanup-agent-ok",
+            "--model",
+            "cleanup-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"succeeded\""))
+        .stdout(predicate::str::contains("\"cleanup_attempted\": true"))
+        .stdout(predicate::str::contains("\"cleanup_succeeded\": true"));
+
+    let mut cmd_fail = Command::cargo_bin("orq-agent").unwrap();
+    cmd_fail
+        .env("HOME", real_home.path())
+        .env("ORQ_SANDBOX_HOME_ROOT", sandbox_root.path())
+        .env("ORQ_AGENT_BIN_CLEANUP_AGENT_FAIL", runner_fail)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "cleanup-agent-fail",
+            "--model",
+            "cleanup-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"failed\""))
+        .stdout(predicate::str::contains("\"cleanup_attempted\": true"))
+        .stdout(predicate::str::contains("\"cleanup_succeeded\": true"));
+
+    let sandboxes_dir = sandbox_root.path().join("orq-agent-sandboxes");
+    let remaining: Vec<_> = fs::read_dir(&sandboxes_dir)
+        .map(|entries| entries.filter_map(|e| e.ok()).collect())
+        .unwrap_or_default();
+    assert!(
+        remaining.is_empty(),
+        "sandbox HOME directories were not cleaned up: {:?}",
+        remaining
+    );
+}
+
+#[test]
+fn exec_grants_env_only_for_declared_task_kind() {
+    let real_home = tempfile::tempdir().unwrap();
+    let runner = fake_runner(
+        "cap-runner",
+        "#!/usr/bin/env bash\necho \"CAP=${ORQ_TEST_CAP_VAR:-absent}\"\n",
+    );
+    let task = std::env::temp_dir().join(format!("orq-agent-cap-task-{}.md", std::process::id()));
+    fs::write(&task, "hello capability").unwrap();
+
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-cap-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"cap-agent","binary":"cap-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+    let home_capabilities =
+        std::env::temp_dir().join(format!("orq-agent-cap-homecap-{}.json", std::process::id()));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"cap-agent":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
+    let task_capabilities =
+        std::env::temp_dir().join(format!("orq-agent-cap-taskcap-{}.json", std::process::id()));
+    fs::write(
+        &task_capabilities,
+        r#"{"schema_version":1,"task_kinds":{"granted-kind":{"env_passthrough":["ORQ_TEST_CAP_VAR"]}}}"#,
+    )
+    .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd_granted = Command::cargo_bin("orq-agent").unwrap();
+    cmd_granted
+        .env("HOME", real_home.path())
+        .env("ORQ_TEST_CAP_VAR", "visible-value")
+        .env("ORQ_AGENT_BIN_CAP_AGENT", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "cap-agent",
+            "--model",
+            "cap-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--task-capabilities-config",
+            task_capabilities.to_str().unwrap(),
+            "--task-kind",
+            "granted-kind",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CAP=visible-value"));
+
+    let mut cmd_denied = Command::cargo_bin("orq-agent").unwrap();
+    cmd_denied
+        .env("HOME", real_home.path())
+        .env("ORQ_TEST_CAP_VAR", "visible-value")
+        .env("ORQ_AGENT_BIN_CAP_AGENT", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "cap-agent",
+            "--model",
+            "cap-model",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--task-capabilities-config",
+            task_capabilities.to_str().unwrap(),
+            "--task-kind",
+            "other-kind",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CAP=absent"));
 }

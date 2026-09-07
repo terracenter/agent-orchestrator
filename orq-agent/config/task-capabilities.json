@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "task_kinds": {
+    "mechanical": { "env_passthrough": [] },
+    "documentation": { "env_passthrough": [] },
+    "simple_review": { "env_passthrough": [] },
+    "short_text_review": { "env_passthrough": [] },
+    "write_tests": { "env_passthrough": [] },
+    "debugging": { "env_passthrough": [] },
+    "small_refactor": { "env_passthrough": [] },
+    "large_refactor": { "env_passthrough": [] },
+    "monorepo_long_context": { "env_passthrough": [] },
+    "frontend": { "env_passthrough": [] },
+    "database": { "env_passthrough": [] },
+    "sysadmin_linux": { "env_passthrough": [] },
+    "simple_cybersecurity": { "env_passthrough": [] },
+    "deep_cybersecurity": { "env_passthrough": [] },
+    "architecture": { "env_passthrough": [] },
+    "deep_reasoning": { "env_passthrough": [] },
+    "readonly_analysis": { "env_passthrough": [] },
+    "doc_watcher": { "env_passthrough": [] },
+    "real_tool_execution": { "env_passthrough": ["GH_TOKEN"] }
+  }
+}

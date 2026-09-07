@@ -2027,6 +2027,8 @@ Found 2 memories:
             timeout_seconds: 30,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         store.insert_delegate_receipt(&r1, "task1").unwrap();
 
@@ -2053,6 +2055,8 @@ Found 2 memories:
             timeout_seconds: 30,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         store.insert_delegate_receipt(&r2, "task2").unwrap();
 
@@ -2251,6 +2255,8 @@ Found 2 memories:
             timeout_seconds: 30,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         store
             .insert_delegate_receipt(&make_receipt("c1", "agy"), "task1")
