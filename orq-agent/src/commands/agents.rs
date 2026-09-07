@@ -227,7 +227,7 @@ mod tests {
         let records1 = store.list_agent_models("qwen-code").unwrap();
         let db_m1 = records1.iter().find(|r| r.model_id == "qwen3.8-max").unwrap();
         let meta1: serde_json::Value = serde_json::from_str(&db_m1.metadata_json).unwrap();
-        assert_eq!(meta1.get("last_verified_at").and_then(|v| v.as_str()), Some(rep1.refreshed_at.as_str()));
+        assert_eq!(meta1.get("fetched_at").and_then(|v| v.as_str()), Some(rep1.refreshed_at.as_str()));
 
         // Short pause to ensure timestamp advances
         tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
@@ -251,8 +251,8 @@ mod tests {
         let records2 = store.list_agent_models("qwen-code").unwrap();
         let db_m2 = records2.iter().find(|r| r.model_id == "qwen3.8-max").unwrap();
         let meta2: serde_json::Value = serde_json::from_str(&db_m2.metadata_json).unwrap();
-        assert_eq!(meta2.get("last_verified_at").and_then(|v| v.as_str()), Some(rep2.refreshed_at.as_str()));
-        assert_ne!(meta1.get("last_verified_at"), meta2.get("last_verified_at"));
+        assert_eq!(meta2.get("fetched_at").and_then(|v| v.as_str()), Some(rep2.refreshed_at.as_str()));
+        assert_ne!(meta1.get("fetched_at"), meta2.get("fetched_at"));
     }
 
     #[tokio::test]
