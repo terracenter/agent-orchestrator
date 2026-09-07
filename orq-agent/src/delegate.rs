@@ -655,7 +655,7 @@ fn build_autonomous_command(
 
     if norm.contains("agy") || norm.contains("antigravity") {
         Some(format!(
-            "cd {}\nrtk agy --model {} --dangerously-skip-permissions --add-dir {} --add-dir {} --print={:?}",
+            "cd {}\nrtk agy --model {} --mode accept-edits --add-dir {} --add-dir {} --print={:?}",
             workspace, model, repo, agents_dir, print_instruction
         ))
     } else if norm.contains("hermes") {
@@ -725,6 +725,41 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    #[test]
+    fn autonomous_agy_command_never_disables_permissions() {
+        let request = DelegateRequest {
+            task: Some("diagnose permissions".to_string()),
+            agent: Some("agy".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some("/tmp/repo".to_string()),
+            agents_dir: Some("/tmp/agents".to_string()),
+            workspace: Some("/tmp/workspace".to_string()),
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            allow_gated: false,
+            execute: false,
+            timeout_seconds: 120,
+            correlation_id: None,
+            policy_config: PolicyConfig {
+                schema_version: 1,
+                approval_required_model_patterns: Vec::new(),
+                blocked_adapter_statuses: Vec::new(),
+                gated_adapter_statuses: Vec::new(),
+            },
+            adapters_registry: AdaptersRegistry {
+                schema_version: 1,
+                adapters: Vec::new(),
+            },
+        };
+        let command =
+            build_autonomous_command(&request, "agy", "test-model", "diagnose permissions")
+                .expect("AGY command");
+        assert!(!command.contains("--dangerously-skip-permissions"));
+        assert!(command.contains("--mode accept-edits"));
+    }
 
     fn setup_git_repo(dir: &Path) {
         let run_cmd = |args: &[&str]| {
