@@ -305,7 +305,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             } else {
                 (
                     DelegateStatus::Failed,
-                    Some("no_executed".to_string()),
+                    Some(permission_diagnostic_reason(&stderr)),
                     DelegateVerdict::NonUtil,
                     "none".to_string(),
                 )
@@ -313,7 +313,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         } else {
             (
                 DelegateStatus::Failed,
-                Some("no_executed".to_string()),
+                Some(permission_diagnostic_reason(&stderr)),
                 DelegateVerdict::NonUtil,
                 "none".to_string(),
             )
@@ -389,6 +389,20 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
 
     write_delegation_artifacts(&request, &mut output).await?;
     Ok(output)
+}
+
+fn permission_diagnostic_reason(stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        return "no_executed".to_string();
+    }
+    if trimmed.contains("permission") || trimmed.contains("jetski:") {
+        return format!(
+            "permission_denied: {}",
+            tail_sanitized(trimmed.as_bytes(), 4096)
+        );
+    }
+    "no_executed".to_string()
 }
 
 async fn run_process(
@@ -759,6 +773,15 @@ mod tests {
                 .expect("AGY command");
         assert!(!command.contains("--dangerously-skip-permissions"));
         assert!(command.contains("--mode accept-edits"));
+    }
+
+    #[test]
+    fn permission_diagnostic_preserves_headless_reason() {
+        let reason = permission_diagnostic_reason(
+            "jetski: no output produced — a tool required the read_url permission",
+        );
+        assert!(reason.starts_with("permission_denied: jetski:"));
+        assert!(reason.contains("read_url"));
     }
 
     fn setup_git_repo(dir: &Path) {
