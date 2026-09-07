@@ -4,12 +4,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+/// Compliance state of an audited check or of the whole audit run.
+///
+/// Fail-closed semantics (issue #176): `Unverified` means the auditor had no
+/// data to verify compliance (e.g. `--log` was not provided). It must never be
+/// reported as a clean `Ok`; it blocks task/receipt closure exactly like a
+/// `Violation`.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ComplianceStatus {
     Ok,
     Violation,
-    NotAvailable,
+    Unverified,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -152,54 +158,108 @@ pub async fn run_compliance(args: ComplianceArgs) -> Result<ComplianceReport> {
     };
 
     let mut has_violation = false;
+    let mut has_unverified = false;
     let mut violation_reasons = Vec::new();
+    let mut unverified_reasons = Vec::new();
 
     if let Some(ref r) = rtk_report {
-        if r.status == ComplianceStatus::Violation {
-            has_violation = true;
-            violation_reasons.push(format!(
-                "rtk-usage: {} raw invocation(s)",
-                r.raw_invocations_count
-            ));
+        match r.status {
+            ComplianceStatus::Violation => {
+                has_violation = true;
+                violation_reasons.push(format!(
+                    "rtk-usage: {} raw invocation(s)",
+                    r.raw_invocations_count
+                ));
+            }
+            ComplianceStatus::Unverified => {
+                has_unverified = true;
+                unverified_reasons.push(format!("rtk-usage: {}", r.message));
+            }
+            ComplianceStatus::Ok => {}
         }
     }
 
     if let Some(ref e) = engram_report {
-        if e.status == ComplianceStatus::Violation {
-            has_violation = true;
-            violation_reasons.push(format!(
-                "engram-summary: missing summary for {}",
-                e.target_date
-            ));
+        match e.status {
+            ComplianceStatus::Violation => {
+                has_violation = true;
+                violation_reasons.push(format!(
+                    "engram-summary: missing summary for {}",
+                    e.target_date
+                ));
+            }
+            ComplianceStatus::Unverified => {
+                has_unverified = true;
+                unverified_reasons.push(format!("engram-summary: {}", e.message));
+            }
+            ComplianceStatus::Ok => {}
         }
     }
 
     if let Some(ref v) = vg_report {
-        if v.status == ComplianceStatus::Violation {
-            has_violation = true;
-            violation_reasons.push("vg-sync: graph is stale compared to vault HEAD".to_string());
+        match v.status {
+            ComplianceStatus::Violation => {
+                has_violation = true;
+                violation_reasons
+                    .push("vg-sync: graph is stale compared to vault HEAD".to_string());
+            }
+            ComplianceStatus::Unverified => {
+                has_unverified = true;
+                unverified_reasons.push(format!("vg-sync: {}", v.message));
+            }
+            ComplianceStatus::Ok => {}
         }
     }
 
     if let Some(ref p) = pi_report {
-        if p.status == ComplianceStatus::Violation {
-            has_violation = true;
-            violation_reasons.push(format!("pi-supervision: {}", p.summary));
+        match p.status {
+            ComplianceStatus::Violation => {
+                has_violation = true;
+                violation_reasons.push(format!("pi-supervision: {}", p.summary));
+            }
+            ComplianceStatus::Unverified => {
+                has_unverified = true;
+                unverified_reasons.push(format!("pi-supervision: {}", p.summary));
+            }
+            ComplianceStatus::Ok => {}
         }
     }
 
+    // Fail-closed aggregation (issue #176): when an enabled check could not be
+    // verified (`Unverified`, e.g. `--log` was not provided), the run must NOT
+    // be reported as a clean `Ok`; the audit is explicitly UNVERIFIED and
+    // blocks closure exactly like a `Violation`. A confirmed `Violation` still
+    // takes precedence so it is never masked by an unverified check.
     let status = if has_violation {
         ComplianceStatus::Violation
+    } else if has_unverified {
+        ComplianceStatus::Unverified
     } else {
         ComplianceStatus::Ok
     };
 
-    let exit_code = if has_violation { 1 } else { 0 };
-
-    let summary = if has_violation {
-        format!("VIOLATION: {}", violation_reasons.join(", "))
+    // Exit codes: 0 = OK (clean), 1 = VIOLATION (blocking), 2 = UNVERIFIED
+    // (blocking, fail-closed: auditor could not verify). Both 1 and 2 are
+    // non-zero so any consumer treats UNVERIFIED as a closure blocker.
+    let exit_code = if has_violation {
+        1
+    } else if has_unverified {
+        2
     } else {
+        0
+    };
+
+    let mut summary_parts = Vec::new();
+    if has_violation {
+        summary_parts.push(format!("VIOLATION: {}", violation_reasons.join(", ")));
+    }
+    if has_unverified {
+        summary_parts.push(format!("UNVERIFIED: {}", unverified_reasons.join(", ")));
+    }
+    let summary = if summary_parts.is_empty() {
         "OK: all enabled compliance checks passed".to_string()
+    } else {
+        summary_parts.join("; ")
     };
 
     Ok(ComplianceReport {
@@ -229,17 +289,20 @@ pub fn check_rtk_usage(log_path_str: Option<&str>) -> Result<RtkUsageReport> {
 
     let Some(path) = resolved_path else {
         return Ok(RtkUsageReport {
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             raw_invocations_count: 0,
             scanned_files_count: 0,
             violations: Vec::new(),
-            message: "no log disponible".to_string(),
+            // Fail-closed (issue #176): without --log there is no evidence to
+            // audit, so the check stays UNVERIFIED and blocks the run.
+            message: "no --log provided (ORQ_COMPLIANCE_LOG/ORQ_AGENT_LOG unset); rtk usage cannot be verified"
+                .to_string(),
         });
     };
 
     if !path.exists() {
         return Ok(RtkUsageReport {
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             raw_invocations_count: 0,
             scanned_files_count: 0,
             violations: Vec::new(),
@@ -527,7 +590,7 @@ pub async fn check_engram_summary(
     let bin_path_resolved = which::which(&engram_bin);
     if bin_path_resolved.is_err() && !Path::new(&engram_bin).exists() {
         return Ok(EngramSummaryReport {
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             project,
             target_date,
             session_summaries_count: 0,
@@ -545,7 +608,7 @@ pub async fn check_engram_summary(
         Ok(out) => out,
         Err(err) => {
             return Ok(EngramSummaryReport {
-                status: ComplianceStatus::NotAvailable,
+                status: ComplianceStatus::Unverified,
                 project,
                 target_date,
                 session_summaries_count: 0,
@@ -662,7 +725,7 @@ pub fn check_vg_sync(
 
     let (Some(vault_path), Some(kuzu_path)) = (vault_path.as_ref(), kuzu_path.as_ref()) else {
         return Ok(VgSyncReport {
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             vault_path: vault_path
                 .as_ref()
                 .map(|p| p.display().to_string())
@@ -1172,7 +1235,7 @@ pub fn check_pi_law1_backlog(handoffs_path: &Path) -> Result<PiLawCheck> {
     let Some((path, content)) = get_latest_plan_handoff(handoffs_path) else {
         return Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: format!("path: {}", handoffs_path.display()),
             message: "no se encontraron handoffs de plan para auditar".to_string(),
         });
@@ -1218,7 +1281,7 @@ pub fn check_pi_law2_ranking_criteria(handoffs_path: &Path) -> Result<PiLawCheck
     let Some((path, content)) = get_latest_plan_handoff(handoffs_path) else {
         return Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: format!("path: {}", handoffs_path.display()),
             message: "no se encontraron handoffs de plan para auditar".to_string(),
         });
@@ -1267,7 +1330,7 @@ pub fn check_pi_law3_macro_first(handoffs_path: &Path) -> Result<PiLawCheck> {
     let Some((path, content)) = get_latest_plan_handoff(handoffs_path) else {
         return Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: format!("path: {}", handoffs_path.display()),
             message: "no se encontraron handoffs de plan para auditar".to_string(),
         });
@@ -1459,7 +1522,7 @@ pub fn check_pi_law4_separation_of_duties(
     } else {
         Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: "[]".to_string(),
             message:
                 "no se encontraron handoffs de merge/review ni receipts de delegación para auditar"
@@ -1482,7 +1545,7 @@ pub fn check_pi_law5_routing_delegation(handoffs_path: &Path) -> Result<PiLawChe
     if !handoffs_path.exists() {
         return Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: format!("path: {}", handoffs_path.display()),
             message: "directorio de handoffs no existe".to_string(),
         });
@@ -1501,7 +1564,7 @@ pub fn check_pi_law5_routing_delegation(handoffs_path: &Path) -> Result<PiLawChe
     if md_files.is_empty() {
         return Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: format!("path: {}", handoffs_path.display()),
             message: "no hay archivos markdown en el directorio de handoffs".to_string(),
         });
@@ -1711,7 +1774,7 @@ pub fn check_pi_law6_review_4r(
     } else {
         Ok(PiLawCheck {
             law,
-            status: ComplianceStatus::NotAvailable,
+            status: ComplianceStatus::Unverified,
             evidence: "[]".to_string(),
             message: "no se encontraron handoffs de revisión o receipts 4r para auditar"
                 .to_string(),
@@ -1874,10 +1937,10 @@ Found 2 memories:
     }
 
     #[test]
-    fn test_vg_sync_not_available_when_no_paths() {
+    fn test_vg_sync_unverified_when_no_paths() {
         let report = check_vg_sync(None, None).unwrap();
         if std::env::var("ORQ_VAULT_PATH").is_err() && std::env::var("VAULT_PATH").is_err() {
-            assert_eq!(report.status, ComplianceStatus::NotAvailable);
+            assert_eq!(report.status, ComplianceStatus::Unverified);
             assert!(!report.is_fresh);
         }
     }
@@ -1925,9 +1988,9 @@ Found 2 memories:
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
-        // No handoffs -> NotAvailable
+        // No handoffs -> Unverified
         let check_empty = check_pi_law1_backlog(handoffs_path).unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+        assert_eq!(check_empty.status, ComplianceStatus::Unverified);
 
         // Plan with Backlog leído -> Ok
         let plan_file = handoffs_path.join("orq-plan-1.md");
@@ -1946,9 +2009,9 @@ Found 2 memories:
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
-        // No handoffs -> NotAvailable
+        // No handoffs -> Unverified
         let check_empty = check_pi_law2_ranking_criteria(handoffs_path).unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+        assert_eq!(check_empty.status, ComplianceStatus::Unverified);
 
         // Plan with Valor, Urgencia, Dependencia -> Ok
         let plan_file = handoffs_path.join("orq-plan-1.md");
@@ -1971,9 +2034,9 @@ Found 2 memories:
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
-        // No handoffs -> NotAvailable
+        // No handoffs -> Unverified
         let check_empty = check_pi_law3_macro_first(handoffs_path).unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+        assert_eq!(check_empty.status, ComplianceStatus::Unverified);
 
         // Plan with core / fundamento / blocker -> Ok
         let plan_file = handoffs_path.join("orq-plan-1.md");
@@ -2003,11 +2066,11 @@ Found 2 memories:
         fs::create_dir_all(&handoffs_path).unwrap();
         let store = crate::state::open(Some(&db_path)).unwrap();
 
-        // Empty DB and empty handoffs -> NotAvailable
+        // Empty DB and empty handoffs -> Unverified
         let check_empty =
             check_pi_law4_separation_of_duties(Some(db_path.to_str().unwrap()), &handoffs_path)
                 .unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+        assert_eq!(check_empty.status, ComplianceStatus::Unverified);
 
         // Single agent in receipts -> Violation
         let r1 = crate::receipt::DelegateReceipt {
@@ -2082,9 +2145,9 @@ Found 2 memories:
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
-        // No handoffs -> NotAvailable
+        // No handoffs -> Unverified
         let check_empty = check_pi_law5_routing_delegation(handoffs_path).unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+        assert_eq!(check_empty.status, ComplianceStatus::Unverified);
 
         // Clean handoff -> Ok
         let clean_file = handoffs_path.join("clean.md");
@@ -2154,9 +2217,9 @@ Found 2 memories:
         let dir = tempfile::tempdir().unwrap();
         let handoffs_path = dir.path();
 
-        // No handoffs -> NotAvailable
+        // No handoffs -> Unverified
         let check_empty = check_pi_law6_review_4r(None, handoffs_path).unwrap();
-        assert_eq!(check_empty.status, ComplianceStatus::NotAvailable);
+        assert_eq!(check_empty.status, ComplianceStatus::Unverified);
 
         // Valid review citing orq review 4r -> Ok
         let review_ok = handoffs_path.join("orq-review-1.md");
@@ -2210,6 +2273,156 @@ Found 2 memories:
         assert!(report.checks.vg_sync.is_some());
         // pi_supervision must be None for non-pi agent
         assert!(report.checks.pi_supervision.is_none());
+        // Fail-closed regression (#176): the run has no --log, so rtk-usage is
+        // unverifiable and the whole run must be UNVERIFIED (blocking), never OK.
+        assert_eq!(report.status, ComplianceStatus::Unverified);
+        assert_eq!(report.exit_code, 2);
+        assert!(report.summary.starts_with("UNVERIFIED: rtk-usage"));
+        assert!(
+            !report
+                .summary
+                .contains("OK: all enabled compliance checks passed"),
+            "unverified run must never claim OK, got: {}",
+            report.summary
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_compliance_without_log_is_unverified_never_ok() {
+        // Issue #176 regression: when the auditor has no evidence at all (no
+        // --log, no vault/kuzu, no engram binary), every default-enabled check
+        // is unverifiable. The old code collapsed that into
+        // "OK: all enabled compliance checks passed"; it must now report an
+        // explicit UNVERIFIED state with a non-zero exit code.
+        let report = run_compliance(ComplianceArgs {
+            agent: Some("hermes".to_string()),
+            engram_bin: Some("nonexistent_engram_bin_for_test".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(report.status, ComplianceStatus::Unverified);
+        assert_eq!(report.exit_code, 2);
+        assert!(report.summary.starts_with("UNVERIFIED:"));
+        assert!(
+            !report
+                .summary
+                .contains("OK: all enabled compliance checks passed"),
+            "unverified run must never claim OK, got: {}",
+            report.summary
+        );
+        // Every default check ran and none of them passed cleanly.
+        assert_eq!(
+            report.checks.rtk_usage.as_ref().unwrap().status,
+            ComplianceStatus::Unverified
+        );
+        assert_eq!(
+            report.checks.engram_summary.as_ref().unwrap().status,
+            ComplianceStatus::Unverified
+        );
+        assert_eq!(
+            report.checks.vg_sync.as_ref().unwrap().status,
+            ComplianceStatus::Unverified
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_compliance_unverified_blocks_like_violation() {
+        // Issue #176: UNVERIFIED must block closure exactly like a violation.
+        // Here a confirmed violation coexists with unverifiable checks: the
+        // report must stay blocking (Violation, exit 1) and surface both the
+        // VIOLATION and the UNVERIFIED evidence in its summary.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let log = temp_dir.path().join("raw.log");
+        fs::write(&log, "git status\n").unwrap();
+
+        let report = run_compliance(ComplianceArgs {
+            agent: Some("hermes".to_string()),
+            log: Some(log.to_str().unwrap().to_string()),
+            engram_bin: Some("nonexistent_engram_bin_for_test".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(report.status, ComplianceStatus::Violation);
+        assert_eq!(report.exit_code, 1);
+        assert!(report
+            .summary
+            .starts_with("VIOLATION: rtk-usage: 1 raw invocation(s)"));
+        assert!(
+            report.summary.contains("UNVERIFIED:"),
+            "unverified checks must be surfaced too, got: {}",
+            report.summary
+        );
+        assert!(
+            !report
+                .summary
+                .contains("OK: all enabled compliance checks passed"),
+            "blocking run must never claim OK, got: {}",
+            report.summary
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_compliance_all_verifiable_is_ok() {
+        // Guards against over-blocking: when every enabled check has real
+        // evidence and passes, the run is still OK with exit code 0.
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Clean log: every command is rtk-wrapped.
+        let log = temp_dir.path().join("agent.log");
+        fs::write(&log, "rtk git status\nrtk ls -la\n").unwrap();
+
+        // Fresh vault + kuzu for vg-sync (kuzu written after the vault ref).
+        let vault_dir = temp_dir.path().join("vault");
+        let git_refs = vault_dir.join(".git/refs/heads");
+        fs::create_dir_all(&git_refs).unwrap();
+        fs::write(vault_dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(git_refs.join("main"), "commit1\n").unwrap();
+        let kuzu_file = temp_dir.path().join("vault.kuzu");
+        fs::write(&kuzu_file, "kuzu db content\n").unwrap();
+
+        // Fake engram binary reporting a session summary for today.
+        let engram_bin = temp_dir.path().join("fake-engram-ok");
+        fs::write(
+            &engram_bin,
+            "#!/usr/bin/env bash\nTODAY=$(date +%Y-%m-%d)\necho \"[1] #42 (session_summary) - Session summary\"\necho \"    ${TODAY} 17:00:00 | project: test-proj | scope: project\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&engram_bin).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&engram_bin, perms).unwrap();
+
+        let report = run_compliance(ComplianceArgs {
+            agent: Some("hermes".to_string()),
+            log: Some(log.to_str().unwrap().to_string()),
+            project: Some("test-proj".to_string()),
+            engram_bin: Some(engram_bin.to_str().unwrap().to_string()),
+            vault_path: Some(vault_dir.to_str().unwrap().to_string()),
+            kuzu_path: Some(kuzu_file.to_str().unwrap().to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(report.status, ComplianceStatus::Ok);
+        assert_eq!(report.exit_code, 0);
+        assert_eq!(report.summary, "OK: all enabled compliance checks passed");
+        assert_eq!(
+            report.checks.rtk_usage.as_ref().unwrap().status,
+            ComplianceStatus::Ok
+        );
+        assert_eq!(
+            report.checks.engram_summary.as_ref().unwrap().status,
+            ComplianceStatus::Ok
+        );
+        assert_eq!(
+            report.checks.vg_sync.as_ref().unwrap().status,
+            ComplianceStatus::Ok
+        );
     }
 
     #[tokio::test]
@@ -2309,7 +2522,10 @@ Ejecutado orq review 4r #159 con veredicto PASS.
             assert_eq!(c.status, ComplianceStatus::Ok, "Check failed: {}", c.law);
         }
 
-        // Test run_compliance integration
+        // Test run_compliance integration: with real evidence for every
+        // default check (clean --log, working engram, fresh vault/kuzu and the
+        // pi handoffs above) the whole run must be OK (issue #176 fail-closed:
+        // OK is only reached when every enabled check is verified).
         let vault_dir = dir.path().join("vault");
         let git_refs = vault_dir.join(".git/refs/heads");
         fs::create_dir_all(&git_refs).unwrap();
@@ -2319,6 +2535,20 @@ Ejecutado orq review 4r #159 con veredicto PASS.
         let kuzu_file = dir.path().join("vault.kuzu");
         fs::write(&kuzu_file, "kuzu db content\n").unwrap();
 
+        let log_file = dir.path().join("agent.log");
+        fs::write(&log_file, "rtk git status\nrtk ls -la\n").unwrap();
+
+        let engram_bin = dir.path().join("fake-engram-ok");
+        fs::write(
+            &engram_bin,
+            "#!/usr/bin/env bash\nTODAY=$(date +%Y-%m-%d)\necho \"[1] #42 (session_summary) - Session summary\"\necho \"    ${TODAY} 17:00:00 | project: pi-proj | scope: project\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&engram_bin).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&engram_bin, perms).unwrap();
+
         let comp_report = run_compliance(ComplianceArgs {
             agent: Some("pi".to_string()),
             agents_path: Some(agents_dir.to_str().unwrap().to_string()),
@@ -2326,11 +2556,12 @@ Ejecutado orq review 4r #159 con veredicto PASS.
             db_path: Some(db_path.to_str().unwrap().to_string()),
             vault_path: Some(vault_dir.to_str().unwrap().to_string()),
             kuzu_path: Some(kuzu_file.to_str().unwrap().to_string()),
-            engram_bin: Some("nonexistent_engram_bin_for_test".to_string()),
+            log: Some(log_file.to_str().unwrap().to_string()),
+            project: Some("pi-proj".to_string()),
+            engram_bin: Some(engram_bin.to_str().unwrap().to_string()),
             rtk_usage: false,
             engram_summary: false,
             vg_sync: false,
-            ..Default::default()
         })
         .await
         .unwrap();

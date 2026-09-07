@@ -1580,10 +1580,12 @@ fn compliance_cli_vg_sync_fresh() {
 }
 
 #[test]
-fn compliance_cli_vg_sync_not_available() {
+fn compliance_cli_vg_sync_without_paths_is_unverified_failure() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
+    // Issue #176 fail-closed regression: a check without evidence (no vault /
+    // kuzu paths) is UNVERIFIED, never a clean success.
     let mut cmd = Command::cargo_bin("orq-agent").unwrap();
     cmd.env("ORQ_STATE_DB", &db)
         .env_remove("ORQ_VAULT_PATH")
@@ -1592,9 +1594,60 @@ fn compliance_cli_vg_sync_not_available() {
         .env_remove("KUZU_PATH")
         .args(["compliance", "--vg-sync", "--format", "json"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"status\": \"not_available\""))
-        .stdout(predicate::str::contains("\"is_fresh\": false"));
+        .failure()
+        .code(2)
+        .stdout(predicate::str::contains("\"status\": \"unverified\""))
+        .stdout(predicate::str::contains("\"is_fresh\": false"))
+        .stdout(predicate::str::contains("UNVERIFIED: vg-sync"))
+        .stdout(predicate::str::contains("OK: all enabled compliance checks passed").not());
+}
+
+#[test]
+fn compliance_cli_without_log_is_unverified_failure() {
+    // Issue #176 acceptance: `orq-agent compliance` without --log must exit
+    // non-zero and never print "OK"; with no evidence at all the explicit
+    // result is UNVERIFIED (exit code 2).
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let missing_engram = state_dir.path().join("engram-missing");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_STATE_DB", &db)
+        .env_remove("ORQ_COMPLIANCE_LOG")
+        .env_remove("ORQ_AGENT_LOG")
+        .env("ORQ_ENGRAM_BIN", missing_engram.to_str().unwrap())
+        .env_remove("ORQ_VAULT_PATH")
+        .env_remove("VAULT_PATH")
+        .env_remove("ORQ_KUZU_PATH")
+        .env_remove("KUZU_PATH")
+        .args(["compliance", "--format", "json"])
+        .assert()
+        .failure()
+        .code(2)
+        .stdout(predicate::str::contains("\"status\": \"unverified\""))
+        .stdout(predicate::str::contains("UNVERIFIED: rtk-usage"))
+        .stdout(predicate::str::contains("OK: all enabled compliance checks passed").not());
+}
+
+#[test]
+fn compliance_cli_rtk_usage_without_log_is_unverified_failure() {
+    // Issue #176 acceptance: the rtk-usage check with no --log must not be a
+    // clean run; it is UNVERIFIED and exits non-zero.
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    cmd.env("ORQ_STATE_DB", &db)
+        .env_remove("ORQ_COMPLIANCE_LOG")
+        .env_remove("ORQ_AGENT_LOG")
+        .args(["compliance", "--rtk-usage", "--format", "json"])
+        .assert()
+        .failure()
+        .code(2)
+        .stdout(predicate::str::contains("\"status\": \"unverified\""))
+        .stdout(predicate::str::contains("\"raw_invocations_count\": 0"))
+        .stdout(predicate::str::contains("no --log provided"))
+        .stdout(predicate::str::contains("OK: all enabled compliance checks passed").not());
 }
 
 #[test]
