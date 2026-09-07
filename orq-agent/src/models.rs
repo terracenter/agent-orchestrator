@@ -36,7 +36,7 @@ pub fn parse_iso8601_to_unix(iso_str: &str) -> Option<u64> {
     let month: u32 = date_components[1].parse().ok()?;
     let day: u32 = date_components[2].parse().ok()?;
 
-    if month < 1 || month > 12 || day < 1 || day > 31 {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
 
