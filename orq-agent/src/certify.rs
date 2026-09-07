@@ -1,4 +1,6 @@
 use crate::adapters::AdaptersRegistry;
+use crate::capabilities::TaskCapabilitiesConfig;
+use crate::home_sandbox::HomeCapabilitiesConfig;
 use crate::policy::PolicyConfig;
 use crate::receipt::{now_unix, now_unix_nanos, receipt_sha256, ExecReceipt, ExecStatus};
 use crate::smoke;
@@ -17,6 +19,8 @@ pub struct CertifyRequest {
     pub output: Option<String>,
     pub policy_config: PolicyConfig,
     pub adapters_registry: AdaptersRegistry,
+    pub home_capabilities: HomeCapabilitiesConfig,
+    pub task_capabilities: TaskCapabilitiesConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -51,6 +55,9 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
         request.correlation_id,
         request.policy_config,
         request.adapters_registry,
+        request.task_kind.clone(),
+        request.home_capabilities,
+        request.task_capabilities,
     )
     .await?;
     let receipt_sha256 = receipt_sha256(&receipt)?;

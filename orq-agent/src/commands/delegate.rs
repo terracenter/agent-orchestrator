@@ -1,6 +1,6 @@
 use color_eyre::eyre::Result;
 
-use crate::{adapters, delegate, policy};
+use crate::{adapters, capabilities, delegate, home_sandbox, policy};
 
 pub(crate) struct DelegateArgs {
     pub(crate) task: Option<String>,
@@ -19,6 +19,9 @@ pub(crate) struct DelegateArgs {
     pub(crate) correlation_id: Option<String>,
     pub(crate) policy_config: Option<String>,
     pub(crate) adapters_config: Option<String>,
+    pub(crate) task_kind: Option<String>,
+    pub(crate) home_capabilities_config: Option<String>,
+    pub(crate) task_capabilities_config: Option<String>,
 }
 
 pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> {
@@ -26,6 +29,16 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
     let (policy_config, _) = policy::load_config(policy_config_path).await?;
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+    let home_capabilities_path = args
+        .home_capabilities_config
+        .as_deref()
+        .map(std::path::Path::new);
+    let (home_capabilities, _) = home_sandbox::load_config(home_capabilities_path).await?;
+    let task_capabilities_path = args
+        .task_capabilities_config
+        .as_deref()
+        .map(std::path::Path::new);
+    let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
 
     delegate::run(delegate::DelegateRequest {
         task: args.task,
@@ -44,6 +57,9 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
         correlation_id: args.correlation_id,
         policy_config,
         adapters_registry,
+        task_kind: args.task_kind.unwrap_or_else(|| "unspecified".to_string()),
+        home_capabilities,
+        task_capabilities,
     })
     .await
 }

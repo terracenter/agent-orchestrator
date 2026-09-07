@@ -1,10 +1,13 @@
 use crate::adapters::AdaptersRegistry;
+use crate::capabilities::TaskCapabilitiesConfig;
 use crate::exec::{self, ExecRequest};
+use crate::home_sandbox::HomeCapabilitiesConfig;
 use crate::policy::PolicyConfig;
 use crate::receipt::ExecReceipt;
 use color_eyre::eyre::{Result, WrapErr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     agent: String,
     model: String,
@@ -13,6 +16,9 @@ pub async fn run(
     correlation_id: Option<String>,
     policy_config: PolicyConfig,
     adapters_registry: AdaptersRegistry,
+    task_kind: String,
+    home_capabilities: HomeCapabilitiesConfig,
+    task_capabilities: TaskCapabilitiesConfig,
 ) -> Result<ExecReceipt> {
     let marker = format!("ORQ_SMOKE_OK agent={agent} model={model}");
     let task_file = write_smoke_task(&agent, &model, &marker).await?;
@@ -25,6 +31,9 @@ pub async fn run(
         correlation_id,
         policy_config,
         adapters_registry,
+        task_kind,
+        home_capabilities,
+        task_capabilities,
     })
     .await;
     let _ = tokio::fs::remove_file(&task_file).await;

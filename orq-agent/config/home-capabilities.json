@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "adapters": {
+    "claude-code": {
+      "home_paths": [".claude.json"]
+    },
+    "agy": {
+      "home_paths": [
+        ".gemini/settings.json",
+        ".gemini/antigravity-cli/antigravity-oauth-token"
+      ]
+    },
+    "qwen-code": {
+      "home_paths": [".qwen/settings.json"]
+    },
+    "hermes": {
+      "home_paths": [".hermes/.env", ".hermes/config.yaml"]
+    },
+    "pi": {
+      "home_paths": [".pi/agent/auth.json", ".pi/agent/settings.json"]
+    }
+  }
+}

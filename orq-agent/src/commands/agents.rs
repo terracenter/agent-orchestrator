@@ -55,12 +55,24 @@ pub(crate) async fn run_discover(
             for rm in &p.models {
                 let existing = existing_models.and_then(|ems| ems.iter().find(|m| m.id == rm.id));
                 let notes = existing.map(|e| e.notes.clone()).unwrap_or_default();
-                let cost_hint = rm.cost_hint.as_ref().map(|_| 0.0).or_else(|| existing.and_then(|e| e.cost_hint));
-                let promo = rm.cost_hint.as_ref().and_then(|c| c.promo.clone()).or_else(|| existing.and_then(|e| e.promo.clone()));
+                let cost_hint = rm
+                    .cost_hint
+                    .as_ref()
+                    .map(|_| 0.0)
+                    .or_else(|| existing.and_then(|e| e.cost_hint));
+                let promo = rm
+                    .cost_hint
+                    .as_ref()
+                    .and_then(|c| c.promo.clone())
+                    .or_else(|| existing.and_then(|e| e.promo.clone()));
                 runtime_candidates.push(models::ModelCandidate {
                     id: rm.id.clone(),
                     source: rm.source_type.clone(),
-                    confidence: if rm.verified { "high".to_string() } else { "medium".to_string() },
+                    confidence: if rm.verified {
+                        "high".to_string()
+                    } else {
+                        "medium".to_string()
+                    },
                     notes,
                     fetched_at: Some(now.clone()),
                     cost_hint,
@@ -70,7 +82,9 @@ pub(crate) async fn run_discover(
             }
         }
 
-        models_catalog.agents.insert(adapter.name.clone(), runtime_candidates);
+        models_catalog
+            .agents
+            .insert(adapter.name.clone(), runtime_candidates);
 
         let count = runtime::persist_runtime_agent(&store, &snapshot_agent)?;
         models_persisted += count;
@@ -128,12 +142,24 @@ pub(crate) async fn run_refresh(args: AgentRefreshArgs) -> Result<runtime::Agent
         for rm in &p.models {
             let existing = existing_models.and_then(|ems| ems.iter().find(|m| m.id == rm.id));
             let notes = existing.map(|e| e.notes.clone()).unwrap_or_default();
-            let cost_hint = rm.cost_hint.as_ref().map(|_| 0.0).or_else(|| existing.and_then(|e| e.cost_hint));
-            let promo = rm.cost_hint.as_ref().and_then(|c| c.promo.clone()).or_else(|| existing.and_then(|e| e.promo.clone()));
+            let cost_hint = rm
+                .cost_hint
+                .as_ref()
+                .map(|_| 0.0)
+                .or_else(|| existing.and_then(|e| e.cost_hint));
+            let promo = rm
+                .cost_hint
+                .as_ref()
+                .and_then(|c| c.promo.clone())
+                .or_else(|| existing.and_then(|e| e.promo.clone()));
             runtime_candidates.push(models::ModelCandidate {
                 id: rm.id.clone(),
                 source: rm.source_type.clone(),
-                confidence: if rm.verified { "high".to_string() } else { "medium".to_string() },
+                confidence: if rm.verified {
+                    "high".to_string()
+                } else {
+                    "medium".to_string()
+                },
                 notes,
                 fetched_at: Some(now.clone()),
                 cost_hint,
@@ -143,7 +169,9 @@ pub(crate) async fn run_refresh(args: AgentRefreshArgs) -> Result<runtime::Agent
         }
     }
 
-    models_catalog.agents.insert(adapter.name().to_string(), runtime_candidates);
+    models_catalog
+        .agents
+        .insert(adapter.name().to_string(), runtime_candidates);
 
     let _ = models::save_catalog(models_config_path, &models_catalog).await?;
 
@@ -225,9 +253,15 @@ mod tests {
         // Check SQLite
         let store = state::open(Some(&db_path)).unwrap();
         let records1 = store.list_agent_models("qwen-code").unwrap();
-        let db_m1 = records1.iter().find(|r| r.model_id == "qwen3.8-max").unwrap();
+        let db_m1 = records1
+            .iter()
+            .find(|r| r.model_id == "qwen3.8-max")
+            .unwrap();
         let meta1: serde_json::Value = serde_json::from_str(&db_m1.metadata_json).unwrap();
-        assert_eq!(meta1.get("fetched_at").and_then(|v| v.as_str()), Some(rep1.refreshed_at.as_str()));
+        assert_eq!(
+            meta1.get("fetched_at").and_then(|v| v.as_str()),
+            Some(rep1.refreshed_at.as_str())
+        );
 
         // Short pause to ensure timestamp advances
         tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
@@ -249,9 +283,15 @@ mod tests {
         assert_ne!(m1.fetched_at, m2.fetched_at);
 
         let records2 = store.list_agent_models("qwen-code").unwrap();
-        let db_m2 = records2.iter().find(|r| r.model_id == "qwen3.8-max").unwrap();
+        let db_m2 = records2
+            .iter()
+            .find(|r| r.model_id == "qwen3.8-max")
+            .unwrap();
         let meta2: serde_json::Value = serde_json::from_str(&db_m2.metadata_json).unwrap();
-        assert_eq!(meta2.get("fetched_at").and_then(|v| v.as_str()), Some(rep2.refreshed_at.as_str()));
+        assert_eq!(
+            meta2.get("fetched_at").and_then(|v| v.as_str()),
+            Some(rep2.refreshed_at.as_str())
+        );
         assert_ne!(meta1.get("fetched_at"), meta2.get("fetched_at"));
     }
 
@@ -312,7 +352,9 @@ mod tests {
         let qwen_models = catalog.agents.get("qwen-code").unwrap();
 
         // Orphan model must NOT exist in the refreshed catalog
-        assert!(qwen_models.iter().all(|m| m.id != "orphan-discontinued-model-v1"));
+        assert!(qwen_models
+            .iter()
+            .all(|m| m.id != "orphan-discontinued-model-v1"));
         // Runtime models must exist
         assert!(qwen_models.iter().any(|m| m.id == "qwen3.8-max"));
     }

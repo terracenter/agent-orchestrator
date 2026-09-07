@@ -61,6 +61,13 @@ Antes de considerar reemplazar `orq` Go por Rust, deben estar cubiertos:
 12. `quota`: soporte de registro (`quota record`) y consulta (`quota report`) de cuotas en SQLite, con cálculo de reset relativo/absoluto y agregación no-optimista.
 13. `policy`: bloqueo de Sonnet/Opus sin aprobación explícita.
 14. `models/smoke`: validación runtime de modelos, incluyendo 404/model_not_found.
+15. `home-capabilities`/`task-capabilities` (#175): cada adapter spawneado por `exec`/`delegate`
+    recibe un `HOME` efímero (`0700`, limpiado al terminar) con solo las rutas declaradas para él
+    en `orq-agent/config/home-capabilities.json` — un adapter sin entrada declarada rechaza
+    ejecutar. Las capacidades extra de entorno (`env_passthrough`) por `task_kind` viven en
+    `orq-agent/config/task-capabilities.json`, deny-by-default. `exec`, `delegate`, `smoke` y
+    `certify` aceptan `--task-kind`, `--home-capabilities-config` y `--task-capabilities-config`
+    (los tres opcionales, usan el config versionado por defecto).
 
 ## MVP Rust concreto
 

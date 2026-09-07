@@ -2164,6 +2164,8 @@ mod tests {
             timeout_seconds: 60,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         let stored = store
@@ -2397,6 +2399,8 @@ mod tests {
             timeout_seconds: 60,
             exit_code: Some(0),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         let receipt2 = DelegateReceipt {
@@ -2416,6 +2420,8 @@ mod tests {
             timeout_seconds: 60,
             exit_code: Some(1),
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         store

@@ -637,7 +637,8 @@ fn select_route(
             "quota_penalized:{}; {}",
             rule.default_agent, chosen.policy_reason
         );
-    } else if chosen.fallback_applied && stale_candidates.contains(&rule.default_agent) && any_fresh {
+    } else if chosen.fallback_applied && stale_candidates.contains(&rule.default_agent) && any_fresh
+    {
         chosen.policy_reason = format!(
             "stale_catalog:{}; {}",
             rule.default_agent, chosen.policy_reason
@@ -2162,7 +2163,9 @@ mod tests {
         assert_eq!(decision.selected_agent, "agy");
         assert_eq!(decision.selected_model, "gemini-3.7-flash");
         assert!(decision.fallback_applied);
-        assert!(decision.selected_policy_reason.contains("stale_catalog:qwen-code"));
+        assert!(decision
+            .selected_policy_reason
+            .contains("stale_catalog:qwen-code"));
     }
 
     #[test]
@@ -2315,6 +2318,8 @@ mod tests {
 
         assert_eq!(decision.selected_agent, "qwen-code");
         assert_eq!(decision.selected_model, "qwen3.8-max");
-        assert!(decision.selected_policy_reason.contains("stale_catalog:qwen-code"));
+        assert!(decision
+            .selected_policy_reason
+            .contains("stale_catalog:qwen-code"));
     }
 }

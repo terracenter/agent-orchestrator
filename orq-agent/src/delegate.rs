@@ -1,4 +1,6 @@
 use crate::adapters::{find_adapter_in_registry, AdapterStatus, AdaptersRegistry};
+use crate::capabilities::{self, TaskCapabilitiesConfig};
+use crate::home_sandbox::{self, HomeCapabilitiesConfig, SandboxHome};
 use crate::policy;
 use crate::receipt::{
     now_unix, now_unix_nanos, tail_sanitized, DelegateReceipt, DelegateStatus, DelegateVerdict,
@@ -33,6 +35,9 @@ pub struct DelegateRequest {
     pub correlation_id: Option<String>,
     pub policy_config: policy::PolicyConfig,
     pub adapters_registry: AdaptersRegistry,
+    pub task_kind: String,
+    pub home_capabilities: HomeCapabilitiesConfig,
+    pub task_capabilities: TaskCapabilitiesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +127,8 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             timeout_seconds: request.timeout_seconds,
             exit_code: None,
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
 
         let mut output = DelegateOutput {
@@ -182,6 +189,8 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             timeout_seconds: request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS),
             exit_code: None,
             secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
         };
         return Ok(DelegateOutput {
             status: DelegateStatus::Blocked,
@@ -205,31 +214,85 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
 
     let timeout_secs = request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS);
 
-    let (exit_code, stdout, stderr, timed_out, command_vec) = if let Some(adapter) = adapter_opt {
-        let binary = adapter
-            .binary_path()
-            .unwrap_or_else(|| adapter.binary().to_string());
-        let argv = adapter.build_argv(&target_model, &task_text);
-        let mut cmd_for_receipt = vec![binary.clone()];
-        cmd_for_receipt.extend(argv.clone());
+    let (exit_code, stdout, stderr, timed_out, command_vec, cleanup_attempted, cleanup_succeeded) =
+        if let Some(adapter) = adapter_opt {
+            let binary = adapter
+                .binary_path()
+                .unwrap_or_else(|| adapter.binary().to_string());
+            let argv = adapter.build_argv(&target_model, &task_text);
+            let mut cmd_for_receipt = vec![binary.clone()];
+            cmd_for_receipt.extend(argv.clone());
 
-        let mut cmd = Command::new(&binary);
-        cmd.args(&argv)
-            .current_dir(&repo_dir)
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            let Some(real_home) = std::env::var_os("HOME").map(PathBuf::from) else {
+                return Ok(sandbox_failure_output(
+                    correlation_id,
+                    target_agent,
+                    target_model,
+                    prompt,
+                    auto_cmd,
+                    supervisor_only,
+                    started_at_unix,
+                    started,
+                    timeout_secs,
+                    "HOME is not set; cannot prepare a confined sandbox HOME".to_string(),
+                ));
+            };
+            let sandbox = match SandboxHome::prepare(
+                adapter.name(),
+                &request.home_capabilities,
+                &real_home,
+                &home_sandbox::sandbox_root(),
+            ) {
+                Ok(sandbox) => sandbox,
+                Err(error) => {
+                    return Ok(sandbox_failure_output(
+                        correlation_id,
+                        target_agent,
+                        target_model,
+                        prompt,
+                        auto_cmd,
+                        supervisor_only,
+                        started_at_unix,
+                        started,
+                        timeout_secs,
+                        format!("preparing sandbox HOME: {error}"),
+                    ));
+                }
+            };
+            let task_capability =
+                capabilities::resolve(&request.task_capabilities, &request.task_kind);
+            let granted_env = capabilities::granted_env(&task_capability);
 
-        run_process(cmd, timeout_secs, cmd_for_receipt).await?
-    } else {
-        return Err(eyre!(
-            "no registered adapter for agent '{}'; refusing unsafe shell fallback",
-            target_agent
-        ));
-    };
+            let mut cmd = Command::new(&binary);
+            cmd.args(&argv)
+                .current_dir(&repo_dir)
+                .env_clear()
+                .env("PATH", std::env::var("PATH").unwrap_or_default())
+                .env("HOME", sandbox.path())
+                .envs(granted_env)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+
+            let (exit_code, stdout, stderr, timed_out, command_vec) =
+                run_process(cmd, timeout_secs, cmd_for_receipt).await?;
+            let sandbox_removed = sandbox.cleanup().await;
+            (
+                exit_code,
+                stdout,
+                stderr,
+                timed_out,
+                command_vec,
+                true,
+                sandbox_removed,
+            )
+        } else {
+            return Err(eyre!(
+                "no registered adapter for agent '{}'; refusing unsafe shell fallback",
+                target_agent
+            ));
+        };
 
     // Post-execution git inspection
     let post_head = get_git_head(&repo_dir).await;
@@ -353,6 +416,8 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         timeout_seconds: timeout_secs,
         exit_code,
         secrets_read: false,
+        cleanup_attempted,
+        cleanup_succeeded,
     };
 
     let mut output = DelegateOutput {
@@ -376,6 +441,60 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
 
     write_delegation_artifacts(&request, &mut output).await?;
     Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sandbox_failure_output(
+    correlation_id: String,
+    target_agent: String,
+    target_model: String,
+    prompt: String,
+    auto_cmd: Option<String>,
+    supervisor_only: bool,
+    started_at_unix: u64,
+    started: Instant,
+    timeout_secs: u64,
+    reason: String,
+) -> DelegateOutput {
+    let receipt = DelegateReceipt {
+        schema_version: 1,
+        correlation_id,
+        agent: target_agent.clone(),
+        model: target_model.clone(),
+        command: Vec::new(),
+        status: DelegateStatus::Failed,
+        reason: Some(reason.clone()),
+        verdict: DelegateVerdict::NonUtil,
+        evidence: "none".to_string(),
+        stdout_tail: String::new(),
+        stderr_tail: String::new(),
+        started_at_unix,
+        duration_ms: started.elapsed().as_millis(),
+        timeout_seconds: timeout_secs,
+        exit_code: None,
+        secrets_read: false,
+        cleanup_attempted: false,
+        cleanup_succeeded: false,
+    };
+    DelegateOutput {
+        status: DelegateStatus::Failed,
+        reason: Some(reason),
+        verdict: DelegateVerdict::NonUtil,
+        evidence: "none".to_string(),
+        agent: target_agent,
+        model: target_model,
+        prompt,
+        command: auto_cmd.clone(),
+        autonomous_command: auto_cmd,
+        next_step: "delegacion fallida al preparar el HOME confinado; revisar configuracion"
+            .to_string(),
+        must_stop_for_delegation: false,
+        supervisor_only,
+        execution_agent_allowed: true,
+        written_handoff: None,
+        written_receipt: None,
+        receipt,
+    }
 }
 
 fn permission_diagnostic_reason(stderr: &str) -> String {
@@ -722,10 +841,32 @@ async fn write_file_safely(path: &str, data: &[u8], force: bool) -> Result<()> {
 mod tests {
     use super::*;
     use crate::adapters::AdaptersRegistry;
+    use crate::capabilities::TaskCapabilitiesConfig;
+    use crate::home_sandbox::AdapterHomeCapability;
     use crate::policy::PolicyConfig;
+    use std::collections::HashMap;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    fn test_home_capabilities(adapter_name: &str) -> HomeCapabilitiesConfig {
+        let mut adapters = HashMap::new();
+        adapters.insert(
+            adapter_name.to_string(),
+            AdapterHomeCapability { home_paths: vec![] },
+        );
+        HomeCapabilitiesConfig {
+            schema_version: 1,
+            adapters,
+        }
+    }
+
+    fn test_task_capabilities() -> TaskCapabilitiesConfig {
+        TaskCapabilitiesConfig {
+            schema_version: 1,
+            task_kinds: HashMap::new(),
+        }
+    }
 
     #[test]
     fn autonomous_agy_command_never_disables_permissions() {
@@ -754,6 +895,9 @@ mod tests {
                 schema_version: 1,
                 adapters: Vec::new(),
             },
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("agy"),
+            task_capabilities: test_task_capabilities(),
         };
         let command =
             build_autonomous_command(&request, "agy", "test-model", "diagnose permissions")
@@ -841,6 +985,9 @@ mod tests {
             correlation_id: Some("corr-plan-1".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: test_empty_adapters_registry(),
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("custom-no-auto-cmd"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -870,6 +1017,9 @@ mod tests {
             correlation_id: Some("corr-cmd-gen-1".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: test_empty_adapters_registry(),
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("agy"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -909,6 +1059,9 @@ mod tests {
             correlation_id: Some("corr-val-1".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -949,6 +1102,9 @@ mod tests {
             correlation_id: Some("corr-val-branch-1".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -987,6 +1143,9 @@ mod tests {
             correlation_id: Some("corr-plan-only-1".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1025,6 +1184,9 @@ mod tests {
             correlation_id: Some("corr-timeout-no-ev".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1063,6 +1225,9 @@ mod tests {
             correlation_id: Some("corr-timeout-commit".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1102,6 +1267,9 @@ mod tests {
             correlation_id: Some("corr-exit-zero-no-ev".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1144,6 +1312,9 @@ mod tests {
             correlation_id: Some("corr-blocked-1".to_string()),
             policy_config: policy_cfg,
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("claude-code"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1181,6 +1352,9 @@ mod tests {
             correlation_id: Some("corr-fake-pr-1".to_string()),
             policy_config: test_policy_config(),
             adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
         };
 
         let output = run(request).await.expect("run delegate");
