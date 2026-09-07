@@ -40,7 +40,12 @@ pub fn parse_iso8601_to_unix(iso_str: &str) -> Option<u64> {
         return None;
     }
 
-    let time_clean = time_part.trim_end_matches('Z').split('+').next()?.split('-').next()?;
+    let time_clean = time_part
+        .trim_end_matches('Z')
+        .split('+')
+        .next()?
+        .split('-')
+        .next()?;
     let time_components: Vec<&str> = time_clean.split(':').collect();
     if time_components.len() < 3 {
         return None;
@@ -525,8 +530,8 @@ pub async fn save_catalog(path: Option<&Path>, catalog: &ModelsCatalog) -> Resul
                 .wrap_err_with(|| format!("creating directory {}", parent.display()))?;
         }
     }
-    let content = serde_json::to_string_pretty(catalog)
-        .wrap_err("serializing models catalog json")?;
+    let content =
+        serde_json::to_string_pretty(catalog).wrap_err("serializing models catalog json")?;
     tokio::fs::write(path, content)
         .await
         .wrap_err_with(|| format!("writing models catalog {}", path.display()))?;
@@ -549,8 +554,8 @@ pub fn save_catalog_sync(path: Option<&Path>, catalog: &ModelsCatalog) -> Result
                 .wrap_err_with(|| format!("creating directory {}", parent.display()))?;
         }
     }
-    let content = serde_json::to_string_pretty(catalog)
-        .wrap_err("serializing models catalog json")?;
+    let content =
+        serde_json::to_string_pretty(catalog).wrap_err("serializing models catalog json")?;
     std::fs::write(path, content)
         .wrap_err_with(|| format!("writing models catalog {}", path.display()))?;
     Ok(path.display().to_string())
