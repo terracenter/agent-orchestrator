@@ -3,7 +3,7 @@ use crate::policy;
 use crate::receipt::{
     now_unix, now_unix_nanos, tail_sanitized, DelegateReceipt, DelegateStatus, DelegateVerdict,
 };
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::{eyre, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -216,6 +216,8 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         let mut cmd = Command::new(&binary);
         cmd.args(&argv)
             .current_dir(&repo_dir)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -223,25 +225,10 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
 
         run_process(cmd, timeout_secs, cmd_for_receipt).await?
     } else {
-        // Fallback: spawn bash command directly
-        let cmd_str = auto_cmd
-            .clone()
-            .unwrap_or_else(|| format!("rtk {}", target_agent));
-        let mut cmd = Command::new("bash");
-        cmd.arg("-c")
-            .arg(&cmd_str)
-            .current_dir(&repo_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-
-        run_process(
-            cmd,
-            timeout_secs,
-            vec!["bash".to_string(), "-c".to_string(), cmd_str],
-        )
-        .await?
+        return Err(eyre!(
+            "no registered adapter for agent '{}'; refusing unsafe shell fallback",
+            target_agent
+        ));
     };
 
     // Post-execution git inspection

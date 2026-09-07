@@ -141,6 +141,8 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
     let mut command = Command::new(&binary);
     command
         .args(&argv)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
