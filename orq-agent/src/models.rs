@@ -509,6 +509,53 @@ pub async fn load_catalog(path: Option<&Path>) -> Result<(ModelsCatalog, String)
     Ok((parse_catalog(&content)?, path.display().to_string()))
 }
 
+pub async fn save_catalog(path: Option<&Path>, catalog: &ModelsCatalog) -> Result<String> {
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf.as_path()
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .wrap_err_with(|| format!("creating directory {}", parent.display()))?;
+        }
+    }
+    let content = serde_json::to_string_pretty(catalog)
+        .wrap_err("serializing models catalog json")?;
+    tokio::fs::write(path, content)
+        .await
+        .wrap_err_with(|| format!("writing models catalog {}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+#[allow(dead_code)]
+pub fn save_catalog_sync(path: Option<&Path>, catalog: &ModelsCatalog) -> Result<String> {
+    let path_buf;
+    let path = match path {
+        Some(path) => path,
+        None => {
+            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf.as_path()
+        }
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .wrap_err_with(|| format!("creating directory {}", parent.display()))?;
+        }
+    }
+    let content = serde_json::to_string_pretty(catalog)
+        .wrap_err("serializing models catalog json")?;
+    std::fs::write(path, content)
+        .wrap_err_with(|| format!("writing models catalog {}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
 pub async fn load_market_feed(path: Option<&Path>) -> Result<(MarketFeed, String)> {
     let path_buf;
     let path = match path {

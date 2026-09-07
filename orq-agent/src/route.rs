@@ -644,6 +644,14 @@ fn select_route(
         );
     }
 
+    if stale_candidates.contains(&chosen.agent)
+        && !chosen
+            .policy_reason
+            .contains(&format!("stale_catalog:{}", chosen.agent))
+    {
+        chosen.policy_reason = format!("stale_catalog:{}; {}", chosen.agent, chosen.policy_reason);
+    }
+
     chosen
 }
 
@@ -2241,5 +2249,72 @@ mod tests {
         assert_eq!(decision.selected_agent, "agy");
         assert_eq!(decision.selected_model, "gemini-3.7-flash");
         assert!(decision.fallback_applied);
+    }
+
+    #[test]
+    fn test_route_exposes_stale_when_no_fresh_candidates() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "coding",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.8-max",
+                    "cheap_sufficient": "none",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing stale exposure when no fresh candidates"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![AgentDetection {
+                name: "qwen-code".to_string(),
+                binary: "qwen".to_string(),
+                detected: true,
+                binary_path: Some("/usr/local/bin/qwen".to_string()),
+                adapter: AdapterStatus::Available,
+                secrets_read: false,
+            }],
+            secrets_read: false,
+        };
+
+        // Qwen model is stale (expired fetched_at)
+        let catalog = crate::models::parse_catalog(
+            r#"{
+                "schema_version": 2,
+                "agents": {
+                    "qwen-code": [{
+                        "id": "qwen3.8-max",
+                        "source": "runtime",
+                        "confidence": "high",
+                        "notes": "stale model",
+                        "fetched_at": "2020-01-01T00:00:00Z",
+                        "status": "active"
+                    }]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "coding",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            Some(&catalog),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.8-max");
+        assert!(decision.selected_policy_reason.contains("stale_catalog:qwen-code"));
     }
 }
