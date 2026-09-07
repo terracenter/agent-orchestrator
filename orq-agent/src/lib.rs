@@ -31,6 +31,8 @@ struct Cli {
     command: Commands,
 }
 
+// Clap command variants intentionally mirror their complete CLI argument sets.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Manage, discover and diagnose local agents.
@@ -347,7 +349,75 @@ enum Commands {
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
+        /// Project key for automatic coordination-memory projection.
+        #[arg(long, requires = "coord_issue")]
+        coord_project: Option<String>,
+        /// Active issue key for automatic coordination-memory projection.
+        #[arg(long, requires = "coord_project")]
+        coord_issue: Option<String>,
+        /// Active pull request key, when one exists.
+        #[arg(long, default_value = "")]
+        coord_pr: String,
+        /// Branch associated with the delegated work.
+        #[arg(long, requires = "coord_project")]
+        coord_branch: Option<String>,
+        /// Explicit next action for the coordination projection.
+        #[arg(long, requires = "coord_project")]
+        coord_next_action: Option<String>,
         /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Upsert derived coordination state backed by explicit evidence.
+    CoordSet {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        active_issue: String,
+        #[arg(long, default_value = "")]
+        active_pr: String,
+        #[arg(long)]
+        branch: String,
+        #[arg(long)]
+        agent_id: String,
+        #[arg(long)]
+        model_id: String,
+        #[arg(long)]
+        runtime: String,
+        #[arg(long)]
+        receipt: String,
+        #[arg(long)]
+        status: String,
+        #[arg(long)]
+        next_action: String,
+        #[arg(long)]
+        timestamp: Option<u64>,
+        #[arg(long)]
+        source_evidence: String,
+        #[arg(long)]
+        db_path: Option<String>,
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Query derived coordination state.
+    CoordGet {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        active_issue: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        agent_id: Option<String>,
+        #[arg(long)]
+        db_path: Option<String>,
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
+    /// Rebuild coordination memory idempotently from append-only coordination events.
+    CoordRebuild {
+        #[arg(long)]
+        db_path: Option<String>,
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
@@ -990,6 +1060,61 @@ async fn run_command(command: Commands) -> Result<()> {
             }
             Ok(())
         }
+        Commands::CoordSet {
+            project,
+            active_issue,
+            active_pr,
+            branch,
+            agent_id,
+            model_id,
+            runtime,
+            receipt,
+            status,
+            next_action,
+            timestamp,
+            source_evidence,
+            db_path,
+            format,
+        } => {
+            let store = state::open(db_path.as_deref().map(std::path::Path::new))?;
+            let record = store.upsert_coordination(&state::CoordinationInput {
+                project,
+                active_issue,
+                active_pr,
+                branch,
+                agent_id,
+                model_id,
+                runtime,
+                receipt,
+                status,
+                next_action,
+                timestamp,
+                source_evidence,
+            })?;
+            print_json(format, &record)
+        }
+        Commands::CoordGet {
+            project,
+            active_issue,
+            status,
+            agent_id,
+            db_path,
+            format,
+        } => {
+            let store = state::open(db_path.as_deref().map(std::path::Path::new))?;
+            let records = store.list_coordination(&state::CoordinationFilter {
+                project,
+                active_issue,
+                status,
+                agent_id,
+            })?;
+            print_json(format, &records)
+        }
+        Commands::CoordRebuild { db_path, format } => {
+            let store = state::open(db_path.as_deref().map(std::path::Path::new))?;
+            let records = store.rebuild_coordination()?;
+            print_json(format, &records)
+        }
         Commands::Delegate {
             task,
             agent,
@@ -1011,6 +1136,11 @@ async fn run_command(command: Commands) -> Result<()> {
             home_capabilities_config,
             task_capabilities_config,
             db_path,
+            coord_project,
+            coord_issue,
+            coord_pr,
+            coord_branch,
+            coord_next_action,
             format,
         } => {
             let output = commands::delegate::run(commands::delegate::DelegateArgs {
@@ -1035,7 +1165,16 @@ async fn run_command(command: Commands) -> Result<()> {
                 task_capabilities_config,
             })
             .await?;
-            persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate");
+            persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate")?;
+            persist_delegate_coordination(
+                db_path.as_deref(),
+                &output.receipt,
+                coord_project,
+                coord_issue,
+                coord_pr,
+                coord_branch,
+                coord_next_action,
+            )?;
             print_json(format, &output)
         }
         Commands::Score { command } => match command {
@@ -1254,14 +1393,58 @@ fn persist_delegate_receipt(
     db_path: Option<&str>,
     receipt: &receipt::DelegateReceipt,
     task_kind: &str,
-) {
+) -> Result<()> {
     let path = db_path.map(std::path::Path::new);
-    let Ok(store) = state::open(path) else {
-        return;
+    let store = state::open(path)?;
+    store.insert_delegate_receipt(receipt, task_kind)?;
+    Ok(())
+}
+
+fn persist_delegate_coordination(
+    db_path: Option<&str>,
+    receipt: &receipt::DelegateReceipt,
+    project: Option<String>,
+    active_issue: Option<String>,
+    active_pr: String,
+    branch: Option<String>,
+    next_action: Option<String>,
+) -> Result<()> {
+    let (Some(project), Some(active_issue)) = (project, active_issue) else {
+        return Ok(());
     };
-    if let Err(err) = store.insert_delegate_receipt(receipt, task_kind) {
-        eprintln!("warning: failed to persist delegate receipt: {err}");
-    }
+    let branch = branch.ok_or_else(|| {
+        color_eyre::eyre::eyre!(
+            "--coord-branch is required when coordination projection is enabled"
+        )
+    })?;
+    let next_action = next_action.ok_or_else(|| {
+        color_eyre::eyre::eyre!(
+            "--coord-next-action is required when coordination projection is enabled"
+        )
+    })?;
+    let status = match receipt.status {
+        receipt::DelegateStatus::Planned | receipt::DelegateStatus::CommandGenerated => "queued",
+        receipt::DelegateStatus::Executed => "running",
+        receipt::DelegateStatus::Validated => "succeeded",
+        receipt::DelegateStatus::Blocked | receipt::DelegateStatus::Failed => "failed",
+    };
+    let input = state::CoordinationInput {
+        project,
+        active_issue,
+        active_pr,
+        branch,
+        agent_id: receipt.agent.clone(),
+        model_id: receipt.model.clone(),
+        runtime: "orq-agent".to_string(),
+        receipt: receipt.correlation_id.clone(),
+        status: status.to_string(),
+        next_action,
+        timestamp: Some(receipt.started_at_unix),
+        source_evidence: format!("delegate_receipts:{}", receipt.correlation_id),
+    };
+    let store = state::open(db_path.map(std::path::Path::new))?;
+    store.upsert_coordination(&input)?;
+    Ok(())
 }
 
 fn record_exec_breaker_outcome(db_path: Option<&str>, receipt: &receipt::ExecReceipt) {

@@ -214,7 +214,7 @@ fn state_status_creates_temp_db_without_secrets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 5"))
+        .stdout(predicate::str::contains("\"schema_version\": 6"))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
         .stdout(predicate::str::contains("agents"))
         .stdout(predicate::str::contains("models"));
@@ -1118,7 +1118,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 5"))
+        .stdout(predicate::str::contains("\"schema_version\": 6"))
         .stdout(predicate::str::contains("quota_snapshots"));
 
     // Migrate again explicitly
@@ -1134,7 +1134,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 5"));
+        .stdout(predicate::str::contains("\"schema_version\": 6"));
 }
 
 #[test]
@@ -2893,4 +2893,163 @@ fn exec_grants_env_only_for_declared_task_kind() {
         .assert()
         .success()
         .stdout(predicate::str::contains("CAP=absent"));
+}
+
+#[test]
+fn coordination_cli_upserts_filters_and_rebuilds_idempotently() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db = temp_dir.path().join("state.sqlite");
+    let set_args = [
+        "coord-set",
+        "--project",
+        "agent-orchestrator",
+        "--active-issue",
+        "171",
+        "--active-pr",
+        "",
+        "--branch",
+        "dev-171",
+        "--agent-id",
+        "qwen-code",
+        "--model-id",
+        "qwen3.6-flash",
+        "--runtime",
+        "orq-agent",
+        "--receipt",
+        "receipt-171",
+        "--status",
+        "running",
+        "--next-action",
+        "run tests",
+        "--timestamp",
+        "1700000000",
+        "--source-evidence",
+        "delegate_receipts:receipt-171",
+        "--db-path",
+        db.to_str().unwrap(),
+        "--format",
+        "json",
+    ];
+    Command::cargo_bin("orq-agent")
+        .unwrap()
+        .args(set_args)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"active_issue\": \"171\""));
+
+    Command::cargo_bin("orq-agent")
+        .unwrap()
+        .args([
+            "coord-get",
+            "--project",
+            "agent-orchestrator",
+            "--status",
+            "running",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("delegate_receipts:receipt-171"));
+
+    for _ in 0..2 {
+        Command::cargo_bin("orq-agent")
+            .unwrap()
+            .args([
+                "coord-rebuild",
+                "--db-path",
+                db.to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("\"receipt\": \"receipt-171\""));
+    }
+}
+
+#[test]
+fn delegate_projects_coordination_with_receipt_evidence() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db = temp_dir.path().join("state.sqlite");
+    Command::cargo_bin("orq-agent")
+        .unwrap()
+        .args([
+            "delegate",
+            "--task",
+            "test projection",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.6-flash",
+            "--coord-project",
+            "agent-orchestrator",
+            "--coord-issue",
+            "171",
+            "--coord-branch",
+            "dev-171",
+            "--coord-next-action",
+            "execute task",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("orq-agent")
+        .unwrap()
+        .args([
+            "coord-get",
+            "--project",
+            "agent-orchestrator",
+            "--active-issue",
+            "171",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"queued\""))
+        .stdout(predicate::str::contains("delegate_receipts:orq-delegate-"));
+}
+
+#[test]
+fn coordination_cli_rejects_invalid_status() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db = temp_dir.path().join("state.sqlite");
+    Command::cargo_bin("orq-agent")
+        .unwrap()
+        .args([
+            "coord-set",
+            "--project",
+            "p",
+            "--active-issue",
+            "171",
+            "--branch",
+            "b",
+            "--agent-id",
+            "a",
+            "--model-id",
+            "m",
+            "--runtime",
+            "orq-agent",
+            "--receipt",
+            "r",
+            "--status",
+            "unknown",
+            "--next-action",
+            "stop",
+            "--source-evidence",
+            "receipt:r",
+            "--db-path",
+            db.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid coordination status"));
 }
