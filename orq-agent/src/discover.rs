@@ -42,6 +42,14 @@ pub struct DiscoveredModel {
     pub confidence: String,
     pub task_kind: String,
     pub discovery: DiscoveryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_hint: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 pub struct DiscoverRequest<'a> {
@@ -77,6 +85,7 @@ pub fn discover_into_store(
     let detect_report = detect::detect_agents_from_registry(adapters_registry);
     let mut agents = Vec::new();
     let mut models_persisted = 0usize;
+    let now = models::now_iso8601();
 
     for detection in detect_report.agents {
         let model_candidates = models_catalog
@@ -94,6 +103,7 @@ pub fn discover_into_store(
             "binary_path": detection.binary_path,
             "detected": detection.detected,
             "discovery": discovery,
+            "fetched_at": now,
             "secrets_read": false
         })
         .to_string();
@@ -109,18 +119,23 @@ pub fn discover_into_store(
         let mut discovered_models = Vec::new();
         for model in model_candidates {
             let task_kind = "general".to_string();
+            let model_fetched_at = model.fetched_at.clone().unwrap_or_else(|| now.clone());
             store
                 .upsert_model(&ModelRecord {
                     agent_id: detection.name.clone(),
                     model_id: model.id.clone(),
                     task_kind: task_kind.clone(),
                     gated: detection.adapter == AdapterStatus::Gated,
-                    active: detection.detected,
+                    active: detection.detected && model.is_active(),
                     metadata_json: serde_json::json!({
                         "source": model.source,
                         "confidence": model.confidence,
                         "notes": model.notes,
                         "discovery": discovery,
+                        "cost_hint": model.cost_hint,
+                        "promo": model.promo,
+                        "status": model.status,
+                        "fetched_at": model_fetched_at,
                         "secrets_read": false
                     })
                     .to_string(),
@@ -138,6 +153,10 @@ pub fn discover_into_store(
                 confidence: model.confidence,
                 task_kind,
                 discovery,
+                fetched_at: Some(model_fetched_at),
+                cost_hint: model.cost_hint,
+                promo: model.promo,
+                status: model.status,
             });
         }
 
@@ -197,16 +216,21 @@ mod tests {
         assert!(!report.secrets_read);
         assert_eq!(report.agents_persisted, 1);
         assert_eq!(report.models_persisted, 1);
+        assert!(report.agents[0].models[0].fetched_at.is_some());
+
         let agent = store
             .find_agent("fake-agent")
             .expect("find agent")
             .expect("agent");
         assert_eq!(agent.agent_id, "fake-agent");
+        assert!(agent.metadata_json.contains("fetched_at"));
+
         let model = store
             .find_model("fake-agent", "fake-model", "general")
             .expect("find model")
             .expect("model");
         assert_eq!(model.model_id, "fake-model");
+        assert!(model.metadata_json.contains("fetched_at"));
     }
 
     #[test]
