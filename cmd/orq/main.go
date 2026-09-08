@@ -1365,7 +1365,13 @@ func cmdReceipt(args []string) error {
 		}
 		findings := receipt.Verify(r)
 		if format == "json" {
-			return json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": len(findings) == 0, "findings": findings, "receipt": r})
+			if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": len(findings) == 0, "findings": findings, "receipt": r}); err != nil {
+				return err
+			}
+			if len(findings) > 0 {
+				return fmt.Errorf("receipt verification failed")
+			}
+			return nil
 		}
 		if len(findings) > 0 {
 			fmt.Printf("INVALID path=%s findings=%d\n", path, len(findings))
