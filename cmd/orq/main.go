@@ -548,6 +548,9 @@ func cmdAudit(args []string) error {
 				fmt.Printf("  remediation=%s\n", finding.Remediation)
 			}
 		}
+		if report.Status != "PASSED" {
+			return fmt.Errorf("audit blocked with status=%s", report.Status)
+		}
 		return nil
 	default:
 		return fmt.Errorf("unknown audit subcommand %q", args[0])
