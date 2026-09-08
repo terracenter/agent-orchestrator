@@ -19,6 +19,7 @@ const (
 type Decision struct {
 	Task                 string   `json:"task"`
 	Category             string   `json:"category"`
+	TaskKind             string   `json:"task_kind"`
 	RecommendedLevel     int      `json:"recommended_level"`
 	RecommendedAgent     string   `json:"recommended_agent"`
 	RecommendedModel     string   `json:"recommended_model"`
@@ -73,9 +74,27 @@ func isCriticalReview(text string) bool {
 	return false
 }
 
+// TaskKind maps the legacy five-category classifier to the Rust routing vocabulary.
+// It is deliberately conservative: the generic category maps to mechanical work,
+// while risky categories map to routes that preserve review and execution controls.
+func TaskKind(category string) string {
+	switch category {
+	case "revision_critica":
+		return "deep_reasoning"
+	case "seguridad":
+		return "simple_cybersecurity"
+	case "documentacion":
+		return "documentation"
+	case "codigo":
+		return "small_refactor"
+	default:
+		return "mechanical"
+	}
+}
+
 func Decide(task string) Decision {
 	category := Classify(task)
-	decision := Decision{Task: task, Category: category, RtkRequired: true}
+	decision := Decision{Task: task, Category: category, TaskKind: TaskKind(category), RtkRequired: true}
 	switch category {
 	case "revision_critica":
 		decision.RecommendedLevel = 4

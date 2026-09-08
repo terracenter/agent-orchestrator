@@ -2,6 +2,28 @@ package route
 
 import "testing"
 
+func TestTaskKindBridge(t *testing.T) {
+	cases := map[string]string{
+		"revision_critica": "deep_reasoning",
+		"seguridad":        "simple_cybersecurity",
+		"documentacion":    "documentation",
+		"codigo":           "small_refactor",
+		"mecanico":         "mechanical",
+	}
+	for category, want := range cases {
+		if got := TaskKind(category); got != want {
+			t.Errorf("TaskKind(%q) = %q, want %q", category, got, want)
+		}
+	}
+}
+
+func TestDecisionIncludesTaskKind(t *testing.T) {
+	decision := Decide("ordenar informacion del vault")
+	if decision.TaskKind != "documentation" {
+		t.Fatalf("TaskKind = %q, want documentation", decision.TaskKind)
+	}
+}
+
 func TestSecurityOverridesCost(t *testing.T) {
 	decision := Decide("rotar token de producción")
 	if !decision.SecurityOverride || !decision.RequiresConfirmation {
@@ -154,4 +176,3 @@ func TestClassifyDoesNotMatchGoAsSubstring(t *testing.T) {
 		}
 	}
 }
-
