@@ -128,6 +128,8 @@ pub struct DelegateReceipt {
     #[serde(default)]
     pub cleanup_succeeded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_class: Option<FailureClass>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_agent: Option<String>,
@@ -239,6 +241,7 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            task_id: None,
             failure_class: None,
             fallback_agent: None,
             fallback_model: None,

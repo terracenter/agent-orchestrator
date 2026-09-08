@@ -24,6 +24,7 @@ pub struct ExecRequest {
     pub timeout_seconds: u64,
     pub allow_gated: bool,
     pub correlation_id: Option<String>,
+    pub task_id: Option<String>,
     pub policy_config: policy::PolicyConfig,
     pub adapters_registry: AdaptersRegistry,
     pub task_kind: String,
@@ -184,7 +185,11 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         .env_clear()
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("HOME", sandbox.path())
-        .envs(granted_env)
+        .envs(granted_env);
+    if let Some(ref tid) = request.task_id {
+        command.env("ORQ_TASK_ID", tid);
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

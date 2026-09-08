@@ -4,6 +4,7 @@ use crate::{adapters, capabilities, delegate, home_sandbox, policy};
 
 pub(crate) struct DelegateArgs {
     pub(crate) task: Option<String>,
+    pub(crate) task_id: Option<String>,
     pub(crate) agent: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) handoff: Option<String>,
@@ -42,6 +43,7 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
 
     delegate::run(delegate::DelegateRequest {
         task: args.task,
+        task_id: args.task_id,
         agent: args.agent,
         model: args.model,
         handoff: args.handoff,

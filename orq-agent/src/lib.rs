@@ -85,6 +85,9 @@ enum Commands {
         /// Correlation id propagated from Orq legacy/Observer.
         #[arg(long)]
         correlation_id: Option<String>,
+        /// Task ID associated with this execution.
+        #[arg(long)]
+        task_id: Option<String>,
         /// Optional policy config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         policy_config: Option<String>,
@@ -331,6 +334,9 @@ enum Commands {
         /// Correlation id propagated from caller.
         #[arg(long)]
         correlation_id: Option<String>,
+        /// Task ID associated with this delegation.
+        #[arg(long)]
+        task_id: Option<String>,
         /// Optional policy config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         policy_config: Option<String>,
@@ -772,6 +778,7 @@ async fn run_command(command: Commands) -> Result<()> {
             timeout,
             allow_gated,
             correlation_id,
+            task_id,
             policy_config,
             adapters_config,
             task_kind,
@@ -799,6 +806,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 timeout_seconds: timeout,
                 allow_gated,
                 correlation_id,
+                task_id,
                 policy_config,
                 adapters_registry,
                 task_kind: task_kind.unwrap_or_else(|| "unspecified".to_string()),
@@ -1118,6 +1126,7 @@ async fn run_command(command: Commands) -> Result<()> {
         }
         Commands::Delegate {
             task,
+            task_id,
             agent,
             model,
             handoff,
@@ -1146,6 +1155,7 @@ async fn run_command(command: Commands) -> Result<()> {
         } => {
             let output = commands::delegate::run(commands::delegate::DelegateArgs {
                 task,
+                task_id,
                 agent,
                 model,
                 handoff,

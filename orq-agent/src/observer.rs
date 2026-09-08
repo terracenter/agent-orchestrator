@@ -56,6 +56,8 @@ pub struct ObserverEvent {
     pub timestamp: String,
     pub host: String,
     pub host_ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
     pub payload: ObserverPayload,
 }
 
@@ -157,6 +159,7 @@ pub fn build_observer_event(
         timestamp: models::now_iso8601(),
         host: hostname_label(),
         host_ip: host_ip.unwrap_or("127.0.0.1").to_string(),
+        task_id: None,
         payload,
     })
 }
@@ -542,5 +545,32 @@ mod tests {
         // 3. Default fallback
         let res_default = resolve_endpoint(None);
         assert_eq!(res_default, "https://sge-panel.humanbyte.net");
+    }
+
+    #[test]
+    fn observer_event_serializes_task_id_when_present() {
+        let event_without_task = ObserverEvent {
+            event_type: "test".to_string(),
+            timestamp: "2026-09-08T00:00:00Z".to_string(),
+            host: "host1".to_string(),
+            host_ip: "127.0.0.1".to_string(),
+            task_id: None,
+            payload: ObserverPayload {
+                snapshot_id: "snap1".to_string(),
+                discovered_agents_count: 0,
+                active_models_count: 0,
+                agents_summary: Vec::new(),
+                verification_signature: "sig".to_string(),
+            },
+        };
+        let json_without = serde_json::to_string(&event_without_task).unwrap();
+        assert!(!json_without.contains("task_id"));
+
+        let event_with_task = ObserverEvent {
+            task_id: Some("task-456".to_string()),
+            ..event_without_task
+        };
+        let json_with = serde_json::to_string(&event_with_task).unwrap();
+        assert!(json_with.contains("\"task_id\":\"task-456\""));
     }
 }
