@@ -20,6 +20,7 @@ const (
 	CodeUnconfirmedMutation     = "AUDIT_UNCONFIRMED_MUTATION"
 	CodeSessionNotFound         = "AUDIT_SESSION_NOT_FOUND"
 	CodeSessionParseError       = "AUDIT_SESSION_PARSE_ERROR"
+	CodeSessionUnverified       = "AUDIT_SESSION_UNVERIFIED"
 )
 
 // Severidades estándar de findings.
@@ -46,7 +47,7 @@ type SessionAuditReport struct {
 	Agent       string           `json:"agent,omitempty"`
 	Model       string           `json:"model,omitempty"`
 	Host        string           `json:"host,omitempty"`
-	Status      string           `json:"status"` // PASSED, WARNING, BLOCKED, FAILED
+	Status      string           `json:"status"` // PASSED, WARNING, UNVERIFIED, BLOCKED, FAILED
 	TotalEvents int              `json:"total_events"`
 	AuditedAt   time.Time        `json:"audited_at"`
 	Findings    []SessionFinding `json:"findings"`
@@ -349,8 +350,15 @@ func AuditLatestSession(stateDir string, opts SessionAuditOptions) (SessionAudit
 	}
 	if len(sessions) == 0 {
 		return SessionAuditReport{
-			Status:  "PASSED",
-			Summary: "status=PASSED no sessions found in trace store",
+			Status: "UNVERIFIED",
+			Findings: []SessionFinding{{
+				Code:        CodeSessionUnverified,
+				Severity:    SeverityBlocker,
+				Message:     "no hay sesiones en el trace store; el cumplimiento no puede verificarse",
+				Target:      stateDir,
+				Remediation: "ejecutar una tarea con trazabilidad antes de cerrar la tarea o receipt",
+			}},
+			Summary: "status=UNVERIFIED no sessions found in trace store",
 		}, nil
 	}
 

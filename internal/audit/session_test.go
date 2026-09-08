@@ -332,6 +332,22 @@ func TestAuditSession_NotFound(t *testing.T) {
 	}
 }
 
+func TestAuditLatestSession_EmptyStoreIsUnverified(t *testing.T) {
+	report, err := AuditLatestSession(t.TempDir(), SessionAuditOptions{})
+	if err != nil {
+		t.Fatalf("expected empty store to produce a report, got error: %v", err)
+	}
+	if report.Status != "UNVERIFIED" {
+		t.Fatalf("expected status UNVERIFIED, got %s", report.Status)
+	}
+	if len(report.Findings) != 1 || report.Findings[0].Code != CodeSessionUnverified {
+		t.Fatalf("expected one %s finding, got %+v", CodeSessionUnverified, report.Findings)
+	}
+	if report.Findings[0].Severity != SeverityBlocker {
+		t.Fatalf("expected unverified finding to be blocker, got %s", report.Findings[0].Severity)
+	}
+}
+
 func TestAuditSessionFile_Invalid(t *testing.T) {
 	tempFile := filepath.Join(t.TempDir(), "invalid.txt")
 	if err := os.WriteFile(tempFile, []byte("plain text content"), 0o644); err != nil {
