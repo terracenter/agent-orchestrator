@@ -2121,31 +2121,31 @@ mod tests {
             secrets_read: false,
         };
 
-        // Qwen model is stale (fetched_at is old/expired), AGY is fresh
-        let catalog = crate::models::parse_catalog(
-            r#"{
+        let now_iso = crate::models::now_iso8601();
+        let catalog_json = format!(
+            r#"{{
                 "schema_version": 2,
-                "agents": {
-                    "qwen-code": [{
+                "agents": {{
+                    "qwen-code": [{{
                         "id": "qwen3.8-max",
                         "source": "runtime",
                         "confidence": "high",
                         "notes": "stale candidate",
                         "fetched_at": "2020-01-01T00:00:00Z",
                         "status": "active"
-                    }],
-                    "agy": [{
+                    }}],
+                    "agy": [{{
                         "id": "gemini-3.7-flash",
                         "source": "runtime",
                         "confidence": "high",
                         "notes": "fresh candidate",
-                        "fetched_at": "2026-09-06T23:00:00Z",
+                        "fetched_at": "{now_iso}",
                         "status": "active"
-                    }]
-                }
-            }"#,
-        )
-        .unwrap();
+                    }}]
+                }}
+            }}"#
+        );
+        let catalog = crate::models::parse_catalog(&catalog_json).unwrap();
 
         let decision = decide_with_detected(
             &config,

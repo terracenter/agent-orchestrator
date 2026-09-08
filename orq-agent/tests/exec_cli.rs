@@ -2312,6 +2312,11 @@ fn score_ingest_from_receipts_and_aggregate() {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
         let receipt2 = orq_agent::receipt::DelegateReceipt {
             schema_version: 1,
@@ -2332,6 +2337,11 @@ fn score_ingest_from_receipts_and_aggregate() {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
         store
             .insert_delegate_receipt(&receipt1, "delegate")

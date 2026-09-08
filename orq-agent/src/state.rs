@@ -808,6 +808,11 @@ impl StateStore {
             secrets_read: receipt.secrets_read,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: receipt.failure_class,
+            fallback_agent: receipt.fallback_agent.clone(),
+            fallback_model: receipt.fallback_model.clone(),
+            fallback_reason: receipt.fallback_reason.clone(),
+            fallback_attempts: receipt.fallback_attempts.clone(),
         };
         let legacy_hash = receipt_sha256(&legacy_exec_receipt)
             .map_err(|error| StoreError::Config(format!("hash legacy receipt: {error}")))?;
@@ -1942,6 +1947,11 @@ mod tests {
             secrets_read,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         }
     }
 
@@ -2423,6 +2433,11 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         let stored = store
@@ -2658,6 +2673,11 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         let receipt2 = DelegateReceipt {
@@ -2679,6 +2699,11 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         store
