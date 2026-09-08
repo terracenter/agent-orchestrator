@@ -109,7 +109,7 @@ pub fn classify_failure(
         || stderr_text.contains("segfault")
         || stderr_text.contains("sigsegv")
         || stderr_text.contains("sigkill")
-        || exit_code.map_or(false, |c| c != 0)
+        || exit_code.is_some_and(|c| c != 0)
         || !stderr_tail.trim().is_empty()
         || !reason_text.is_empty()
     {
@@ -144,18 +144,32 @@ pub struct FallbackSelectionRequest<'a> {
     pub catalog_ttl_secs: u64,
 }
 
-pub fn is_candidate_eligible(
-    agent: &str,
-    model: &str,
-    catalog: &ModelsCatalog,
-    detected: &[AgentDetection],
-    policy_config: Option<&PolicyConfig>,
-    allow_gated: bool,
-    now_unix: u64,
-    catalog_ttl_secs: u64,
-) -> bool {
+#[derive(Debug, Clone)]
+pub struct CandidateEligibilityContext<'a> {
+    pub catalog: &'a ModelsCatalog,
+    pub detected: &'a [AgentDetection],
+    pub policy_config: Option<&'a PolicyConfig>,
+    pub allow_gated: bool,
+    pub now_unix: u64,
+    pub catalog_ttl_secs: u64,
+}
+
+impl<'a> From<&'a FallbackSelectionRequest<'a>> for CandidateEligibilityContext<'a> {
+    fn from(req: &'a FallbackSelectionRequest<'a>) -> Self {
+        Self {
+            catalog: req.catalog,
+            detected: req.detected,
+            policy_config: req.policy_config,
+            allow_gated: req.allow_gated,
+            now_unix: req.now_unix,
+            catalog_ttl_secs: req.catalog_ttl_secs,
+        }
+    }
+}
+
+pub fn is_candidate_eligible(agent: &str, model: &str, ctx: &CandidateEligibilityContext) -> bool {
     // 1. Runtime check (CA-2 d): agent present and functional
-    let Some(detection) = detected.iter().find(|d| d.name == agent) else {
+    let Some(detection) = ctx.detected.iter().find(|d| d.name == agent) else {
         return false;
     };
     if !detection.detected {
@@ -163,12 +177,12 @@ pub fn is_candidate_eligible(
     }
     match detection.adapter {
         AdapterStatus::Available => {}
-        AdapterStatus::Gated if allow_gated => {}
+        AdapterStatus::Gated if ctx.allow_gated => {}
         _ => return false,
     }
 
     // 2. Catalog check (CA-2 a, b, c): exists, active, non-stale
-    let Some(models) = catalog.agents.get(agent) else {
+    let Some(models) = ctx.catalog.agents.get(agent) else {
         return false;
     };
     let Some(candidate_model) = models.iter().find(|m| m.id == model) else {
@@ -177,13 +191,13 @@ pub fn is_candidate_eligible(
     if !candidate_model.is_active() {
         return false;
     }
-    if candidate_model.is_stale(now_unix, catalog_ttl_secs) {
+    if candidate_model.is_stale(ctx.now_unix, ctx.catalog_ttl_secs) {
         return false;
     }
 
     // 3. Policy check
-    if let Some(policy) = policy_config {
-        let decision = policy::evaluate(agent, model, detection.adapter, allow_gated, policy);
+    if let Some(policy) = ctx.policy_config {
+        let decision = policy::evaluate(agent, model, detection.adapter, ctx.allow_gated, policy);
         if !decision.allowed {
             return false;
         }
@@ -277,16 +291,8 @@ pub fn select_fallback_candidate(
         }
 
         // Catalog & Runtime eligibility check (CA-2)
-        if !is_candidate_eligible(
-            &agent,
-            &model,
-            req.catalog,
-            req.detected,
-            req.policy_config,
-            req.allow_gated,
-            req.now_unix,
-            req.catalog_ttl_secs,
-        ) {
+        let eligibility_ctx = CandidateEligibilityContext::from(req);
+        if !is_candidate_eligible(&agent, &model, &eligibility_ctx) {
             continue;
         }
 
@@ -328,11 +334,11 @@ pub fn select_fallback_candidate(
         let a_is_routing = a
             .source_rule
             .as_deref()
-            .map_or(false, |s| s.starts_with("routing:"));
+            .is_some_and(|s| s.starts_with("routing:"));
         let b_is_routing = b
             .source_rule
             .as_deref()
-            .map_or(false, |s| s.starts_with("routing:"));
+            .is_some_and(|s| s.starts_with("routing:"));
         b_is_routing.cmp(&a_is_routing)
     });
 
@@ -683,65 +689,33 @@ mod tests {
             make_test_detection("missing-agent", AdapterStatus::Missing, false),
         ];
 
-        // Fresh active candidate on available agent -> eligible
-        assert!(is_candidate_eligible(
-            "qwen-code",
-            "qwen3.6-flash",
-            &catalog,
-            &detected,
-            None,
-            false,
+        let ctx = CandidateEligibilityContext {
+            catalog: &catalog,
+            detected: &detected,
+            policy_config: None,
+            allow_gated: false,
             now_unix,
-            86400,
-        ));
+            catalog_ttl_secs: 86400,
+        };
+
+        // Fresh active candidate on available agent -> eligible
+        assert!(is_candidate_eligible("qwen-code", "qwen3.6-flash", &ctx,));
 
         // Stale candidate -> NOT eligible (CA-2 c)
-        assert!(!is_candidate_eligible(
-            "qwen-code",
-            "qwen-stale",
-            &catalog,
-            &detected,
-            None,
-            false,
-            now_unix,
-            86400,
-        ));
+        assert!(!is_candidate_eligible("qwen-code", "qwen-stale", &ctx,));
 
         // Down/inactive candidate -> NOT eligible (CA-2 b)
-        assert!(!is_candidate_eligible(
-            "qwen-code",
-            "qwen-down",
-            &catalog,
-            &detected,
-            None,
-            false,
-            now_unix,
-            86400,
-        ));
+        assert!(!is_candidate_eligible("qwen-code", "qwen-down", &ctx,));
 
         // Gated candidate without allow_gated -> NOT eligible
         assert!(!is_candidate_eligible(
             "claude-code",
             "claude-sonnet-5",
-            &catalog,
-            &detected,
-            None,
-            false,
-            now_unix,
-            86400,
+            &ctx,
         ));
 
         // Missing agent in runtime -> NOT eligible (CA-2 d)
-        assert!(!is_candidate_eligible(
-            "missing-agent",
-            "any-model",
-            &catalog,
-            &detected,
-            None,
-            false,
-            now_unix,
-            86400,
-        ));
+        assert!(!is_candidate_eligible("missing-agent", "any-model", &ctx,));
     }
 
     #[test]
