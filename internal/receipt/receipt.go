@@ -1,9 +1,13 @@
 package receipt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -27,6 +31,7 @@ type Receipt struct {
 	Evidence                      []string  `json:"evidence"`
 	RtkViolations                 []string  `json:"rtk_violations,omitempty"`
 	CreatedAt                     time.Time `json:"created_at"`
+	ReceiptSha256                 string    `json:"receipt_sha256,omitempty"`
 }
 
 // Command stores one validation command and its declared result.
@@ -78,6 +83,67 @@ func New(task, agent, provider, model, risk string, pr int) Receipt {
 	return Receipt{Task: task, Agent: agent, Provider: provider, Model: model, PR: pr, Risk: risk, CreatedAt: time.Now().UTC()}
 }
 
+// ComputeSha256 calculates the deterministic SHA-256 integrity hash of a receipt.
+func ComputeSha256(r Receipt) (string, error) {
+	rCopy := r
+	rCopy.ReceiptSha256 = ""
+	raw, err := json.Marshal(rCopy)
+	if err != nil {
+		return "", fmt.Errorf("error serializando receipt para sha256: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// Sign populates ReceiptSha256 with the computed integrity hash.
+func (r *Receipt) Sign() error {
+	hash, err := ComputeSha256(*r)
+	if err != nil {
+		return err
+	}
+	r.ReceiptSha256 = hash
+	return nil
+}
+
+// ObserveGitFilesChanged inspects the git working tree using `git status --porcelain`
+// to observe actual modified, added, deleted, or untracked files.
+func ObserveGitFilesChanged(repoDir string) ([]string, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	if repoDir != "" {
+		cmd.Dir = repoDir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git status --porcelain failed: %w", err)
+	}
+	lines := strings.Split(string(out), "\n")
+	var files []string
+	seen := make(map[string]bool)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if len(line) < 4 {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		var target string
+		if len(parts) >= 4 && parts[2] == "->" {
+			target = parts[3]
+		} else {
+			target = strings.TrimSpace(line[2:])
+		}
+		target = strings.Trim(target, "\"")
+		if target != "" && !seen[target] {
+			seen[target] = true
+			files = append(files, target)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
 // FromPR builds a receipt from pull request metadata.
 func FromPR(info PRInfo, agent, provider, model, risk string) Receipt {
 	r := New(info.Title, agent, provider, model, risk, info.Number)
@@ -91,11 +157,17 @@ func FromPR(info PRInfo, agent, provider, model, risk string) Receipt {
 	if info.MergeCommit != "" {
 		r.Evidence = append(r.Evidence, "merge commit "+info.MergeCommit)
 	}
+	_ = r.Sign()
 	return r
 }
 
 // Save writes the receipt as indented JSON.
 func Save(path string, r Receipt) error {
+	if r.ReceiptSha256 == "" {
+		if err := r.Sign(); err != nil {
+			return err
+		}
+	}
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
@@ -117,7 +189,7 @@ func Load(path string) (Receipt, error) {
 	return r, nil
 }
 
-// Verify validates that the receipt has enough evidence to be useful.
+// Verify validates that the receipt has enough evidence to be useful and preserves content integrity.
 func Verify(r Receipt) []string {
 	var findings []string
 	if strings.TrimSpace(r.Task) == "" {
@@ -189,6 +261,17 @@ func Verify(r Receipt) []string {
 			if !found {
 				findings = append(findings, fmt.Sprintf("commands[%d] viola rtk_required (debe usar rtk y no esta declarado en rtk_violations): %q", i, cmd.Cmd))
 			}
+		}
+	}
+
+	if r.ReceiptSha256 == "" {
+		findings = append(findings, "receipt_sha256 requerido")
+	} else {
+		expected, err := ComputeSha256(r)
+		if err != nil {
+			findings = append(findings, fmt.Sprintf("error calculando hash de integridad: %v", err))
+		} else if r.ReceiptSha256 != expected {
+			findings = append(findings, fmt.Sprintf("integridad violada: receipt_sha256 %s no coincide con el contenido (esperado %s)", r.ReceiptSha256, expected))
 		}
 	}
 

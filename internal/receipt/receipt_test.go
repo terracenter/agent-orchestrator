@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -10,6 +11,9 @@ func TestVerifyValidReceipt(t *testing.T) {
 	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
 	r.Evidence = []string{"PR #12"}
 	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) != 0 {
 		t.Fatalf("expected valid receipt, got %+v", findings)
 	}
@@ -20,6 +24,9 @@ func TestVerifyAcceptsMultipleCommandResults(t *testing.T) {
 	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}, {Cmd: "rtk go vet ./...", Result: "skipped"}}
 	r.Evidence = []string{"logs"}
 	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) != 0 {
 		t.Fatalf("expected multiple commands to be valid, got %+v", findings)
 	}
@@ -30,6 +37,9 @@ func TestVerifyAcceptsFailedCommandResult(t *testing.T) {
 	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "failed"}}
 	r.Evidence = []string{"log de fallo preservado"}
 	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) != 0 {
 		t.Fatalf("expected failed result to remain verifiable, got %+v", findings)
 	}
@@ -40,6 +50,9 @@ func TestVerifyRejectsUnknownCommandResult(t *testing.T) {
 	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "maybe"}}
 	r.Evidence = []string{"log"}
 	r.Rollback = "revert"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) == 0 {
 		t.Fatal("expected invalid command result finding")
 	}
@@ -53,6 +66,9 @@ func TestVerifyAcceptsHumanEditsRequiredWithNotes(t *testing.T) {
 	r.HumanEditsRequired = true
 	r.CorreccionesHumanasRequeridas = true
 	r.HumanEditsNotes = []string{"Freddy ajusto copy final"}
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) != 0 {
 		t.Fatalf("expected valid receipt, got %+v", findings)
 	}
@@ -65,6 +81,9 @@ func TestVerifyRejectsHumanEditsRequiredWithoutNotes(t *testing.T) {
 	r.Rollback = "revert"
 	r.HumanEditsRequired = true
 	r.CorreccionesHumanasRequeridas = true
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) == 0 {
 		t.Fatal("expected human edits notes finding")
 	}
@@ -77,6 +96,9 @@ func TestVerifyAcceptsHumanEditsRequiredValueUnknownOrInteger(t *testing.T) {
 		r.Evidence = []string{"log"}
 		r.Rollback = "revert"
 		r.HumanEditsRequiredValue = value
+		if err := r.Sign(); err != nil {
+			t.Fatalf("failed to sign receipt: %v", err)
+		}
 		if findings := Verify(r); len(findings) != 0 {
 			t.Fatalf("expected %q valid, got %+v", value, findings)
 		}
@@ -89,6 +111,9 @@ func TestVerifyRejectsInvalidHumanEditsRequiredValue(t *testing.T) {
 	r.Evidence = []string{"log"}
 	r.Rollback = "revert"
 	r.HumanEditsRequiredValue = "true"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	if findings := Verify(r); len(findings) == 0 {
 		t.Fatal("expected invalid human edits value finding")
 	}
@@ -96,6 +121,9 @@ func TestVerifyRejectsInvalidHumanEditsRequiredValue(t *testing.T) {
 
 func TestVerifyRequiresEvidence(t *testing.T) {
 	r := New("tarea", "Pi", "openai", "gpt", "bajo", 0)
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	findings := Verify(r)
 	if len(findings) == 0 {
 		t.Fatal("expected findings")
@@ -109,6 +137,9 @@ func TestFromPRBuildsVerifiableReceipt(t *testing.T) {
 	}
 	if len(r.FilesChanged) != 1 || len(r.Commands) != 1 || len(r.Evidence) != 3 {
 		t.Fatalf("missing PR evidence: %+v", r)
+	}
+	if r.ReceiptSha256 == "" {
+		t.Fatal("expected FromPR to populate ReceiptSha256")
 	}
 	if findings := Verify(r); len(findings) != 0 {
 		t.Fatalf("expected verifiable receipt, got %+v", findings)
@@ -131,6 +162,12 @@ func TestSaveLoad(t *testing.T) {
 	if loaded.Task != r.Task || loaded.PR != r.PR {
 		t.Fatalf("unexpected loaded receipt: %+v", loaded)
 	}
+	if loaded.ReceiptSha256 == "" {
+		t.Fatal("expected Save to compute and persist ReceiptSha256")
+	}
+	if findings := Verify(loaded); len(findings) != 0 {
+		t.Fatalf("expected loaded receipt to pass Verify, got %+v", findings)
+	}
 }
 
 func TestVerifyDetectsRtkViolations(t *testing.T) {
@@ -141,6 +178,9 @@ func TestVerifyDetectsRtkViolations(t *testing.T) {
 	}
 	r.Evidence = []string{"logs"}
 	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 
 	findings := Verify(r)
 	if len(findings) == 0 {
@@ -148,6 +188,9 @@ func TestVerifyDetectsRtkViolations(t *testing.T) {
 	}
 
 	r.RtkViolations = []string{"go vet ./..."}
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 	findingsAfter := Verify(r)
 	if len(findingsAfter) != 0 {
 		t.Fatalf("esperaba que el recibo fuera valido despues de declarar la violacion, hallazgos: %+v", findingsAfter)
@@ -161,6 +204,9 @@ func TestVerifyGhDirectViolatesRtk(t *testing.T) {
 	}
 	r.Evidence = []string{"logs"}
 	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 
 	findings := Verify(r)
 	if len(findings) == 0 {
@@ -174,6 +220,9 @@ func TestVerifyGhDirectViolatesRtk(t *testing.T) {
 	}
 	r2.Evidence = []string{"logs"}
 	r2.Rollback = "revert PR #12"
+	if err := r2.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 
 	findings2 := Verify(r2)
 	if len(findings2) != 0 {
@@ -188,10 +237,81 @@ func TestVerifyCdDirectAllowed(t *testing.T) {
 	}
 	r.Evidence = []string{"logs"}
 	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
 
 	findings := Verify(r)
 	if len(findings) != 0 {
 		t.Fatalf("esperaba que 'cd ...' directo fuera permitido, hallazgos: %+v", findings)
 	}
+}
+
+func TestVerifyRequiresIntegrityHash(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{{Cmd: "rtk go test ./...", Result: "passed"}}
+	r.Evidence = []string{"PR #12"}
+	r.Rollback = "revert PR #12"
+	r.ReceiptSha256 = ""
+
+	findings := Verify(r)
+	if len(findings) == 0 {
+		t.Fatal("expected findings for missing receipt_sha256")
+	}
+	found := false
+	for _, f := range findings {
+		if strings.Contains(f, "receipt_sha256 requerido") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'receipt_sha256 requerido' in findings, got: %+v", findings)
+	}
+}
+
+func TestVerifyDetectsPostEditTampering(t *testing.T) {
+	r := New("tarea", "Pi", "openai", "gpt", "bajo", 12)
+	r.Commands = []Command{
+		{Cmd: "rtk go test ./...", Result: "passed"},
+		{Cmd: "rtk git status", Result: "passed"},
+	}
+	r.Evidence = []string{"PR #12"}
+	r.Rollback = "revert PR #12"
+	if err := r.Sign(); err != nil {
+		t.Fatalf("failed to sign receipt: %v", err)
+	}
+
+	// Verify before editing: must pass
+	if findings := Verify(r); len(findings) != 0 {
+		t.Fatalf("expected valid signed receipt, got %+v", findings)
+	}
+
+	// Edit field post-creation (e.g. changing command result)
+	r.Commands[0].Result = "failed"
+	findings := Verify(r)
+	if len(findings) == 0 {
+		t.Fatal("expected Verify to detect content tampering, but returned 0 findings")
+	}
+
+	foundIntegrityViolation := false
+	for _, f := range findings {
+		if strings.Contains(f, "integridad violada") {
+			foundIntegrityViolation = true
+			break
+		}
+	}
+	if !foundIntegrityViolation {
+		t.Fatalf("expected 'integridad violada' in findings, got: %+v", findings)
+	}
+}
+
+func TestObserveGitFilesChanged(t *testing.T) {
+	files, err := ObserveGitFilesChanged("")
+	if err != nil {
+		t.Fatalf("ObserveGitFilesChanged failed: %v", err)
+	}
+	// On a git repository, ObserveGitFilesChanged returns a slice (possibly containing modified files)
+	t.Logf("observed changed files in worktree: %v", files)
 }
 
