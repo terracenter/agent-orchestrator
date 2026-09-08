@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/terracenter/agent-orchestrator/internal/rtkpolicy"
 	"github.com/terracenter/agent-orchestrator/internal/trace"
 )
 
@@ -63,11 +64,9 @@ type SessionAuditOptions struct {
 }
 
 // Herramientas comunes que requieren wrapper rtk en el workspace de orq.
-var rtkProtectedBinaries = []string{
-	"git", "curl", "ls", "grep", "rg", "find", "cat", "head", "tail",
-	"sed", "awk", "go", "npm", "cargo", "docker", "act", "gh",
-	"tree", "wc", "diff", "ps", "df", "du", "tar", "zip", "pytest",
-}
+// Fuente única de verdad: internal/rtkpolicy/rtk_required.json (issue #180),
+// el mismo archivo físico que embebe orq-agent (Rust) en compliance.rs.
+var rtkProtectedBinaries = rtkpolicy.Binaries()
 
 // Comandos o patrones de mutación destructiva de alto riesgo.
 var destructivePatterns = []string{

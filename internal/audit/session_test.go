@@ -70,6 +70,63 @@ func TestAuditSession_RTKMissingDetection(t *testing.T) {
 	}
 }
 
+// TestAuditSession_RTKRequiredMatchesSharedPolicy es la regresión de la
+// unificación del issue #180: internal/audit debe consumir la lista
+// embebida en internal/rtkpolicy/rtk_required.json (el mismo archivo físico
+// que embebe orq-agent en Rust vía include_str! en compliance.rs), no una
+// lista propia. `ssh` estaba ausente en ambas listas originales y es el
+// hueco que el issue #180 señala explícitamente.
+func TestAuditSession_RTKRequiredMatchesSharedPolicy(t *testing.T) {
+	session := &trace.TraceSession{
+		ID:        "sess-rtk-shared-policy",
+		Agent:     "agy",
+		Model:     "gemini-3.5-flash-low",
+		StartedAt: time.Now().UTC(),
+		Metadata: map[string]string{
+			"rtk_required": "true",
+		},
+	}
+
+	events := []trace.TraceEvent{
+		{
+			SessionID: "sess-rtk-shared-policy",
+			EventType: trace.EventTypeCommand,
+			Command:   "gh pr view 1", // Sin rtk -> debe fallar (antes solo lo detectaba Go)
+		},
+		{
+			SessionID: "sess-rtk-shared-policy",
+			EventType: trace.EventTypeCommand,
+			Command:   "ssh user@host uptime", // Sin rtk -> debe fallar (hueco #180, ninguna lista lo tenía)
+		},
+		{
+			SessionID: "sess-rtk-shared-policy",
+			EventType: trace.EventTypeCommand,
+			Command:   "rtk gh pr view 1", // Con rtk -> válido
+		},
+	}
+
+	report := AuditSession(session, events, SessionAuditOptions{})
+
+	rtkMissingCount := 0
+	targets := map[string]bool{}
+	for _, f := range report.Findings {
+		if f.Code == CodeRTKRequired {
+			rtkMissingCount++
+			targets[f.Target] = true
+		}
+	}
+
+	if rtkMissingCount != 2 {
+		t.Fatalf("expected 2 RTKMissing findings (gh and ssh), got %d: %+v", rtkMissingCount, report.Findings)
+	}
+	if !targets["gh pr view 1"] {
+		t.Errorf("expected a RTKMissing finding for %q", "gh pr view 1")
+	}
+	if !targets["ssh user@host uptime"] {
+		t.Errorf("expected a RTKMissing finding for %q", "ssh user@host uptime")
+	}
+}
+
 func TestAuditSession_ExpensiveAgentExecutionDetection(t *testing.T) {
 	session := &trace.TraceSession{
 		ID:        "sess-expensive-test",
