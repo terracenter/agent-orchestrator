@@ -2,6 +2,7 @@ use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
 
 /// Compliance state of an audited check or of the whole audit run.
@@ -415,9 +416,38 @@ fn extract_command_from_json(line: &str) -> Option<String> {
     None
 }
 
-const RAW_BINARIES: &[&str] = &[
-    "git", "find", "ls", "rg", "grep", "fd", "egrep", "fgrep", "ag", "ack",
-];
+/// Fuente única de verdad de binarios que exigen wrapper `rtk` (issue #180):
+/// `internal/rtkpolicy/rtk_required.json`, el mismo archivo físico que
+/// embebe el auditor Go (`internal/rtkpolicy/rtkpolicy.go`, vía `go:embed`).
+/// Agregar un binario ahí actualiza ambos auditores tras un rebuild, sin
+/// tocar código en ninguno de los dos lenguajes.
+const RTK_REQUIRED_JSON: &str = include_str!("../../internal/rtkpolicy/rtk_required.json");
+
+const RTK_REQUIRED_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Deserialize)]
+struct RtkRequiredConfig {
+    schema_version: u32,
+    binaries: Vec<String>,
+}
+
+fn raw_binaries() -> &'static [String] {
+    static BINARIES: OnceLock<Vec<String>> = OnceLock::new();
+    BINARIES.get_or_init(|| {
+        let cfg: RtkRequiredConfig = serde_json::from_str(RTK_REQUIRED_JSON)
+            .expect("parsing embedded internal/rtkpolicy/rtk_required.json");
+        assert_eq!(
+            cfg.schema_version, RTK_REQUIRED_SCHEMA_VERSION,
+            "unsupported rtk_required schema_version {} in internal/rtkpolicy/rtk_required.json; expected {}",
+            cfg.schema_version, RTK_REQUIRED_SCHEMA_VERSION
+        );
+        assert!(
+            !cfg.binaries.is_empty(),
+            "embedded internal/rtkpolicy/rtk_required.json defines no binaries"
+        );
+        cfg.binaries
+    })
+}
 
 fn scan_command_string(
     cmd: &str,
@@ -482,7 +512,10 @@ fn scan_command_string(
         }
 
         // If the binary matches a raw prohibited command
-        if RAW_BINARIES.contains(&base_binary.as_str()) {
+        if raw_binaries()
+            .iter()
+            .any(|b| b.as_str() == base_binary.as_str())
+        {
             violations.push(RtkViolation {
                 file: file_path.display().to_string(),
                 line: line_num,
@@ -1876,6 +1909,63 @@ mod tests {
         let report = check_rtk_usage(Some(log_file.to_str().unwrap())).unwrap();
         assert_eq!(report.status, ComplianceStatus::Ok);
         assert_eq!(report.raw_invocations_count, 0);
+    }
+
+    // --- Regresión issue #180: Go y Rust deben compartir una única
+    // definición de rtk_required (internal/rtkpolicy/rtk_required.json). ---
+
+    #[test]
+    fn test_raw_binaries_loads_from_shared_rtkpolicy_json() {
+        let binaries = raw_binaries();
+        assert!(
+            !binaries.is_empty(),
+            "raw_binaries() debe cargar la lista embebida de internal/rtkpolicy/rtk_required.json"
+        );
+    }
+
+    #[test]
+    fn test_raw_binaries_includes_entries_previously_only_in_go() {
+        // Antes de #180, RAW_BINARIES en Rust solo tenía 10 entradas y no
+        // incluía estos binarios, aunque internal/audit/session.go (Go) sí
+        // los exigía. Con la fuente única deben estar en ambos lados.
+        let binaries = raw_binaries();
+        for bin in ["gh", "curl", "docker", "cargo", "go", "npm", "act"] {
+            assert!(
+                binaries.iter().any(|b| b == bin),
+                "se esperaba que la lista unificada incluyera {bin:?} (antes solo estaba en Go)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_raw_binaries_includes_gap_called_out_by_issue_180() {
+        // `ssh` no estaba en ninguna de las dos listas originales; el issue
+        // #180 lo señala explícitamente como hueco a cerrar.
+        let binaries = raw_binaries();
+        assert!(
+            binaries.iter().any(|b| b == "ssh"),
+            "se esperaba que la lista unificada incluyera \"ssh\" (hueco señalado por el issue #180)"
+        );
+    }
+
+    #[test]
+    fn test_rtk_scanner_detects_gh_previously_missed_by_rust() {
+        // Antes de #180, `gh` sin rtk no era detectado por el auditor Rust
+        // (solo por el Go) — exactamente el binario detrás del incidente
+        // citado en el issue #180.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let log_file = temp_dir.path().join("gh.log");
+        fs::write(
+            &log_file,
+            "rtk gh pr view 1\ngh pr view 1\nssh user@host uptime\n",
+        )
+        .unwrap();
+
+        let report = check_rtk_usage(Some(log_file.to_str().unwrap())).unwrap();
+        assert_eq!(report.status, ComplianceStatus::Violation);
+        assert_eq!(report.raw_invocations_count, 2);
+        assert_eq!(report.violations[0].binary, "gh");
+        assert_eq!(report.violations[1].binary, "ssh");
     }
 
     #[test]
