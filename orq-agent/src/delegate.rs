@@ -129,6 +129,11 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         let mut output = DelegateOutput {
@@ -191,6 +196,11 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
         return Ok(DelegateOutput {
             status: DelegateStatus::Blocked,
@@ -399,6 +409,18 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         _ => "verificar estado de delegacion".to_string(),
     };
 
+    let failure_class = if status == DelegateStatus::Failed || status == DelegateStatus::Blocked {
+        crate::failover::classify_failure(
+            reason.as_deref(),
+            &stderr,
+            exit_code,
+            started.elapsed().as_millis(),
+            timeout_secs,
+        )
+    } else {
+        None
+    };
+
     let receipt = DelegateReceipt {
         schema_version: 1,
         correlation_id: correlation_id.clone(),
@@ -418,6 +440,11 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         secrets_read: false,
         cleanup_attempted,
         cleanup_succeeded,
+        failure_class,
+        fallback_agent: None,
+        fallback_model: None,
+        fallback_reason: None,
+        fallback_attempts: Vec::new(),
     };
 
     let mut output = DelegateOutput {
@@ -475,6 +502,17 @@ fn sandbox_failure_output(
         secrets_read: false,
         cleanup_attempted: false,
         cleanup_succeeded: false,
+        failure_class: crate::failover::classify_failure(
+            Some(&reason),
+            "",
+            None,
+            started.elapsed().as_millis(),
+            timeout_secs,
+        ),
+        fallback_agent: None,
+        fallback_model: None,
+        fallback_reason: None,
+        fallback_attempts: Vec::new(),
     };
     DelegateOutput {
         status: DelegateStatus::Failed,

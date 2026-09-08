@@ -3,6 +3,45 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureClass {
+    PermissionDenied,
+    AuthFailure,
+    Timeout,
+    ModelUnavailable,
+    NetworkError,
+    AgentCrash,
+}
+
+impl FailureClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FailureClass::PermissionDenied => "permission_denied",
+            FailureClass::AuthFailure => "auth_failure",
+            FailureClass::Timeout => "timeout",
+            FailureClass::ModelUnavailable => "model_unavailable",
+            FailureClass::NetworkError => "network_error",
+            FailureClass::AgentCrash => "agent_crash",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct FallbackAttempt {
+    pub attempt_number: usize,
+    pub agent: String,
+    pub model: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_class: Option<FailureClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub duration_ms: u128,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecStatus {
@@ -34,6 +73,16 @@ pub struct ExecReceipt {
     pub cleanup_attempted: bool,
     #[serde(default)]
     pub cleanup_succeeded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_class: Option<FailureClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback_attempts: Vec<FallbackAttempt>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -78,6 +127,16 @@ pub struct DelegateReceipt {
     pub cleanup_attempted: bool,
     #[serde(default)]
     pub cleanup_succeeded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_class: Option<FailureClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback_attempts: Vec<FallbackAttempt>,
 }
 
 pub fn now_unix() -> u64 {
@@ -147,6 +206,11 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         let hash = receipt_sha256(&receipt).expect("hash receipt");
@@ -175,6 +239,11 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         let serialized = serde_json::to_string(&receipt).expect("serialize");

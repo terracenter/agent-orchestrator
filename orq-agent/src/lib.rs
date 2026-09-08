@@ -12,6 +12,7 @@ pub mod delegate;
 mod detect;
 mod discover;
 mod exec;
+pub mod failover;
 mod home_sandbox;
 mod models;
 pub mod observer;

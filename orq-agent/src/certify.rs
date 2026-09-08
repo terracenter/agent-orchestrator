@@ -167,6 +167,11 @@ mod tests {
             secrets_read: true,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
 
         assert_eq!(

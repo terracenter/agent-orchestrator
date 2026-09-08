@@ -2092,6 +2092,11 @@ Found 2 memories:
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
         store.insert_delegate_receipt(&r1, "task1").unwrap();
 
@@ -2120,6 +2125,11 @@ Found 2 memories:
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
         store.insert_delegate_receipt(&r2, "task2").unwrap();
 
@@ -2470,6 +2480,11 @@ Found 2 memories:
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         };
         store
             .insert_delegate_receipt(&make_receipt("c1", "agy"), "task1")

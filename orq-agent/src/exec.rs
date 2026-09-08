@@ -88,6 +88,11 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
         });
     }
 
@@ -207,6 +212,17 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
                 secrets_read: false,
                 cleanup_attempted: true,
                 cleanup_succeeded,
+                failure_class: crate::failover::classify_failure(
+                    None,
+                    &format!("spawning agent {} via {}: {error}", adapter.name(), binary),
+                    None,
+                    started.elapsed().as_millis(),
+                    request.timeout_seconds,
+                ),
+                fallback_agent: None,
+                fallback_model: None,
+                fallback_reason: None,
+                fallback_attempts: Vec::new(),
             });
         }
     };
@@ -278,6 +294,18 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
     let cleanup_attempted = true;
     let cleanup_succeeded = (!proc_cleanup_attempted || proc_cleanup_succeeded) && sandbox_removed;
 
+    let failure_class = if status != ExecStatus::Succeeded {
+        crate::failover::classify_failure(
+            None,
+            &stderr_tail,
+            exit_code,
+            started.elapsed().as_millis(),
+            request.timeout_seconds,
+        )
+    } else {
+        None
+    };
+
     Ok(ExecReceipt {
         schema_version: 1,
         correlation_id,
@@ -295,6 +323,11 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         secrets_read: false,
         cleanup_attempted,
         cleanup_succeeded,
+        failure_class,
+        fallback_agent: None,
+        fallback_model: None,
+        fallback_reason: None,
+        fallback_attempts: Vec::new(),
     })
 }
 
@@ -415,6 +448,11 @@ fn invalid_receipt(
         secrets_read: false,
         cleanup_attempted: false,
         cleanup_succeeded: false,
+        failure_class: None,
+        fallback_agent: None,
+        fallback_model: None,
+        fallback_reason: None,
+        fallback_attempts: Vec::new(),
     }
 }
 
