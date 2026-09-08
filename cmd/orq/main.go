@@ -1265,7 +1265,13 @@ func cmdReceipt(args []string) error {
 			return fmt.Errorf("unexpected arguments: %s", strings.Join(remaining, " "))
 		}
 		r := receipt.New(task, agent, provider, model, risk, pr)
-		r.FilesChanged = splitCSV(files)
+		filesList := splitCSV(files)
+		if len(filesList) == 0 {
+			if observed, err := receipt.ObserveGitFilesChanged("."); err == nil && len(observed) > 0 {
+				filesList = observed
+			}
+		}
+		r.FilesChanged = filesList
 		builtCommands, err := buildReceiptCommands(commands, commandResults)
 		if err != nil {
 			return err
@@ -1278,6 +1284,9 @@ func cmdReceipt(args []string) error {
 		r.CorreccionesHumanasRequeridas = correccionesHumanasRequeridas
 		r.HumanEditsNotes = splitCSV(humanEditsNotes)
 		r.Rollback = rollback
+		if err := r.Sign(); err != nil {
+			return fmt.Errorf("error firmando receipt con hash: %w", err)
+		}
 		if findings := receipt.Verify(r); len(findings) > 0 {
 			return fmt.Errorf("invalid receipt: %s", strings.Join(findings, "; "))
 		}
@@ -1356,7 +1365,13 @@ func cmdReceipt(args []string) error {
 		}
 		findings := receipt.Verify(r)
 		if format == "json" {
-			return json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": len(findings) == 0, "findings": findings, "receipt": r})
+			if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": len(findings) == 0, "findings": findings, "receipt": r}); err != nil {
+				return err
+			}
+			if len(findings) > 0 {
+				return fmt.Errorf("receipt verification failed")
+			}
+			return nil
 		}
 		if len(findings) > 0 {
 			fmt.Printf("INVALID path=%s findings=%d\n", path, len(findings))
