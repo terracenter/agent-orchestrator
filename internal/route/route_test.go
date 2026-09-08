@@ -176,3 +176,55 @@ func TestClassifyDoesNotMatchGoAsSubstring(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyDoesNotMatchCriticalSignalAsFilenameSubstring(t *testing.T) {
+	// Reproducción literal del issue #200: el nombre de archivo contiene los substrings
+	// "deploy" y "cwp" (señales de revision_critica), pero unidos por guiones a otras
+	// palabras — no son la señal como palabra/frase independiente.
+	task := "numerar con prefijo 0N. el archivo deploy-cwp-estandar.md de una carpeta del vault y corregir sus wikilinks"
+	if got := Classify(task); got == "revision_critica" {
+		t.Errorf("Classify(%q) = %q, no debería clasificar como revision_critica por \"deploy\"/\"cwp\" embebidos en un nombre de archivo", task, got)
+	}
+	if got := Classify(task); got != "documentacion" {
+		t.Errorf("Classify(%q) = %q, want \"documentacion\"", task, got)
+	}
+
+	// Control negativo del issue: mismo tipo de tarea, sin el nombre de archivo problemático.
+	control := "numerar con prefijo 0N. los archivos security-manager-go-dup.md y security-manager-ng.md de una carpeta del vault y corregir sus wikilinks"
+	if got := Classify(control); got != Classify(task) {
+		t.Errorf("Classify(%q) = %q, Classify(%q) = %q, ambas deberían clasificar igual", task, Classify(task), control, got)
+	}
+
+	// Otros substrings embebidos en nombres de archivo/rutas, sin espacio/puntuación real
+	// alrededor de la señal, tampoco deben disparar revision_critica.
+	filenameCases := []string{
+		"revisar el script deploy-helper.sh del repo",
+		"leer sshconfig-notes.md antes de continuar",
+		"el archivo produccion-2026.csv ya fue importado",
+	}
+	for _, task := range filenameCases {
+		if got := Classify(task); got == "revision_critica" {
+			t.Errorf("Classify(%q) = %q, no debería clasificar como revision_critica por señal embebida en nombre de archivo", task, got)
+		}
+	}
+}
+
+func TestClassifyStillMatchesCriticalSignalAsStandaloneWord(t *testing.T) {
+	// Coincidencias exactas y parciales válidas: la señal aparece como palabra o frase
+	// independiente (separada por espacios/puntuación real), con y sin acentos, y en medio
+	// o al final del texto — debe seguir disparando revision_critica tras el fix.
+	cases := []string{
+		"hay que hacer deploy a produccion esta noche",
+		"revisar via ssh el servidor",
+		"incidente en cwp",
+		"posible falso positivo en el reporte",
+		"revisión crítica de workflow antes de mergear",
+		"falla en ci/cd del pipeline",
+		"postmortem del incidente de ayer",
+	}
+	for _, task := range cases {
+		if got := Classify(task); got != "revision_critica" {
+			t.Errorf("Classify(%q) = %q, want \"revision_critica\"", task, got)
+		}
+	}
+}
