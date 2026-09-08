@@ -62,6 +62,12 @@ pub struct ExecReceipt {
     pub command: Vec<String>,
     pub status: ExecStatus,
     pub policy_reason: String,
+    #[serde(default = "default_policy_source")]
+    pub policy_source: String,
+    #[serde(default = "default_policy_path")]
+    pub policy_path: String,
+    #[serde(default)]
+    pub policy_sha256: String,
     pub started_at_unix: u64,
     pub duration_ms: u128,
     pub timeout_seconds: u64,
@@ -114,6 +120,12 @@ pub struct DelegateReceipt {
     pub status: DelegateStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(default = "default_policy_source")]
+    pub policy_source: String,
+    #[serde(default = "default_policy_path")]
+    pub policy_path: String,
+    #[serde(default)]
+    pub policy_sha256: String,
     pub verdict: DelegateVerdict,
     pub evidence: String,
     pub stdout_tail: String,
@@ -139,6 +151,14 @@ pub struct DelegateReceipt {
     pub fallback_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback_attempts: Vec<FallbackAttempt>,
+}
+
+fn default_policy_source() -> String {
+    "builtin".to_string()
+}
+
+fn default_policy_path() -> String {
+    "builtin".to_string()
 }
 
 pub fn now_unix() -> u64 {
@@ -213,6 +233,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
 
         let hash = receipt_sha256(&receipt).expect("hash receipt");
@@ -247,6 +270,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
 
         let serialized = serde_json::to_string(&receipt).expect("serialize");

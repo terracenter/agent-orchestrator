@@ -180,6 +180,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
         let cert = Certificate {
             schema_version: 1,

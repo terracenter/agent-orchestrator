@@ -3,15 +3,112 @@ use predicates::prelude::*;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-fn fake_runner(name: &str, body: &str) -> String {
+fn fake_runner_dir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("orq-agent-test-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn fake_runner(name: &str, body: &str) -> String {
+    let dir = fake_runner_dir();
     let path = dir.join(name);
     fs::write(&path, body).unwrap();
     let mut perms = fs::metadata(&path).unwrap().permissions();
     perms.set_mode(0o755);
     fs::set_permissions(&path, perms).unwrap();
+
+    if name.starts_with("qwen") {
+        let _ = fs::copy(&path, dir.join("qwen"));
+        if let Ok(meta) = fs::metadata(dir.join("qwen")) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(dir.join("qwen"), p);
+        }
+    } else if name.starts_with("agy") {
+        let _ = fs::copy(&path, dir.join("agy"));
+        if let Ok(meta) = fs::metadata(dir.join("agy")) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(dir.join("agy"), p);
+        }
+    } else if name.starts_with("claude") {
+        let _ = fs::copy(&path, dir.join("claude"));
+        if let Ok(meta) = fs::metadata(dir.join("claude")) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(dir.join("claude"), p);
+        }
+    } else if name == "doctor-rtk" {
+        let _ = fs::copy(&path, dir.join("rtk"));
+        if let Ok(meta) = fs::metadata(dir.join("rtk")) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(dir.join("rtk"), p);
+        }
+    } else if name == "doctor-vg" {
+        let _ = fs::copy(&path, dir.join("vg"));
+        if let Ok(meta) = fs::metadata(dir.join("vg")) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(dir.join("vg"), p);
+        }
+    } else if name == "doctor-engram" {
+        let _ = fs::copy(&path, dir.join("engram"));
+        if let Ok(meta) = fs::metadata(dir.join("engram")) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(dir.join("engram"), p);
+        }
+    }
+
     path.display().to_string()
+}
+
+fn make_runner(name: &str, body: &str) -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(name);
+    fs::write(&path, body).unwrap();
+    let mut perms = fs::metadata(&path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&path, perms).unwrap();
+
+    let aliases = match name {
+        n if n.starts_with("qwen") && n != "qwen" => vec!["qwen"],
+        n if n.starts_with("agy") && n != "agy" => vec!["agy"],
+        n if n.starts_with("claude") && n != "claude" => vec!["claude"],
+        "doctor-rtk" => vec!["rtk"],
+        "doctor-vg" => vec!["vg"],
+        "doctor-engram" => vec!["engram"],
+        _ => vec![],
+    };
+
+    for alias in aliases {
+        let alias_path = dir.path().join(alias);
+        let _ = fs::copy(&path, &alias_path);
+        if let Ok(meta) = fs::metadata(&alias_path) {
+            let mut p = meta.permissions();
+            p.set_mode(0o755);
+            let _ = fs::set_permissions(&alias_path, p);
+        }
+    }
+
+    let runner_str = path.display().to_string();
+    (dir, runner_str)
+}
+
+fn test_cmd(bin: &str) -> Command {
+    let mut cmd = Command::cargo_bin(bin).unwrap();
+    let dir = fake_runner_dir();
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    cmd.env("PATH", format!("{}:{}", dir.display(), old_path));
+    cmd
+}
+
+fn test_cmd_with_path(bin: &str, bin_dir: &std::path::Path) -> Command {
+    let mut cmd = Command::cargo_bin(bin).unwrap();
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    cmd.env("PATH", format!("{}:{}", bin_dir.display(), old_path));
+    cmd
 }
 
 #[test]
@@ -26,7 +123,7 @@ fn detect_supports_external_adapters_registry() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args([
         "detect",
         "--adapters-config",
@@ -71,7 +168,7 @@ fn exec_supports_external_adapters_registry() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_CUSTOM_AGENT", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -114,7 +211,7 @@ fn exec_supports_external_policy_config() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -140,20 +237,165 @@ fn exec_supports_external_policy_config() {
         .stdout(predicate::str::contains(
             "model qwen3.8-max requires explicit human approval",
         ))
+        .stdout(predicate::str::contains("\"policy_source\": \"override\""))
         .stdout(predicate::str::contains("should-not-run").not());
 }
 
 #[test]
+fn policy_insecure_env_override_rejected_and_uses_builtin() {
+    let (_runner_dir, _runner) =
+        make_runner("claude", "#!/usr/bin/env bash\necho should-not-run\n");
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-env-override-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello insecure env override").unwrap();
+
+    // Insecure policy that attempts to remove human approval requirement for "opus"
+    let insecure_policy = std::env::temp_dir().join(format!(
+        "orq-agent-insecure-policy-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &insecure_policy,
+        r#"{"schema_version":1,"approval_required_model_patterns":[],"blocked_adapter_statuses":[],"gated_adapter_statuses":[]}"#,
+    )
+    .unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_POLICY_CONFIG", insecure_policy.to_str().unwrap())
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "claude-code",
+            "--model",
+            "claude-opus-5",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"blocked\""))
+        .stdout(predicate::str::contains(
+            "agent claude-code is gated; pass --allow-gated after human approval",
+        ))
+        .stdout(predicate::str::contains("\"policy_source\": \"builtin\""))
+        .stdout(predicate::str::contains("\"policy_path\": \"builtin\""))
+        .stdout(predicate::str::contains("\"policy_sha256\""))
+        .stdout(predicate::str::contains("should-not-run").not());
+}
+
+#[test]
+fn policy_valid_cli_override_accepted_with_receipt_hash() {
+    let (_runner_dir, _runner) = make_runner(
+        "qwen-valid-cli-override",
+        "#!/usr/bin/env bash\necho should-not-run\n",
+    );
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-cli-override-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello cli override").unwrap();
+
+    let custom_policy = std::env::temp_dir().join(format!(
+        "orq-agent-custom-policy-{}.json",
+        std::process::id()
+    ));
+    let policy_content = r#"{"schema_version":1,"approval_required_model_patterns":["flash"],"blocked_adapter_statuses":[],"gated_adapter_statuses":[]}"#;
+    fs::write(&custom_policy, policy_content).unwrap();
+
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.6-flash",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--policy-config",
+            custom_policy.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"blocked\""))
+        .stdout(predicate::str::contains(
+            "model qwen3.6-flash requires explicit human approval",
+        ))
+        .stdout(predicate::str::contains("\"policy_source\": \"override\""))
+        .stdout(predicate::str::contains(custom_policy.to_str().unwrap()))
+        .stdout(predicate::str::contains("\"policy_sha256\""))
+        .stdout(predicate::str::contains("should-not-run").not());
+}
+
+#[test]
+fn policy_default_builtin_config_recorded_in_receipt() {
+    let (_runner_dir, _runner) = make_runner(
+        "qwen-builtin-policy",
+        "#!/usr/bin/env bash\necho qwen-builtin-ok\n",
+    );
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-builtin-policy-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello builtin policy").unwrap();
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3-coder-next",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"succeeded\""))
+        .stdout(predicate::str::contains("\"policy_source\": \"builtin\""))
+        .stdout(predicate::str::contains("\"policy_path\": \"builtin\""))
+        .stdout(predicate::str::contains("\"policy_sha256\""));
+}
+
+#[test]
 fn exec_qwen_fake_succeeds_with_receipt() {
-    let runner = fake_runner("qwen-ok", "#!/usr/bin/env bash\necho fake-qwen-ok\n");
+    let (_runner_dir, _runner) = make_runner("qwen-ok", "#!/usr/bin/env bash\necho fake-qwen-ok\n");
     let task = std::env::temp_dir().join(format!("orq-agent-task-{}.md", std::process::id()));
     fs::write(&task, "hello fake").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -179,7 +421,7 @@ fn exec_qwen_fake_succeeds_with_receipt() {
 
 #[test]
 fn models_qwen_reports_candidate_without_secrets() {
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args(["models", "--agent", "qwen-code", "--format", "json"])
         .assert()
         .success()
@@ -202,7 +444,7 @@ fn state_status_creates_temp_db_without_secrets() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "state",
@@ -225,7 +467,7 @@ fn discover_reports_sources_and_writes_temp_state_without_secrets() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "discover",
@@ -239,12 +481,8 @@ fn discover_reports_sources_and_writes_temp_state_without_secrets() {
         .stdout(predicate::str::contains("\"config_source\""))
         .stdout(predicate::str::contains("\"state_source\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains(
-            "orq-agent/config/adapters-registry.json",
-        ))
-        .stdout(predicate::str::contains(
-            "orq-agent/config/models-catalog.json",
-        ));
+        .stdout(predicate::str::contains("\"adapters\": \"builtin\""))
+        .stdout(predicate::str::contains("models-catalog.json"));
 
     assert!(db.exists());
 }
@@ -254,7 +492,7 @@ fn route_default_config_reports_documentation_without_secrets() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "route",
@@ -269,9 +507,7 @@ fn route_default_config_reports_documentation_without_secrets() {
         .success()
         .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains(
-            "orq-agent/config/routing-matrix.json",
-        ));
+        .stdout(predicate::str::contains("\"config_source\": \"builtin\""));
 }
 
 #[test]
@@ -287,7 +523,7 @@ fn route_uses_certificate_directory_for_exact_match() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut certify = Command::cargo_bin("orq-agent").unwrap();
+    let mut certify = test_cmd("orq-agent");
     certify
         .env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
         .env("ORQ_STATE_DB", &db)
@@ -311,7 +547,7 @@ fn route_uses_certificate_directory_for_exact_match() {
         .assert()
         .success();
 
-    let mut route = Command::cargo_bin("orq-agent").unwrap();
+    let mut route = test_cmd("orq-agent");
     route
         .env("ORQ_AGENT_BIN_QWEN_CODE", runner)
         .env("ORQ_STATE_DB", &db)
@@ -342,7 +578,7 @@ fn route_supports_external_config() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "route",
@@ -373,7 +609,7 @@ fn certify_qwen_fake_writes_certificate() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -412,7 +648,7 @@ fn smoke_qwen_fake_succeeds_with_receipt() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -443,7 +679,7 @@ fn exec_unknown_agent_returns_invalid_request_receipt() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
@@ -481,7 +717,7 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
@@ -513,36 +749,33 @@ fn exec_missing_binary_returns_spawn_failed_receipt() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env(
-        "ORQ_AGENT_BIN_QWEN_CODE",
-        "/tmp/orq-agent-definitely-missing-binary",
-    )
-    .env("ORQ_STATE_DB", &db)
-    .args([
-        "exec",
-        "--agent",
-        "qwen-code",
-        "--model",
-        "qwen3.8-max",
-        "--task-file",
-        task.to_str().unwrap(),
-        "--db-path",
-        db.to_str().unwrap(),
-        "--timeout",
-        "5",
-        "--format",
-        "json",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"status\": \"spawn_failed\""))
-    .stdout(predicate::str::contains("spawning agent qwen-code"));
+    let mut cmd = test_cmd("orq-agent");
+    cmd.env("PATH", "/tmp/nonexistent-path-for-missing-binary")
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.8-max",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"spawn_failed\""))
+        .stdout(predicate::str::contains("spawning agent qwen-code"));
 }
 
 #[test]
 fn exec_timeout_preserves_partial_stdout_tail() {
-    let runner = fake_runner(
+    let (_runner_dir, _runner) = make_runner(
         "qwen-partial",
         "#!/usr/bin/env bash\necho partial-before-timeout\nsleep 5\n",
     );
@@ -552,9 +785,8 @@ fn exec_timeout_preserves_partial_stdout_tail() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -578,7 +810,7 @@ fn exec_timeout_preserves_partial_stdout_tail() {
 
 #[test]
 fn exec_output_tail_is_bounded_to_recent_output() {
-    let runner = fake_runner("qwen-long-output", "#!/usr/bin/env bash\npython3 - <<'PY'\nprint('A' * 20000)\nprint('RECENT-TAIL-MARKER')\nPY\n");
+    let (_runner_dir, _runner) = make_runner("qwen-long-output", "#!/usr/bin/env bash\npython3 - <<'PY'\nprint('A' * 20000)\nprint('RECENT-TAIL-MARKER')\nPY\n");
     let task = std::env::temp_dir().join(format!(
         "orq-agent-long-output-task-{}.md",
         std::process::id()
@@ -587,9 +819,8 @@ fn exec_output_tail_is_bounded_to_recent_output() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -618,15 +849,14 @@ fn exec_timeout_kills_child_process_group() {
         "#!/usr/bin/env bash\n(sleep 2; echo orphan-alive > '{}') &\nsleep 10\n",
         marker.display()
     );
-    let runner = fake_runner("qwen-process-group", &body);
+    let (_runner_dir, _runner) = make_runner("qwen-process-group", &body);
     let task = std::env::temp_dir().join(format!("orq-agent-pgid-task-{}.md", std::process::id()));
     fs::write(&task, "hello pgid").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -662,7 +892,7 @@ fn exec_pgid_cleanup() {
         "#!/usr/bin/env bash\ntrap '' TERM\n(sleep 2; echo child-alive > '{}') &\nwhile true; do sleep 1; done\n",
         marker.display()
     );
-    let runner = fake_runner("qwen-pgid-cleanup-runner", &body);
+    let (_runner_dir, _runner) = make_runner("qwen-pgid-cleanup-runner", &body);
     let task = std::env::temp_dir().join(format!(
         "orq-agent-pgid-cleanup-task-{}.md",
         std::process::id()
@@ -671,9 +901,8 @@ fn exec_pgid_cleanup() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -704,16 +933,15 @@ fn exec_pgid_cleanup() {
 
 #[test]
 fn exec_qwen_fake_timeout_is_reported() {
-    let runner = fake_runner("qwen-sleep", "#!/usr/bin/env bash\nsleep 5\n");
+    let (_runner_dir, _runner) = make_runner("qwen-sleep", "#!/usr/bin/env bash\nsleep 5\n");
     let task =
         std::env::temp_dir().join(format!("orq-agent-timeout-task-{}.md", std::process::id()));
     fs::write(&task, "hello timeout").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
@@ -731,7 +959,8 @@ fn exec_qwen_fake_timeout_is_reported() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"status\": \"timed_out\""));
+        .stdout(predicate::str::contains("\"status\": \"timed_out\""))
+        .stdout(predicate::str::contains("timed out after 1 seconds"));
 }
 
 #[test]
@@ -742,7 +971,7 @@ fn exec_without_correlation_id_uses_unique_fallback() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "exec",
@@ -769,7 +998,7 @@ fn certify_without_correlation_id_uses_unique_fallback() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "certify",
@@ -798,7 +1027,7 @@ fn certify_without_correlation_id_uses_unique_fallback() {
 
 #[test]
 fn quota_cli_help_is_visible() {
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args(["quota", "--help"])
         .assert()
         .success()
@@ -814,7 +1043,7 @@ fn quota_cli_record_manual_and_report() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd = test_cmd("orq-agent");
     record_cmd
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -836,7 +1065,7 @@ fn quota_cli_record_manual_and_report() {
         .stdout(predicate::str::contains("\"used_pct\": 52.83"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
 
-    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_cmd = test_cmd("orq-agent");
     report_cmd
         .env("ORQ_STATE_DB", &db)
         .args(["quota", "report", "--provider", "agy", "--format", "json"])
@@ -854,7 +1083,7 @@ fn quota_cli_manual_record_without_percentages_derives_quota_unknown() {
     let db = state_dir.path().join("state.sqlite");
 
     // Manual record without percentages or status override
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd = test_cmd("orq-agent");
     record_cmd
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -875,7 +1104,7 @@ fn quota_cli_manual_record_without_percentages_derives_quota_unknown() {
         .stdout(predicate::str::contains("\"remaining_pct\": null"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
 
-    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_cmd = test_cmd("orq-agent");
     report_cmd
         .env("ORQ_STATE_DB", &db)
         .args(["quota", "report", "--provider", "qwen", "--format", "json"])
@@ -903,7 +1132,7 @@ fn quota_cli_record_json_array_and_report_with_resets() {
         {"provider": "codex", "scope": "long-term", "remaining_pct": 80.0, "captured_at_unix": 1700000000, "reset_in_seconds": 440640}
     ]"#;
 
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd = test_cmd("orq-agent");
     record_cmd
         .args([
             "quota",
@@ -920,7 +1149,7 @@ fn quota_cli_record_json_array_and_report_with_resets() {
         .stdout(predicate::str::contains("\"schema_version\": 1"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
 
-    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_cmd = test_cmd("orq-agent");
     report_cmd
         .args([
             "quota",
@@ -950,7 +1179,7 @@ fn quota_cli_normalizes_provider_case_and_aggregates_partial_unknown() {
     let db = state_dir.path().join("state.sqlite");
 
     // Record scope 1 with uppercase provider "AGY"
-    let mut record_cmd1 = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd1 = test_cmd("orq-agent");
     record_cmd1
         .args([
             "quota",
@@ -971,7 +1200,7 @@ fn quota_cli_normalizes_provider_case_and_aggregates_partial_unknown() {
         .stdout(predicate::str::contains("\"provider\": \"agy\""));
 
     // Record scope 2 with lowercase provider and no percentages -> quota_unknown
-    let mut record_cmd2 = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd2 = test_cmd("orq-agent");
     record_cmd2
         .args([
             "quota",
@@ -992,7 +1221,7 @@ fn quota_cli_normalizes_provider_case_and_aggregates_partial_unknown() {
 
     // Report filtering with uppercase "AGY" -> should match lowercase "agy",
     // and since one scope is quota_unknown, aggregate status must be quota_unknown
-    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_cmd = test_cmd("orq-agent");
     report_cmd
         .args([
             "quota",
@@ -1017,7 +1246,7 @@ fn quota_cli_qwen_without_detector_reports_quota_unknown() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut report_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_cmd = test_cmd("orq-agent");
     report_cmd
         .args([
             "quota",
@@ -1043,7 +1272,7 @@ fn quota_cli_db_path_precedence_over_env_var() {
     let env_db = state_dir.path().join("env_state.sqlite");
     let override_db = state_dir.path().join("override_state.sqlite");
 
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd = test_cmd("orq-agent");
     record_cmd
         .env("ORQ_STATE_DB", &env_db)
         .args([
@@ -1066,7 +1295,7 @@ fn quota_cli_db_path_precedence_over_env_var() {
     // Verify record was written to override_db, not env_db
     assert!(override_db.exists(), "override_db must exist");
 
-    let mut report_override = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_override = test_cmd("orq-agent");
     report_override
         .args([
             "quota",
@@ -1083,7 +1312,7 @@ fn quota_cli_db_path_precedence_over_env_var() {
         .stdout(predicate::str::contains("99.0"));
 
     // If we query env_db (which shouldn't have any records), agy will have empty scopes
-    let mut report_env = Command::cargo_bin("orq-agent").unwrap();
+    let mut report_env = test_cmd("orq-agent");
     report_env
         .args([
             "quota",
@@ -1106,7 +1335,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
     let db = state_dir.path().join("state.sqlite");
 
     // Open first time (migrates to version 5)
-    let mut status_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut status_cmd = test_cmd("orq-agent");
     status_cmd
         .args([
             "state",
@@ -1122,7 +1351,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         .stdout(predicate::str::contains("quota_snapshots"));
 
     // Migrate again explicitly
-    let mut migrate_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut migrate_cmd = test_cmd("orq-agent");
     migrate_cmd
         .args([
             "state",
@@ -1146,7 +1375,7 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd = test_cmd("orq-agent");
     record_cmd
         .args([
             "quota",
@@ -1167,7 +1396,7 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
         .assert()
         .success();
 
-    let mut record_qwen = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_qwen = test_cmd("orq-agent");
     record_qwen
         .args([
             "quota",
@@ -1186,7 +1415,7 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
         .assert()
         .success();
 
-    let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut route_cmd = test_cmd("orq-agent");
     route_cmd
         .env("ORQ_AGENT_BIN_AGY", runner_agy)
         .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
@@ -1224,7 +1453,7 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
     let db = state_dir.path().join("state.sqlite");
 
     // Default AGY is exhausted
-    let mut record_agy = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_agy = test_cmd("orq-agent");
     record_agy
         .args([
             "quota",
@@ -1246,7 +1475,7 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
         .success();
 
     // Cheap Qwen is also exhausted
-    let mut record_qwen = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_qwen = test_cmd("orq-agent");
     record_qwen
         .args([
             "quota",
@@ -1268,7 +1497,7 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
         .success();
 
     // Gated Claude has healthy weekly quota
-    let mut record_claude = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_claude = test_cmd("orq-agent");
     record_claude
         .args([
             "quota",
@@ -1287,7 +1516,7 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
         .assert()
         .success();
 
-    let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut route_cmd = test_cmd("orq-agent");
     route_cmd
         .env("ORQ_AGENT_BIN_AGY", runner_agy)
         .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
@@ -1321,7 +1550,7 @@ fn route_cli_quota_unknown_does_not_penalize() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut record_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_cmd = test_cmd("orq-agent");
     record_cmd
         .args([
             "quota",
@@ -1338,7 +1567,7 @@ fn route_cli_quota_unknown_does_not_penalize() {
         .assert()
         .success();
 
-    let mut record_agy = Command::cargo_bin("orq-agent").unwrap();
+    let mut record_agy = test_cmd("orq-agent");
     record_agy
         .args([
             "quota",
@@ -1357,7 +1586,7 @@ fn route_cli_quota_unknown_does_not_penalize() {
         .assert()
         .success();
 
-    let mut route_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut route_cmd = test_cmd("orq-agent");
     route_cmd
         .env("ORQ_AGENT_BIN_AGY", runner_agy)
         .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
@@ -1383,7 +1612,7 @@ fn route_cli_quota_unknown_does_not_penalize() {
 
 #[test]
 fn compliance_cli_help() {
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args(["compliance", "--help"])
         .assert()
         .success()
@@ -1403,7 +1632,7 @@ fn compliance_cli_rtk_usage_violation_and_ok() {
     let log_viol = state_dir.path().join("raw.log");
     fs::write(&log_viol, "git status\n").unwrap();
 
-    let mut cmd_viol = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_viol = test_cmd("orq-agent");
     cmd_viol
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -1423,7 +1652,7 @@ fn compliance_cli_rtk_usage_violation_and_ok() {
     let log_ok = state_dir.path().join("rtk.log");
     fs::write(&log_ok, "rtk git status\n").unwrap();
 
-    let mut cmd_ok = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_ok = test_cmd("orq-agent");
     cmd_ok
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -1454,7 +1683,7 @@ fn compliance_cli_engram_summary_ok_and_violation() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd_ok = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_ok = test_cmd("orq-agent");
     cmd_ok
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -1472,7 +1701,7 @@ fn compliance_cli_engram_summary_ok_and_violation() {
         .stdout(predicate::str::contains("\"status\": \"ok\""))
         .stdout(predicate::str::contains("\"session_summaries_count\": 1"));
 
-    let mut cmd_viol = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_viol = test_cmd("orq-agent");
     cmd_viol
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -1517,7 +1746,7 @@ fn compliance_cli_vg_sync_stale_when_vault_newer() {
         .unwrap();
     let _ = file.set_times(times);
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "compliance",
@@ -1561,7 +1790,7 @@ fn compliance_cli_vg_sync_fresh() {
     let kuzu_marker = kuzu_dir.path().join("vault.kuzu.sync");
     fs::write(&kuzu_marker, "sync-marker\n").unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "compliance",
@@ -1586,7 +1815,7 @@ fn compliance_cli_vg_sync_without_paths_is_unverified_failure() {
 
     // Issue #176 fail-closed regression: a check without evidence (no vault /
     // kuzu paths) is UNVERIFIED, never a clean success.
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .env_remove("ORQ_VAULT_PATH")
         .env_remove("VAULT_PATH")
@@ -1611,7 +1840,7 @@ fn compliance_cli_without_log_is_unverified_failure() {
     let db = state_dir.path().join("state.sqlite");
     let missing_engram = state_dir.path().join("engram-missing");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .env_remove("ORQ_COMPLIANCE_LOG")
         .env_remove("ORQ_AGENT_LOG")
@@ -1636,7 +1865,7 @@ fn compliance_cli_rtk_usage_without_log_is_unverified_failure() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .env_remove("ORQ_COMPLIANCE_LOG")
         .env_remove("ORQ_AGENT_LOG")
@@ -1697,7 +1926,7 @@ fn models_refresh_cli_merges_feed_idempotently() {
     fs::write(&feed_path, feed_content).unwrap();
 
     // First execution: merges feed into catalog
-    let mut cmd1 = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd1 = test_cmd("orq-agent");
     cmd1.args([
         "models",
         "refresh",
@@ -1725,7 +1954,7 @@ fn models_refresh_cli_merges_feed_idempotently() {
     assert!(updated_catalog.contains("\"schema_version\": 2"));
 
     // Second execution: must be idempotent (0 added, 0 updated, 0 deprecated)
-    let mut cmd2 = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd2 = test_cmd("orq-agent");
     cmd2.args([
         "models",
         "refresh",
@@ -1751,6 +1980,16 @@ fn route_cli_fallback_when_top_model_status_down() {
     let config_path = temp_dir.path().join("routing-matrix.json");
     let adapters_path = temp_dir.path().join("adapters-registry.json");
     let models_path = temp_dir.path().join("models-catalog.json");
+
+    let (_r1, _) = make_runner("primary-runner", "#!/usr/bin/env bash\necho primary-ok\n");
+    let (_r2, _) = make_runner("fallback-runner", "#!/usr/bin/env bash\necho fallback-ok\n");
+    let runner_dir = tempfile::tempdir().unwrap();
+    let p1 = runner_dir.path().join("primary-runner");
+    fs::write(&p1, "#!/usr/bin/env bash\necho primary-ok\n").unwrap();
+    fs::set_permissions(&p1, fs::Permissions::from_mode(0o755)).unwrap();
+    let p2 = runner_dir.path().join("fallback-runner");
+    fs::write(&p2, "#!/usr/bin/env bash\necho fallback-ok\n").unwrap();
+    fs::set_permissions(&p2, fs::Permissions::from_mode(0o755)).unwrap();
 
     let routing_config = r#"{
         "schema_version": 1,
@@ -1813,10 +2052,8 @@ fn route_cli_fallback_when_top_model_status_down() {
     }"#;
     fs::write(&models_path, models_catalog).unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
-    cmd.env("ORQ_AGENT_BIN_PRIMARY_AGENT", "primary-runner")
-        .env("ORQ_AGENT_BIN_FALLBACK_AGENT", "fallback-runner")
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd = test_cmd_with_path("orq-agent", runner_dir.path());
+    cmd.env("ORQ_STATE_DB", &db)
         .args([
             "route",
             "--task-kind",
@@ -1850,6 +2087,11 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
     let config_path = temp_dir.path().join("routing-matrix.json");
     let adapters_path = temp_dir.path().join("adapters-registry.json");
     let models_path = temp_dir.path().join("models-catalog.json");
+
+    let runner_dir = tempfile::tempdir().unwrap();
+    let p = runner_dir.path().join("runner");
+    fs::write(&p, "#!/usr/bin/env bash\necho runner-ok\n").unwrap();
+    fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
 
     let routing_config = r#"{
         "schema_version": 1,
@@ -1908,10 +2150,8 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
     fs::write(&models_path, models_catalog).unwrap();
 
     // 1. Equal cost: agent-promo/model-promo is preferred over agent-plain/model-plain
-    let mut cmd1 = Command::cargo_bin("orq-agent").unwrap();
-    cmd1.env("ORQ_AGENT_BIN_AGENT_PLAIN", "runner")
-        .env("ORQ_AGENT_BIN_AGENT_PROMO", "runner")
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd1 = test_cmd_with_path("orq-agent", runner_dir.path());
+    cmd1.env("ORQ_STATE_DB", &db)
         .args([
             "route",
             "--task-kind",
@@ -1938,10 +2178,8 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
         .stdout(predicate::str::contains("\"fallback_applied\": true"));
 
     // 2. Cheap vs expensive with promo: cheap-agent/cheap-model is kept (not displaced by expensive model with promo)
-    let mut cmd2 = Command::cargo_bin("orq-agent").unwrap();
-    cmd2.env("ORQ_AGENT_BIN_CHEAP_AGENT", "runner")
-        .env("ORQ_AGENT_BIN_EXPENSIVE_AGENT", "runner")
-        .env("ORQ_STATE_DB", &db)
+    let mut cmd2 = test_cmd_with_path("orq-agent", runner_dir.path());
+    cmd2.env("ORQ_STATE_DB", &db)
         .args([
             "route",
             "--task-kind",
@@ -1970,7 +2208,7 @@ fn route_cli_prefers_promo_on_equal_cost_and_preserves_cheap_over_expensive_prom
 
 #[test]
 fn delegate_cli_help() {
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args(["delegate", "--help"])
         .assert()
         .success()
@@ -2000,7 +2238,7 @@ fn agents_discover_cli_with_fake_runner() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -2047,7 +2285,7 @@ fn agents_refresh_cli_with_fake_runner() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -2090,7 +2328,7 @@ fn agents_doctor_cli_reports_health() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_RTK_BIN", &fake_rtk)
         .env("ORQ_VG_BIN", &fake_vg)
         .env("ORQ_ENGRAM_BIN", &fake_engram)
@@ -2123,7 +2361,7 @@ fn agents_doctor_cli_fails_on_missing_required_wrapper() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_RTK_BIN", "/tmp/non-existent-rtk-bin-xyz-98765")
         .args([
             "agents",
@@ -2161,7 +2399,7 @@ fn models_snapshot_cli_exports_json() {
     )
     .unwrap();
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
         .args([
             "models",
@@ -2232,7 +2470,7 @@ fn orq_alias_supports_agents_and_models_snapshot() {
 
 #[test]
 fn score_weights_prints_formula_and_weights_json_and_text() {
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args(["score", "weights", "--format", "json"])
         .assert()
         .success()
@@ -2250,7 +2488,7 @@ fn score_weights_prints_formula_and_weights_json_and_text() {
         .stdout(predicate::str::contains("plan_solo"))
         .stdout(predicate::str::contains("timeout_sin_evidencia"));
 
-    let mut cmd_text = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_text = test_cmd("orq-agent");
     cmd_text
         .args(["score", "weights", "--format", "text"])
         .assert()
@@ -2268,7 +2506,7 @@ fn score_list_empty_and_filter() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
             "score",
@@ -2318,6 +2556,9 @@ fn score_ingest_from_receipts_and_aggregate() {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
         let receipt2 = orq_agent::receipt::DelegateReceipt {
             schema_version: 1,
@@ -2344,6 +2585,9 @@ fn score_ingest_from_receipts_and_aggregate() {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
         store
             .insert_delegate_receipt(&receipt1, "delegate")
@@ -2354,7 +2598,7 @@ fn score_ingest_from_receipts_and_aggregate() {
     }
 
     // Run score ingest-from-receipts
-    let mut ingest_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut ingest_cmd = test_cmd("orq-agent");
     ingest_cmd
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -2372,7 +2616,7 @@ fn score_ingest_from_receipts_and_aggregate() {
         .stdout(predicate::str::contains("\"secrets_read\": false"));
 
     // Run score list
-    let mut list_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut list_cmd = test_cmd("orq-agent");
     list_cmd
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -2393,7 +2637,7 @@ fn score_ingest_from_receipts_and_aggregate() {
         .stdout(predicate::str::contains("ingest-cli-2"));
 
     // Run score aggregate
-    let mut agg_cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut agg_cmd = test_cmd("orq-agent");
     agg_cmd
         .env("ORQ_STATE_DB", &db)
         .args([
@@ -2430,7 +2674,7 @@ fn orq_alias_supports_score_subcommands() {
 
 #[test]
 fn observer_emit_dry_run_outputs_expected_event_and_no_secrets() {
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args(["observer", "emit", "--dry-run", "--format", "json"])
         .assert()
         .success()
@@ -2448,7 +2692,7 @@ fn observer_emit_dry_run_writes_output_file() {
     let temp_dir = tempfile::tempdir().unwrap();
     let out_file = temp_dir.path().join("observer-snapshot.json");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args([
         "observer",
         "emit",
@@ -2473,7 +2717,7 @@ fn observer_emit_dry_run_writes_output_file() {
 #[test]
 fn observer_emit_fails_cleanly_on_missing_token_without_leak() {
     let non_existent_token = "/tmp/definitely-non-existent-token-xyz-987.token";
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.args([
         "observer",
         "emit",
@@ -2499,8 +2743,8 @@ fn exec_confines_home_and_denies_inherited_env_by_default() {
     )
     .unwrap();
 
-    let runner = fake_runner(
-        "confinement-runner",
+    let (_runner_dir, _runner) = make_runner(
+        "confine-runner",
         "#!/usr/bin/env bash\necho \"REPORTED_HOME=$HOME\"\necho \"SENTINEL_VAR=${ORQ_TEST_SENTINEL_VAR:-absent}\"\n",
     );
     let task =
@@ -2528,10 +2772,9 @@ fn exec_confines_home_and_denies_inherited_env_by_default() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd_with_path("orq-agent", _runner_dir.path());
     cmd.env("HOME", real_home.path())
         .env("ORQ_TEST_SENTINEL_VAR", "leaked-secret-value")
-        .env("ORQ_AGENT_BIN_CONFINE_AGENT", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
@@ -2597,7 +2840,7 @@ fn exec_home_sandbox_exposes_only_declared_paths() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("HOME", real_home.path())
         .env("ORQ_AGENT_BIN_MINIMAL_AGENT", runner)
         .env("ORQ_STATE_DB", &db)
@@ -2663,7 +2906,7 @@ fn exec_unregistered_home_capability_adapter_fails_closed() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd = test_cmd("orq-agent");
     cmd.env("HOME", real_home.path())
         .env("ORQ_AGENT_BIN_UNDECLARED_AGENT", runner)
         .env("ORQ_STATE_DB", &db)
@@ -2731,7 +2974,7 @@ fn exec_cleans_up_sandbox_home_after_success_and_failure() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd_ok = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_ok = test_cmd("orq-agent");
     cmd_ok
         .env("HOME", real_home.path())
         .env("ORQ_SANDBOX_HOME_ROOT", sandbox_root.path())
@@ -2762,7 +3005,7 @@ fn exec_cleans_up_sandbox_home_after_success_and_failure() {
         .stdout(predicate::str::contains("\"cleanup_attempted\": true"))
         .stdout(predicate::str::contains("\"cleanup_succeeded\": true"));
 
-    let mut cmd_fail = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_fail = test_cmd("orq-agent");
     cmd_fail
         .env("HOME", real_home.path())
         .env("ORQ_SANDBOX_HOME_ROOT", sandbox_root.path())
@@ -2840,7 +3083,7 @@ fn exec_grants_env_only_for_declared_task_kind() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
-    let mut cmd_granted = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_granted = test_cmd("orq-agent");
     cmd_granted
         .env("HOME", real_home.path())
         .env("ORQ_TEST_CAP_VAR", "visible-value")
@@ -2873,7 +3116,7 @@ fn exec_grants_env_only_for_declared_task_kind() {
         .success()
         .stdout(predicate::str::contains("CAP=visible-value"));
 
-    let mut cmd_denied = Command::cargo_bin("orq-agent").unwrap();
+    let mut cmd_denied = test_cmd("orq-agent");
     cmd_denied
         .env("HOME", real_home.path())
         .env("ORQ_TEST_CAP_VAR", "visible-value")

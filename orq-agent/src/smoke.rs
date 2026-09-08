@@ -2,7 +2,7 @@ use crate::adapters::AdaptersRegistry;
 use crate::capabilities::TaskCapabilitiesConfig;
 use crate::exec::{self, ExecRequest};
 use crate::home_sandbox::HomeCapabilitiesConfig;
-use crate::policy::PolicyConfig;
+use crate::policy::LoadedPolicy;
 use crate::receipt::ExecReceipt;
 use color_eyre::eyre::{Result, WrapErr};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,7 +14,7 @@ pub async fn run(
     timeout_seconds: u64,
     allow_gated: bool,
     correlation_id: Option<String>,
-    policy_config: PolicyConfig,
+    policy: LoadedPolicy,
     adapters_registry: AdaptersRegistry,
     task_kind: String,
     home_capabilities: HomeCapabilitiesConfig,
@@ -30,7 +30,7 @@ pub async fn run(
         allow_gated,
         correlation_id,
         task_id: None,
-        policy_config,
+        policy,
         adapters_registry,
         task_kind,
         home_capabilities,

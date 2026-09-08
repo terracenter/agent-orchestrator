@@ -27,7 +27,7 @@ pub(crate) struct DelegateArgs {
 
 pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> {
     let policy_config_path = args.policy_config.as_deref().map(std::path::Path::new);
-    let (policy_config, _) = policy::load_config(policy_config_path).await?;
+    let policy = policy::load_config(policy_config_path).await?;
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
     let home_capabilities_path = args
@@ -57,7 +57,7 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
         execute: args.execute,
         timeout_seconds: args.timeout_seconds,
         correlation_id: args.correlation_id,
-        policy_config,
+        policy,
         adapters_registry,
         task_kind: args.task_kind.unwrap_or_else(|| "unspecified".to_string()),
         home_capabilities,

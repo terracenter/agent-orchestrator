@@ -1,7 +1,7 @@
 use crate::adapters::{find_adapter_in_registry, AdaptersRegistry};
 use crate::capabilities::{self, TaskCapabilitiesConfig};
 use crate::home_sandbox::{self, HomeCapabilitiesConfig, SandboxHome};
-use crate::policy;
+use crate::policy::{self, LoadedPolicy};
 use crate::receipt::{now_unix, now_unix_nanos, tail_sanitized, ExecReceipt, ExecStatus};
 use color_eyre::eyre::Result;
 use std::collections::VecDeque;
@@ -25,7 +25,7 @@ pub struct ExecRequest {
     pub allow_gated: bool,
     pub correlation_id: Option<String>,
     pub task_id: Option<String>,
-    pub policy_config: policy::PolicyConfig,
+    pub policy: LoadedPolicy,
     pub adapters_registry: AdaptersRegistry,
     pub task_kind: String,
     pub home_capabilities: HomeCapabilitiesConfig,
@@ -63,15 +63,15 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         ));
     };
 
-    let policy = policy::evaluate(
+    let policy_eval = policy::evaluate(
         adapter.name(),
         &request.model,
         adapter.status(),
         request.allow_gated,
-        &request.policy_config,
+        &request.policy.config,
     );
 
-    if !policy.allowed {
+    if !policy_eval.allowed {
         return Ok(ExecReceipt {
             schema_version: 1,
             correlation_id,
@@ -79,7 +79,10 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
             model: request.model,
             command: Vec::new(),
             status: ExecStatus::Blocked,
-            policy_reason: policy.reason,
+            policy_reason: policy_eval.reason,
+            policy_source: request.policy.source.clone(),
+            policy_path: request.policy.path.clone(),
+            policy_sha256: request.policy.sha256.clone(),
             started_at_unix,
             duration_ms: started.elapsed().as_millis(),
             timeout_seconds: request.timeout_seconds,
@@ -207,7 +210,10 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
                 model: request.model,
                 command: command_for_receipt,
                 status: ExecStatus::SpawnFailed,
-                policy_reason: policy.reason,
+                policy_reason: policy_eval.reason,
+                policy_source: request.policy.source.clone(),
+                policy_path: request.policy.path.clone(),
+                policy_sha256: request.policy.sha256.clone(),
                 started_at_unix,
                 duration_ms: started.elapsed().as_millis(),
                 timeout_seconds: request.timeout_seconds,
@@ -318,7 +324,10 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
         model: request.model,
         command: command_for_receipt,
         status,
-        policy_reason: policy.reason,
+        policy_reason: policy_eval.reason,
+        policy_source: request.policy.source,
+        policy_path: request.policy.path,
+        policy_sha256: request.policy.sha256,
         started_at_unix,
         duration_ms: started.elapsed().as_millis(),
         timeout_seconds: request.timeout_seconds,
@@ -444,6 +453,9 @@ fn invalid_receipt(
         command: Vec::new(),
         status: ExecStatus::InvalidRequest,
         policy_reason: reason,
+        policy_source: request.policy.source.clone(),
+        policy_path: request.policy.path.clone(),
+        policy_sha256: request.policy.sha256.clone(),
         started_at_unix,
         duration_ms: started.elapsed().as_millis(),
         timeout_seconds: request.timeout_seconds,
