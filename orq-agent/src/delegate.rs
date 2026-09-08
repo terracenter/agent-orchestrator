@@ -34,7 +34,7 @@ pub struct DelegateRequest {
     pub execute: bool,
     pub timeout_seconds: u64,
     pub correlation_id: Option<String>,
-    pub policy_config: policy::PolicyConfig,
+    pub policy: policy::LoadedPolicy,
     pub adapters_registry: AdaptersRegistry,
     pub task_kind: String,
     pub home_capabilities: HomeCapabilitiesConfig,
@@ -119,6 +119,9 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             command: auto_cmd.clone().map(|c| vec![c]).unwrap_or_default(),
             status: status.clone(),
             reason: None,
+            policy_source: request.policy.source.clone(),
+            policy_path: request.policy.path.clone(),
+            policy_sha256: request.policy.sha256.clone(),
             verdict: DelegateVerdict::Indeterminado,
             evidence: "none".to_string(),
             stdout_tail: String::new(),
@@ -176,7 +179,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         &target_model,
         adapter_status,
         request.allow_gated,
-        &request.policy_config,
+        &request.policy.config,
     );
     if !policy_decision.allowed {
         let receipt = DelegateReceipt {
@@ -187,6 +190,9 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             command: Vec::new(),
             status: DelegateStatus::Blocked,
             reason: Some(policy_decision.reason.clone()),
+            policy_source: request.policy.source.clone(),
+            policy_path: request.policy.path.clone(),
+            policy_sha256: request.policy.sha256.clone(),
             verdict: DelegateVerdict::NonUtil,
             evidence: "none".to_string(),
             stdout_tail: String::new(),
@@ -249,6 +255,9 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                     timeout_secs,
                     "HOME is not set; cannot prepare a confined sandbox HOME".to_string(),
                     request.task_id.clone(),
+                    request.policy.source.clone(),
+                    request.policy.path.clone(),
+                    request.policy.sha256.clone(),
                 ));
             };
             let sandbox = match SandboxHome::prepare(
@@ -271,6 +280,9 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                         timeout_secs,
                         format!("preparing sandbox HOME: {error}"),
                         request.task_id.clone(),
+                        request.policy.source.clone(),
+                        request.policy.path.clone(),
+                        request.policy.sha256.clone(),
                     ));
                 }
             };
@@ -437,6 +449,9 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         command: command_vec,
         status: status.clone(),
         reason: reason.clone(),
+        policy_source: request.policy.source.clone(),
+        policy_path: request.policy.path.clone(),
+        policy_sha256: request.policy.sha256.clone(),
         verdict: verdict.clone(),
         evidence: evidence.clone(),
         stdout_tail: stdout,
@@ -492,6 +507,9 @@ fn sandbox_failure_output(
     timeout_secs: u64,
     reason: String,
     task_id: Option<String>,
+    policy_source: String,
+    policy_path: String,
+    policy_sha256: String,
 ) -> DelegateOutput {
     let receipt = DelegateReceipt {
         schema_version: 1,
@@ -501,6 +519,9 @@ fn sandbox_failure_output(
         command: Vec::new(),
         status: DelegateStatus::Failed,
         reason: Some(reason.clone()),
+        policy_source,
+        policy_path,
+        policy_sha256,
         verdict: DelegateVerdict::NonUtil,
         evidence: "none".to_string(),
         stdout_tail: String::new(),
@@ -892,7 +913,7 @@ mod tests {
     use crate::adapters::AdaptersRegistry;
     use crate::capabilities::TaskCapabilitiesConfig;
     use crate::home_sandbox::AdapterHomeCapability;
-    use crate::policy::PolicyConfig;
+    use crate::policy::{LoadedPolicy, PolicyConfig};
     use std::collections::HashMap;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
@@ -935,12 +956,7 @@ mod tests {
             execute: false,
             timeout_seconds: 120,
             correlation_id: None,
-            policy_config: PolicyConfig {
-                schema_version: 1,
-                approval_required_model_patterns: Vec::new(),
-                blocked_adapter_statuses: Vec::new(),
-                gated_adapter_statuses: Vec::new(),
-            },
+            policy: crate::policy::default_loaded_policy().unwrap(),
             adapters_registry: AdaptersRegistry {
                 schema_version: 1,
                 adapters: Vec::new(),
@@ -991,12 +1007,17 @@ mod tests {
         script_path
     }
 
-    fn test_policy_config() -> PolicyConfig {
-        PolicyConfig {
-            schema_version: 1,
-            approval_required_model_patterns: vec![],
-            blocked_adapter_statuses: vec![],
-            gated_adapter_statuses: vec![],
+    fn test_policy() -> LoadedPolicy {
+        LoadedPolicy {
+            config: PolicyConfig {
+                schema_version: 1,
+                approval_required_model_patterns: vec![],
+                blocked_adapter_statuses: vec![],
+                gated_adapter_statuses: vec![],
+            },
+            source: "builtin".to_string(),
+            path: "builtin".to_string(),
+            sha256: "test-policy-sha256".to_string(),
         }
     }
 
@@ -1034,7 +1055,7 @@ mod tests {
             execute: false,
             timeout_seconds: 10,
             correlation_id: Some("corr-plan-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: test_empty_adapters_registry(),
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("custom-no-auto-cmd"),
@@ -1067,7 +1088,7 @@ mod tests {
             execute: false,
             timeout_seconds: 10,
             correlation_id: Some("corr-cmd-gen-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: test_empty_adapters_registry(),
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("agy"),
@@ -1110,7 +1131,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-val-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1154,7 +1175,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-val-branch-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1196,7 +1217,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-plan-only-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1238,7 +1259,7 @@ mod tests {
             execute: true,
             timeout_seconds: 1,
             correlation_id: Some("corr-timeout-no-ev".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1280,7 +1301,7 @@ mod tests {
             execute: true,
             timeout_seconds: 1,
             correlation_id: Some("corr-timeout-commit".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1323,7 +1344,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-exit-zero-no-ev".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1350,8 +1371,8 @@ mod tests {
             ),
         );
 
-        let mut policy_cfg = test_policy_config();
-        policy_cfg.approval_required_model_patterns = vec!["opus".to_string()];
+        let mut policy_cfg = test_policy();
+        policy_cfg.config.approval_required_model_patterns = vec!["opus".to_string()];
 
         let request = DelegateRequest {
             task: Some("tarea cualquiera".to_string()),
@@ -1369,7 +1390,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-blocked-1".to_string()),
-            policy_config: policy_cfg,
+            policy: policy_cfg,
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("claude-code"),
@@ -1410,7 +1431,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-fake-pr-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
@@ -1452,7 +1473,7 @@ mod tests {
             execute: true,
             timeout_seconds: 10,
             correlation_id: Some("corr-task-id-1".to_string()),
-            policy_config: test_policy_config(),
+            policy: test_policy(),
             adapters_registry: registry,
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),

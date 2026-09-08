@@ -6,8 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-const DEFAULT_HOME_CAPABILITIES_PATH: &str = "config/home-capabilities.json";
-const HOME_CAPABILITIES_ENV: &str = "ORQ_HOME_CAPABILITIES";
+pub const BUILTIN_HOME_CAPABILITIES_JSON: &str = include_str!("../config/home-capabilities.json");
 /// Overrides where ephemeral sandbox HOME directories are created. Defaults to the OS temp dir.
 const SANDBOX_ROOT_ENV: &str = "ORQ_SANDBOX_HOME_ROOT";
 
@@ -25,31 +24,19 @@ pub struct AdapterHomeCapability {
 
 #[allow(dead_code)]
 pub fn default_config() -> Result<HomeCapabilitiesConfig> {
-    let path = default_config_path(HOME_CAPABILITIES_ENV, DEFAULT_HOME_CAPABILITIES_PATH);
-    let content = std::fs::read_to_string(&path)
-        .wrap_err_with(|| format!("reading home capabilities config {}", path.display()))?;
-    parse_config(&content)
+    parse_config(BUILTIN_HOME_CAPABILITIES_JSON)
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<(HomeCapabilitiesConfig, String)> {
-    let path_buf;
-    let path = match path {
-        Some(path) => path,
-        None => {
-            path_buf = default_config_path(HOME_CAPABILITIES_ENV, DEFAULT_HOME_CAPABILITIES_PATH);
-            path_buf.as_path()
+    match path {
+        None => Ok((default_config()?, "builtin".to_string())),
+        Some(path) => {
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading home capabilities config {}", path.display()))?;
+            Ok((parse_config(&content)?, path.display().to_string()))
         }
-    };
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .wrap_err_with(|| format!("reading home capabilities config {}", path.display()))?;
-    Ok((parse_config(&content)?, path.display().to_string()))
-}
-
-fn default_config_path(env_name: &str, relative_path: &str) -> PathBuf {
-    std::env::var_os(env_name)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
+    }
 }
 
 pub fn parse_config(content: &str) -> Result<HomeCapabilitiesConfig> {
@@ -494,5 +481,17 @@ mod tests {
         assert!(path.exists());
         drop(sandbox);
         assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn load_config_none_uses_builtin_and_ignores_env() {
+        std::env::set_var(
+            "ORQ_HOME_CAPABILITIES",
+            "/nonexistent/insecure_homecap.json",
+        );
+        let (config, path) = load_config(None).await.unwrap();
+        assert_eq!(path, "builtin");
+        assert!(config.adapters.contains_key("qwen-code"));
+        std::env::remove_var("ORQ_HOME_CAPABILITIES");
     }
 }

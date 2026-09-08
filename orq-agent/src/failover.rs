@@ -526,6 +526,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-policy-sha256".to_string(),
         };
 
         let cert = Certificate {
@@ -805,6 +808,9 @@ mod tests {
                     duration_ms: 300,
                 },
             ],
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-policy-sha256".to_string(),
         };
 
         // Update to validated on successful fallback retry

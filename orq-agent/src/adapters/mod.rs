@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-const DEFAULT_ADAPTERS_REGISTRY_PATH: &str = "config/adapters-registry.json";
-const ADAPTERS_REGISTRY_ENV: &str = "ORQ_ADAPTERS_REGISTRY";
+pub const BUILTIN_ADAPTERS_REGISTRY_JSON: &str =
+    include_str!("../../config/adapters-registry.json");
 
 pub trait AgentAdapter: Send + Sync {
     fn name(&self) -> &str;
@@ -17,15 +17,9 @@ pub trait AgentAdapter: Send + Sync {
     fn build_argv(&self, model: &str, task: &str) -> Vec<String>;
 
     fn binary_path(&self) -> Option<String> {
-        let env_name = format!(
-            "ORQ_AGENT_BIN_{}",
-            self.name().replace('-', "_").to_ascii_uppercase()
-        );
-        std::env::var(env_name).ok().or_else(|| {
-            which::which(self.binary())
-                .ok()
-                .map(|p| p.display().to_string())
-        })
+        which::which(self.binary())
+            .ok()
+            .map(|p| p.display().to_string())
     }
 
     fn detect(&self) -> AgentDetection {
@@ -107,31 +101,19 @@ impl AgentAdapter for ConfiguredAdapter {
 }
 
 pub fn default_registry() -> Result<AdaptersRegistry> {
-    let path = default_config_path(ADAPTERS_REGISTRY_ENV, DEFAULT_ADAPTERS_REGISTRY_PATH);
-    let content = std::fs::read_to_string(&path)
-        .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
-    parse_registry(&content)
+    parse_registry(BUILTIN_ADAPTERS_REGISTRY_JSON)
 }
 
 pub async fn load_registry(path: Option<&Path>) -> Result<(AdaptersRegistry, String)> {
-    let path_buf;
-    let path = match path {
-        Some(path) => path,
-        None => {
-            path_buf = default_config_path(ADAPTERS_REGISTRY_ENV, DEFAULT_ADAPTERS_REGISTRY_PATH);
-            path_buf.as_path()
+    match path {
+        None => Ok((default_registry()?, "builtin".to_string())),
+        Some(path) => {
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
+            Ok((parse_registry(&content)?, path.display().to_string()))
         }
-    };
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
-    Ok((parse_registry(&content)?, path.display().to_string()))
-}
-
-fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
-    std::env::var_os(env_name)
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
+    }
 }
 
 pub fn parse_registry(content: &str) -> Result<AdaptersRegistry> {
@@ -218,7 +200,11 @@ pub fn find_adapter_in_registry(
 
 #[cfg(test)]
 mod tests {
-    use super::{default_registry, parse_registry, AdapterStatus, AgentAdapter, ConfiguredAdapter};
+    use super::{
+        default_registry, load_registry, parse_registry, AdapterStatus, AgentAdapter,
+        ConfiguredAdapter,
+    };
+    use tempfile::NamedTempFile;
 
     #[test]
     fn default_registry_loads_qwen() {
@@ -288,5 +274,49 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("$MODEL"));
+    }
+
+    #[tokio::test]
+    async fn load_registry_none_uses_builtin_and_ignores_env() {
+        std::env::set_var("ORQ_ADAPTERS_REGISTRY", "/nonexistent/insecure_reg.json");
+        let (registry, path) = load_registry(None).await.unwrap();
+        assert_eq!(path, "builtin");
+        assert!(registry
+            .adapters
+            .iter()
+            .any(|adapter| adapter.name == "qwen-code"));
+        std::env::remove_var("ORQ_ADAPTERS_REGISTRY");
+    }
+
+    #[tokio::test]
+    async fn load_registry_with_valid_override() {
+        use std::io::Write;
+        let mut temp = NamedTempFile::new().unwrap();
+        writeln!(
+            temp,
+            r#"{{"schema_version":1,"adapters":[{{"name":"test-agent","binary":"sh","status":"available","argv":["$MODEL","$TASK"]}}]}}"#
+        )
+        .unwrap();
+
+        let (registry, path) = load_registry(Some(temp.path())).await.unwrap();
+        assert_eq!(path, temp.path().display().to_string());
+        assert_eq!(registry.adapters.len(), 1);
+        assert_eq!(registry.adapters[0].name, "test-agent");
+    }
+
+    #[test]
+    fn binary_path_ignores_env_var_override() {
+        let qwen_def = super::AdapterDefinition {
+            name: "qwen-code".to_string(),
+            binary: "nonexistent-qwen-bin-xyz".to_string(),
+            status: AdapterStatus::Available,
+            argv: vec!["$MODEL".to_string(), "$TASK".to_string()],
+        };
+        let adapter = ConfiguredAdapter {
+            definition: qwen_def,
+        };
+        std::env::set_var("ORQ_AGENT_BIN_QWEN_CODE", "/bin/sh");
+        assert_eq!(adapter.binary_path(), None);
+        std::env::remove_var("ORQ_AGENT_BIN_QWEN_CODE");
     }
 }

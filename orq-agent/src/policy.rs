@@ -1,18 +1,26 @@
 use crate::adapters::AdapterStatus;
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-const DEFAULT_POLICY_CONFIG_PATH: &str = "config/policy.json";
-const POLICY_CONFIG_ENV: &str = "ORQ_POLICY_CONFIG";
+pub const BUILTIN_POLICY_JSON: &str = include_str!("../config/policy.json");
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct PolicyConfig {
     pub schema_version: u8,
     pub approval_required_model_patterns: Vec<String>,
     pub blocked_adapter_statuses: Vec<String>,
     pub gated_adapter_statuses: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct LoadedPolicy {
+    pub config: PolicyConfig,
+    pub source: String,
+    pub path: String,
+    pub sha256: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,33 +29,43 @@ pub struct PolicyDecision {
     pub reason: String,
 }
 
-#[allow(dead_code)]
 pub fn default_config() -> Result<PolicyConfig> {
-    let path = default_config_path(POLICY_CONFIG_ENV, DEFAULT_POLICY_CONFIG_PATH);
-    let content = std::fs::read_to_string(&path)
-        .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
-    parse_config(&content)
+    parse_config(BUILTIN_POLICY_JSON)
 }
 
-pub async fn load_config(path: Option<&Path>) -> Result<(PolicyConfig, String)> {
-    let path_buf;
-    let path = match path {
-        Some(path) => path,
-        None => {
-            path_buf = default_config_path(POLICY_CONFIG_ENV, DEFAULT_POLICY_CONFIG_PATH);
-            path_buf.as_path()
+pub fn default_loaded_policy() -> Result<LoadedPolicy> {
+    let config = default_config()?;
+    let sha256 = hex_sha256(BUILTIN_POLICY_JSON.as_bytes());
+    Ok(LoadedPolicy {
+        config,
+        source: "builtin".to_string(),
+        path: "builtin".to_string(),
+        sha256,
+    })
+}
+
+pub async fn load_config(path: Option<&Path>) -> Result<LoadedPolicy> {
+    match path {
+        None => default_loaded_policy(),
+        Some(path) => {
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
+            let config = parse_config(&content)?;
+            let sha256 = hex_sha256(content.as_bytes());
+            Ok(LoadedPolicy {
+                config,
+                source: "override".to_string(),
+                path: path.display().to_string(),
+                sha256,
+            })
         }
-    };
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
-    Ok((parse_config(&content)?, path.display().to_string()))
+    }
 }
 
-fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
-    std::env::var_os(env_name)
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
+pub fn hex_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub fn parse_config(content: &str) -> Result<PolicyConfig> {
@@ -136,8 +154,9 @@ fn deny(reason: String) -> PolicyDecision {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_config, evaluate, parse_config};
+    use super::{default_config, default_loaded_policy, evaluate, load_config, parse_config};
     use crate::adapters::AdapterStatus;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn blocks_gated_without_approval() {
@@ -166,5 +185,45 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("approval_required_model_patterns"));
+    }
+
+    #[tokio::test]
+    async fn default_loaded_policy_is_builtin() {
+        let loaded = default_loaded_policy().unwrap();
+        assert_eq!(loaded.source, "builtin");
+        assert_eq!(loaded.path, "builtin");
+        assert_eq!(loaded.sha256.len(), 64);
+        assert!(loaded
+            .config
+            .approval_required_model_patterns
+            .contains(&"sonnet".to_string()));
+    }
+
+    #[tokio::test]
+    async fn load_config_none_ignores_env_var() {
+        std::env::set_var("ORQ_POLICY_CONFIG", "/nonexistent/insecure_policy.json");
+        let loaded = load_config(None).await.unwrap();
+        assert_eq!(loaded.source, "builtin");
+        assert_eq!(loaded.path, "builtin");
+        std::env::remove_var("ORQ_POLICY_CONFIG");
+    }
+
+    #[tokio::test]
+    async fn load_config_with_valid_override() {
+        use std::io::Write;
+        let mut temp = NamedTempFile::new().unwrap();
+        writeln!(
+            temp,
+            r#"{{"schema_version":1,"approval_required_model_patterns":["custom-restricted"],"blocked_adapter_statuses":["deprecated_or_quarantine"],"gated_adapter_statuses":["gated"]}}"#
+        )
+        .unwrap();
+
+        let loaded = load_config(Some(temp.path())).await.unwrap();
+        assert_eq!(loaded.source, "override");
+        assert_eq!(loaded.path, temp.path().display().to_string());
+        assert_eq!(
+            loaded.config.approval_required_model_patterns,
+            vec!["custom-restricted".to_string()]
+        );
     }
 }

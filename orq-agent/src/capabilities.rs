@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-const DEFAULT_TASK_CAPABILITIES_PATH: &str = "config/task-capabilities.json";
-const TASK_CAPABILITIES_ENV: &str = "ORQ_TASK_CAPABILITIES";
+pub const BUILTIN_TASK_CAPABILITIES_JSON: &str = include_str!("../config/task-capabilities.json");
 
 /// Environment variable names the sandboxed child process always receives on top of any
 /// granted capability. Declaring them again in a task-kind capability would let a task_kind
@@ -26,31 +25,19 @@ pub struct TaskCapabilityDefinition {
 
 #[allow(dead_code)]
 pub fn default_config() -> Result<TaskCapabilitiesConfig> {
-    let path = default_config_path(TASK_CAPABILITIES_ENV, DEFAULT_TASK_CAPABILITIES_PATH);
-    let content = std::fs::read_to_string(&path)
-        .wrap_err_with(|| format!("reading task capabilities config {}", path.display()))?;
-    parse_config(&content)
+    parse_config(BUILTIN_TASK_CAPABILITIES_JSON)
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<(TaskCapabilitiesConfig, String)> {
-    let path_buf;
-    let path = match path {
-        Some(path) => path,
-        None => {
-            path_buf = default_config_path(TASK_CAPABILITIES_ENV, DEFAULT_TASK_CAPABILITIES_PATH);
-            path_buf.as_path()
+    match path {
+        None => Ok((default_config()?, "builtin".to_string())),
+        Some(path) => {
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading task capabilities config {}", path.display()))?;
+            Ok((parse_config(&content)?, path.display().to_string()))
         }
-    };
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .wrap_err_with(|| format!("reading task capabilities config {}", path.display()))?;
-    Ok((parse_config(&content)?, path.display().to_string()))
-}
-
-fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
-    std::env::var_os(env_name)
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
+    }
 }
 
 pub fn parse_config(content: &str) -> Result<TaskCapabilitiesConfig> {

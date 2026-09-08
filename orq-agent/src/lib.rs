@@ -788,7 +788,7 @@ async fn run_command(command: Commands) -> Result<()> {
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
-            let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let policy = policy::load_config(policy_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
             let home_capabilities_path = home_capabilities_config
@@ -807,7 +807,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 allow_gated,
                 correlation_id,
                 task_id,
-                policy_config,
+                policy,
                 adapters_registry,
                 task_kind: task_kind.unwrap_or_else(|| "unspecified".to_string()),
                 home_capabilities,
@@ -903,7 +903,7 @@ async fn run_command(command: Commands) -> Result<()> {
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
-            let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let policy = policy::load_config(policy_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
             let home_capabilities_path = home_capabilities_config
@@ -922,7 +922,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 allow_gated,
                 correlation_id,
                 output,
-                policy_config,
+                policy,
                 adapters_registry,
                 home_capabilities,
                 task_capabilities,
@@ -1004,7 +1004,7 @@ async fn run_command(command: Commands) -> Result<()> {
             format,
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
-            let (policy_config, _) = policy::load_config(policy_config_path).await?;
+            let policy = policy::load_config(policy_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
             let home_capabilities_path = home_capabilities_config
@@ -1021,7 +1021,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 timeout,
                 allow_gated,
                 correlation_id,
-                policy_config,
+                policy,
                 adapters_registry,
                 task_kind.unwrap_or_else(|| "unspecified".to_string()),
                 home_capabilities,

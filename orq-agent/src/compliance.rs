@@ -2098,6 +2098,9 @@ Found 2 memories:
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-policy-sha256".to_string(),
         };
         store.insert_delegate_receipt(&r1, "task1").unwrap();
 
@@ -2132,6 +2135,9 @@ Found 2 memories:
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-policy-sha256".to_string(),
         };
         store.insert_delegate_receipt(&r2, "task2").unwrap();
 
@@ -2488,6 +2494,9 @@ Found 2 memories:
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-policy-sha256".to_string(),
         };
         store
             .insert_delegate_receipt(&make_receipt("c1", "agy"), "task1")

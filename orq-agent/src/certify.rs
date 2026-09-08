@@ -1,7 +1,7 @@
 use crate::adapters::AdaptersRegistry;
 use crate::capabilities::TaskCapabilitiesConfig;
 use crate::home_sandbox::HomeCapabilitiesConfig;
-use crate::policy::PolicyConfig;
+use crate::policy::LoadedPolicy;
 use crate::receipt::{now_unix, now_unix_nanos, receipt_sha256, ExecReceipt, ExecStatus};
 use crate::smoke;
 use color_eyre::eyre::{Result, WrapErr};
@@ -17,7 +17,7 @@ pub struct CertifyRequest {
     pub allow_gated: bool,
     pub correlation_id: Option<String>,
     pub output: Option<String>,
-    pub policy_config: PolicyConfig,
+    pub policy: LoadedPolicy,
     pub adapters_registry: AdaptersRegistry,
     pub home_capabilities: HomeCapabilitiesConfig,
     pub task_capabilities: TaskCapabilitiesConfig,
@@ -53,7 +53,7 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
         request.timeout_seconds,
         request.allow_gated,
         request.correlation_id,
-        request.policy_config,
+        request.policy,
         request.adapters_registry,
         request.task_kind.clone(),
         request.home_capabilities,
@@ -158,6 +158,9 @@ mod tests {
             command: vec!["runner".to_string()],
             status: ExecStatus::Succeeded,
             policy_reason: "allowed".to_string(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
             started_at_unix: 1,
             duration_ms: 1,
             timeout_seconds: 5,

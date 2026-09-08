@@ -813,6 +813,9 @@ impl StateStore {
             fallback_model: receipt.fallback_model.clone(),
             fallback_reason: receipt.fallback_reason.clone(),
             fallback_attempts: receipt.fallback_attempts.clone(),
+            policy_source: receipt.policy_source.clone(),
+            policy_path: receipt.policy_path.clone(),
+            policy_sha256: receipt.policy_sha256.clone(),
         };
         let legacy_hash = receipt_sha256(&legacy_exec_receipt)
             .map_err(|error| StoreError::Config(format!("hash legacy receipt: {error}")))?;
@@ -1952,6 +1955,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         }
     }
 
@@ -2439,6 +2445,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
 
         let stored = store
@@ -2680,6 +2689,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
 
         let receipt2 = DelegateReceipt {
@@ -2707,6 +2719,9 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
         };
 
         store
