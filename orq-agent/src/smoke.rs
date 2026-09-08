@@ -29,6 +29,7 @@ pub async fn run(
         timeout_seconds,
         allow_gated,
         correlation_id,
+        task_id: None,
         policy_config,
         adapters_registry,
         task_kind,

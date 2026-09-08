@@ -778,6 +778,7 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: true,
             cleanup_succeeded: true,
+            task_id: None,
             failure_class: Some(FailureClass::PermissionDenied),
             fallback_agent: Some("qwen-code".to_string()),
             fallback_model: Some("qwen3.6-flash".to_string()),

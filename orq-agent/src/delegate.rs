@@ -20,6 +20,7 @@ const MAX_TIMEOUT_SECONDS: u64 = 600;
 #[derive(Debug, Clone)]
 pub struct DelegateRequest {
     pub task: Option<String>,
+    pub task_id: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
     pub handoff: Option<String>,
@@ -129,6 +130,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            task_id: request.task_id.clone(),
             failure_class: None,
             fallback_agent: None,
             fallback_model: None,
@@ -196,6 +198,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            task_id: request.task_id.clone(),
             failure_class: None,
             fallback_agent: None,
             fallback_model: None,
@@ -245,6 +248,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                     started,
                     timeout_secs,
                     "HOME is not set; cannot prepare a confined sandbox HOME".to_string(),
+                    request.task_id.clone(),
                 ));
             };
             let sandbox = match SandboxHome::prepare(
@@ -266,6 +270,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                         started,
                         timeout_secs,
                         format!("preparing sandbox HOME: {error}"),
+                        request.task_id.clone(),
                     ));
                 }
             };
@@ -279,8 +284,11 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
                 .env_clear()
                 .env("PATH", std::env::var("PATH").unwrap_or_default())
                 .env("HOME", sandbox.path())
-                .envs(granted_env)
-                .stdin(Stdio::null())
+                .envs(granted_env);
+            if let Some(ref tid) = request.task_id {
+                cmd.env("ORQ_TASK_ID", tid);
+            }
+            cmd.stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
@@ -440,6 +448,7 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
         secrets_read: false,
         cleanup_attempted,
         cleanup_succeeded,
+        task_id: request.task_id.clone(),
         failure_class,
         fallback_agent: None,
         fallback_model: None,
@@ -482,6 +491,7 @@ fn sandbox_failure_output(
     started: Instant,
     timeout_secs: u64,
     reason: String,
+    task_id: Option<String>,
 ) -> DelegateOutput {
     let receipt = DelegateReceipt {
         schema_version: 1,
@@ -502,6 +512,7 @@ fn sandbox_failure_output(
         secrets_read: false,
         cleanup_attempted: false,
         cleanup_succeeded: false,
+        task_id,
         failure_class: crate::failover::classify_failure(
             Some(&reason),
             "",
@@ -910,6 +921,7 @@ mod tests {
     fn autonomous_agy_command_never_disables_permissions() {
         let request = DelegateRequest {
             task: Some("diagnose permissions".to_string()),
+            task_id: None,
             agent: Some("agy".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1008,6 +1020,7 @@ mod tests {
     async fn test_state_planned_transition() {
         let request = DelegateRequest {
             task: Some("dummy task".to_string()),
+            task_id: None,
             agent: Some("custom-no-auto-cmd".to_string()),
             model: Some("custom-model".to_string()),
             handoff: None,
@@ -1040,6 +1053,7 @@ mod tests {
     async fn test_state_command_generated_transition() {
         let request = DelegateRequest {
             task: Some("corregir bug".to_string()),
+            task_id: None,
             agent: Some("agy".to_string()),
             model: Some("gemini-3.7-flash-high".to_string()),
             handoff: None,
@@ -1082,6 +1096,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("fix file".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1125,6 +1140,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("create branch".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1166,6 +1182,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("plan task".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1207,6 +1224,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("slow task".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1248,6 +1266,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("slow task with commit".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1290,6 +1309,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("noop task".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("test-model".to_string()),
             handoff: None,
@@ -1335,6 +1355,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("tarea cualquiera".to_string()),
+            task_id: None,
             agent: Some("claude-code".to_string()),
             model: Some("claude-opus-5".to_string()), // matchea approval_required_model_patterns: ["opus"]
             handoff: None,
@@ -1375,6 +1396,7 @@ mod tests {
 
         let request = DelegateRequest {
             task: Some("tarea cualquiera".to_string()),
+            task_id: None,
             agent: Some("test-agent".to_string()),
             model: Some("modelo-no-gated".to_string()),
             handoff: None,
@@ -1400,5 +1422,46 @@ mod tests {
         // fallar a verificar la PR #999999999 y el fix debe rechazarla, no certificarla como Util.
         assert_ne!(output.status, DelegateStatus::Validated);
         assert_eq!(output.verdict, DelegateVerdict::NonUtil);
+    }
+
+    #[tokio::test]
+    async fn test_delegate_receipt_and_env_preserves_task_id() {
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+
+        let script = make_executable_script(
+            temp.path(),
+            "runner_task_id.sh",
+            "#!/usr/bin/env bash\nif [ \"$ORQ_TASK_ID\" = \"task-test-123\" ]; then echo 'change' >> README.md; git add README.md; git commit -m 'task commit'; fi\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("task with task_id".to_string()),
+            task_id: Some("task-test-123".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            allow_gated: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-task-id-1".to_string()),
+            policy_config: test_policy_config(),
+            adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
+        };
+
+        let output = run(request).await.expect("run delegate");
+        assert_eq!(output.status, DelegateStatus::Validated);
+        assert_eq!(output.verdict, DelegateVerdict::Util);
+        assert_eq!(output.receipt.task_id, Some("task-test-123".to_string()));
     }
 }
