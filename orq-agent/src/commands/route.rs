@@ -10,6 +10,7 @@ pub(crate) struct RouteArgs {
     pub(crate) models_config: Option<String>,
     pub(crate) cert_dir: Option<String>,
     pub(crate) db_path: Option<String>,
+    pub(crate) daily_availability_config: Option<String>,
 }
 
 pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> {
@@ -30,6 +31,12 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
         Some(path) => Some(state::open(Some(path))?),
         None => state::open(None).ok(),
     };
+    let daily_availability_path = args
+        .daily_availability_config
+        .as_deref()
+        .map(std::path::Path::new);
+    let loaded_availability =
+        domain_route::load_daily_availability(daily_availability_path).await?;
     let detected = detect::detect_agents_from_registry(&adapters_registry);
     domain_route::decide_with_detected(
         &routing_config,
@@ -40,5 +47,6 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
         cert_store.as_ref(),
         state_store.as_ref(),
         models_catalog.as_ref(),
+        Some(&loaded_availability),
     )
 }

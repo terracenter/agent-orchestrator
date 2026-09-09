@@ -29,6 +29,118 @@ pub struct RouteRule {
     pub rationale: String,
 }
 
+pub const DAILY_AVAILABILITY_ENV_VAR: &str = "ORQ_DAILY_AVAILABILITY_PATH";
+pub const DEFAULT_DAILY_AVAILABILITY_CONFIG_PATH: &str = "config/daily-availability.json";
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct DailyAvailability {
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub available_agents: Vec<String>,
+    #[serde(default)]
+    pub unavailable_agents: Vec<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LoadedDailyAvailability {
+    pub availability: DailyAvailability,
+    pub source: String,
+    pub active: bool,
+}
+
+impl DailyAvailability {
+    pub fn is_agent_available(&self, agent: &str) -> bool {
+        if !self.available_agents.is_empty() {
+            return self.available_agents.iter().any(|a| agent_matches(a, agent));
+        }
+        if !self.unavailable_agents.is_empty() {
+            return !self.unavailable_agents.iter().any(|u| agent_matches(u, agent));
+        }
+        true
+    }
+}
+
+pub fn agent_matches(pattern: &str, agent: &str) -> bool {
+    let p = pattern.trim().to_lowercase();
+    let a = agent.trim().to_lowercase();
+    if p == a {
+        return true;
+    }
+    if let Some(stripped_a) = a.strip_suffix("-code") {
+        if p == stripped_a {
+            return true;
+        }
+    }
+    if let Some(stripped_p) = p.strip_suffix("-code") {
+        if a == stripped_p {
+            return true;
+        }
+    }
+    if (p == "agy" && a == "antigravity") || (p == "antigravity" && a == "agy") {
+        return true;
+    }
+    false
+}
+
+pub async fn load_daily_availability(
+    explicit_path: Option<&Path>,
+) -> Result<LoadedDailyAvailability> {
+    if let Some(path) = explicit_path {
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .wrap_err_with(|| format!("reading daily availability config {}", path.display()))?;
+        let availability: DailyAvailability = serde_json::from_str(&content)
+            .wrap_err("parsing daily availability config json")?;
+        return Ok(LoadedDailyAvailability {
+            availability,
+            source: path.display().to_string(),
+            active: true,
+        });
+    }
+
+    if let Ok(env_path) = std::env::var(DAILY_AVAILABILITY_ENV_VAR) {
+        if !env_path.trim().is_empty() {
+            let path = Path::new(&env_path);
+            let content = tokio::fs::read_to_string(path)
+                .await
+                .wrap_err_with(|| format!("reading daily availability config {}", path.display()))?;
+            return parse_daily_availability(&content, &path.display().to_string());
+        }
+    }
+
+    let default_candidates = [
+        Path::new(DEFAULT_DAILY_AVAILABILITY_CONFIG_PATH),
+        Path::new("orq-agent/config/daily-availability.json"),
+    ];
+    for candidate in default_candidates {
+        if candidate.exists() {
+            let content = tokio::fs::read_to_string(candidate)
+                .await
+                .wrap_err_with(|| format!("reading daily availability config {}", candidate.display()))?;
+            return parse_daily_availability(&content, &candidate.display().to_string());
+        }
+    }
+
+    Ok(LoadedDailyAvailability {
+        availability: DailyAvailability::default(),
+        source: "none".to_string(),
+        active: false,
+    })
+}
+
+pub fn parse_daily_availability(content: &str, source: &str) -> Result<LoadedDailyAvailability> {
+    let availability: DailyAvailability =
+        serde_json::from_str(content).wrap_err("parsing daily availability config json")?;
+    Ok(LoadedDailyAvailability {
+        availability,
+        source: source.to_string(),
+        active: true,
+    })
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct RouteDecision {
     pub schema_version: u8,
@@ -55,6 +167,9 @@ pub struct RouteDecision {
     pub quota_aware: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quota_penalized_candidates: Vec<String>,
+    pub availability_filter_used: bool,
+    pub availability_filtered: usize,
+    pub availability_source: String,
 }
 
 #[allow(dead_code)]
@@ -147,6 +262,7 @@ pub fn decide(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -160,6 +276,7 @@ pub fn decide_with_detected(
     certificate_store: Option<&CertificateStore>,
     state_store: Option<&StateStore>,
     models_catalog: Option<&crate::models::ModelsCatalog>,
+    daily_availability: Option<&LoadedDailyAvailability>,
 ) -> Result<RouteDecision> {
     let rule = config
         .routes
@@ -174,7 +291,13 @@ pub fn decide_with_detected(
         certificate_store,
         state_store,
         models_catalog,
+        daily_availability,
     );
+
+    let (availability_filter_used, availability_source) = match daily_availability {
+        Some(loaded) => (loaded.active, loaded.source.clone()),
+        None => (false, "none".to_string()),
+    };
 
     Ok(RouteDecision {
         schema_version: config.schema_version,
@@ -206,6 +329,9 @@ pub fn decide_with_detected(
             None
         },
         quota_penalized_candidates: selected.quota_penalized_candidates,
+        availability_filter_used,
+        availability_filtered: selected.availability_filtered,
+        availability_source,
     })
 }
 
@@ -219,6 +345,7 @@ struct SelectedRoute {
     circuit_breaker_filtered: usize,
     quota_aware: bool,
     quota_penalized_candidates: Vec<String>,
+    availability_filtered: usize,
 }
 
 /// Default time-to-live for quota snapshots (24 hours).
@@ -405,6 +532,7 @@ fn select_route(
     certificate_store: Option<&CertificateStore>,
     state_store: Option<&StateStore>,
     models_catalog: Option<&crate::models::ModelsCatalog>,
+    daily_availability: Option<&LoadedDailyAvailability>,
 ) -> SelectedRoute {
     let raw_candidates = [
         candidate_from_parts(&rule.default_agent, &rule.default_model, false),
@@ -413,6 +541,7 @@ fn select_route(
     ];
 
     let mut circuit_breaker_filtered = 0usize;
+    let mut availability_filtered = 0usize;
     let mut allowed_candidates: Vec<EvaluatedCandidate> = Vec::new();
 
     let quota_snapshots = state_store
@@ -432,6 +561,17 @@ fn select_route(
                     continue;
                 }
             }
+        }
+
+        let is_available = match daily_availability {
+            Some(loaded) if loaded.active => {
+                loaded.availability.is_agent_available(&candidate.agent)
+            }
+            _ => true,
+        };
+        if !is_available {
+            availability_filtered += 1;
+            continue;
         }
 
         let mut preferred_cert = None;
@@ -516,6 +656,7 @@ fn select_route(
                 circuit_breaker_filtered: 0,
                 quota_aware: state_store.is_some(),
                 quota_penalized_candidates: Vec::new(),
+                availability_filtered: 0,
             },
             is_gated,
             quota,
@@ -530,17 +671,22 @@ fn select_route(
     }
 
     if allowed_candidates.is_empty() {
+        let reason = if availability_filtered > 0 {
+            "daily_availability_unavailable; no detected allowed route; returning default for explicit human review".to_string()
+        } else {
+            "no detected allowed route; returning default for explicit human review".to_string()
+        };
         return SelectedRoute {
             agent: rule.default_agent.clone(),
             model: rule.default_model.clone(),
             fallback_applied: false,
             requires_confirmation: true,
-            policy_reason: "no detected allowed route; returning default for explicit human review"
-                .to_string(),
+            policy_reason: reason,
             preferred_certificate: None,
             circuit_breaker_filtered,
             quota_aware: state_store.is_some(),
             quota_penalized_candidates: Vec::new(),
+            availability_filtered,
         };
     }
 
@@ -610,6 +756,7 @@ fn select_route(
     chosen.circuit_breaker_filtered = circuit_breaker_filtered;
     chosen.quota_aware = state_store.is_some();
     chosen.quota_penalized_candidates = quota_penalized_candidates;
+    chosen.availability_filtered = availability_filtered;
 
     if chosen.agent != rule.default_agent || chosen.model != rule.default_model {
         chosen.fallback_applied = true;
@@ -628,6 +775,11 @@ fn select_route(
     {
         chosen.policy_reason = format!(
             "stale_catalog:{}; {}",
+            rule.default_agent, chosen.policy_reason
+        );
+    } else if chosen.fallback_applied && availability_filtered > 0 {
+        chosen.policy_reason = format!(
+            "daily_availability_fallback:{}; {}",
             rule.default_agent, chosen.policy_reason
         );
     }
@@ -755,6 +907,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(decision.selected_agent, route.default_agent);
@@ -828,6 +981,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -896,6 +1050,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -952,6 +1107,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
             None,
         )
         .unwrap();
@@ -1042,6 +1198,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1131,6 +1288,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1151,6 +1309,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
             None,
         )
         .unwrap();
@@ -1241,6 +1400,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1304,6 +1464,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1313,6 +1474,7 @@ mod tests {
             false,
             "test",
             &detected,
+            None,
             None,
             None,
             None,
@@ -1419,6 +1581,7 @@ mod tests {
             Some(&cert_store),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1428,6 +1591,7 @@ mod tests {
             false,
             "test",
             &detected,
+            None,
             None,
             None,
             None,
@@ -1560,6 +1724,7 @@ mod tests {
             Some(&cert_store),
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1637,6 +1802,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1713,6 +1879,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
             None,
         )
         .unwrap();
@@ -1803,6 +1970,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1892,6 +2060,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -1966,6 +2135,7 @@ mod tests {
             &detected,
             None,
             Some(&store),
+            None,
             None,
         )
         .unwrap();
@@ -2057,6 +2227,7 @@ mod tests {
             None,
             Some(&store),
             None,
+            None,
         )
         .unwrap();
 
@@ -2143,6 +2314,7 @@ mod tests {
             None,
             None,
             Some(&catalog),
+            None,
         )
         .unwrap();
 
@@ -2233,6 +2405,7 @@ mod tests {
             None,
             None,
             Some(&catalog),
+            None,
         )
         .unwrap();
 
@@ -2301,6 +2474,7 @@ mod tests {
             None,
             None,
             Some(&catalog),
+            None,
         )
         .unwrap();
 
@@ -2309,5 +2483,287 @@ mod tests {
         assert!(decision
             .selected_policy_reason
             .contains("stale_catalog:qwen-code"));
+    }
+
+    #[test]
+    fn test_daily_availability_unfiltered_baseline() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "mechanical",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.6-flash",
+                    "cheap_sufficient": "agy/gemini-3.7-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing daily availability baseline"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let decision = decide_with_detected(
+            &config,
+            "mechanical",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(!decision.fallback_applied);
+        assert!(!decision.availability_filter_used);
+        assert_eq!(decision.availability_filtered, 0);
+        assert_eq!(decision.availability_source, "none");
+    }
+
+    #[test]
+    fn test_daily_availability_allowlist_filters_candidates_and_selects_allowed() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "mechanical",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.6-flash",
+                    "cheap_sufficient": "agy/gemini-3.7-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing daily availability allowlist"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let daily_json = r#"{
+            "schema_version": 1,
+            "date": "2026-09-09",
+            "available_agents": ["claude-code", "codex", "agy"],
+            "unavailable_agents": [],
+            "notes": "allowlist test"
+        }"#;
+        let availability = super::parse_daily_availability(daily_json, "test_allowlist.json").unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "mechanical",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            None,
+            Some(&availability),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "agy");
+        assert_eq!(decision.selected_model, "gemini-3.7-flash");
+        assert!(decision.fallback_applied);
+        assert!(decision.availability_filter_used);
+        assert_eq!(decision.availability_filtered, 1);
+        assert_eq!(decision.availability_source, "test_allowlist.json");
+        assert!(decision
+            .selected_policy_reason
+            .contains("daily_availability_fallback:qwen-code"));
+    }
+
+    #[test]
+    fn test_daily_availability_denylist_falls_back_to_allowed_candidate() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "mechanical",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.6-flash",
+                    "cheap_sufficient": "agy/gemini-3.7-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing daily availability denylist"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let daily_json = r#"{
+            "schema_version": 1,
+            "date": "2026-09-09",
+            "available_agents": [],
+            "unavailable_agents": ["qwen-code"],
+            "notes": "denylist test"
+        }"#;
+        let availability = super::parse_daily_availability(daily_json, "test_denylist.json").unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "mechanical",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            None,
+            Some(&availability),
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "agy");
+        assert_eq!(decision.selected_model, "gemini-3.7-flash");
+        assert!(decision.fallback_applied);
+        assert!(decision.availability_filter_used);
+        assert_eq!(decision.availability_filtered, 1);
+        assert_eq!(decision.availability_source, "test_denylist.json");
+    }
+
+    #[test]
+    fn test_daily_availability_all_candidates_unavailable_requires_confirmation() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "mechanical",
+                    "default_agent": "qwen-code",
+                    "default_model": "qwen3.6-flash",
+                    "cheap_sufficient": "agy/gemini-3.7-flash",
+                    "escalate_to": "none",
+                    "avoid": [],
+                    "rationale": "testing all candidates unavailable"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let daily_json = r#"{
+            "schema_version": 1,
+            "date": "2026-09-09",
+            "available_agents": ["codex"],
+            "unavailable_agents": [],
+            "notes": "neither candidate available"
+        }"#;
+        let availability = super::parse_daily_availability(daily_json, "test_all_unavailable.json").unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "mechanical",
+            false,
+            "test_config",
+            &detected,
+            None,
+            None,
+            None,
+            Some(&availability),
+        )
+        .unwrap();
+
+        assert!(decision.requires_confirmation);
+        assert!(decision.availability_filter_used);
+        assert_eq!(decision.availability_filtered, 2);
+        assert!(decision
+            .selected_policy_reason
+            .contains("daily_availability_unavailable"));
     }
 }
