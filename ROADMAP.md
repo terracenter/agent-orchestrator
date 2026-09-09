@@ -136,7 +136,7 @@ Slices de migración propuestos como PRs independientes:
 4. [ ] **PR estado local**: portar `task`, `record`, `status`, ledger JSONL y transiciones válidas.
 5. [ ] **PR Observer/receipts**: portar `observer sync/status/send-capacity`, `receipt create/verify/from-pr` y compatibilidad con SGE Observer.
 6. [ ] **PR auditoría/seguridad**: portar `safety`, `audit`, `session`, `trace`, `review 4r`, guardrails de RTK y dry-run.
-7. [ ] **PR installer/docs**: actualizar instalación para binario Rust, docs de uso, README, RELEASES y retirar referencias Go como stack principal.
+7. [x] **PR installer/docs**: actualizar instalacion para binario Rust, docs de uso, README, RELEASES y retirar referencias Go como stack principal (#194).
 8. [ ] **PR retiro Go**: archivar o eliminar `cmd/orq` e `internal/*` Go cuando la matriz de paridad y tests Rust cubran comandos críticos.
 
 Criterio de aceptación por slice:

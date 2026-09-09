@@ -15,11 +15,11 @@ Gracias por querer contribuir a `agent-orchestrator`.
 3. Ejecutar pruebas antes de abrir o actualizar un PR:
 
 ```bash
-docker compose run --rm dev go test ./...
+rtk docker compose run --rm dev cargo test --manifest-path orq-agent/Cargo.toml
 ```
 
 4. Abrir Pull Request contra `main`.
-5. Esperar que el check `go-test` pase.
+5. Esperar que los checks Rust pasen.
 
 ## Seguridad
 

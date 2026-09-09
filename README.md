@@ -1,182 +1,88 @@
-**Español** · [English](README.en.md)
+**Espanol** · [English](README.en.md)
 
 # agent-orchestrator
 
 ![Licencia](https://img.shields.io/badge/licencia-AGPL--3.0--or--later-blue)
 ![Estado](https://img.shields.io/badge/estado-MVP%20operativo-orange)
-![Stack](https://img.shields.io/badge/stack-Rust--first%20%7C%20Go%20legacy%20%7C%20Observer-informational)
+![Stack](https://img.shields.io/badge/stack-Rust--only%20%7C%20Observer-informational)
 ![PRs](https://img.shields.io/badge/PRs-docs%20%2B%20tests%20obligatorios-brightgreen)
 
-> Orquestador local-first de agentes y modelos: clasifica tareas, recomienda el agente/modelo más barato suficiente, ejecuta agentes reales con receipts verificables y mantiene documentación como changelog operativo.
+Orquestador local-first de agentes y modelos. `orq` descubre runners sin leer
+secretos, enruta por evidencia, ejecuta tareas acotadas y produce receipts
+verificables.
 
-`orq` coordina runners como Pi, Claude Code, AGY, OpenClaw, Qwen y adaptadores del workspace sin convertir la automatización en una caja negra. Su principio central es simple: **hechos verificados, costo mínimo suficiente y dry-run antes de mutar**.
+> Arquitectura operativa: `orq` y `orq-agent` son binarios Rust. El codigo Go
+> permanece archivado solo como referencia de paridad y no se construye ni se
+> instala como `orq`.
 
-> Decisión de arquitectura: el proyecto pasa a **Rust-first**. Go queda como implementación legacy temporal y referencia de paridad mientras los comandos se migran por slices al binario Rust objetivo.
-
----
-
-## Estado actual
-
-| Área | Estado |
-|---|---|
-| Clasificación y routing | Go legacy mantiene comandos amplios; Rust `orq-agent route` ya usa config/certificados |
-| Evidencia | Ledger JSONL + receipts verificables |
-| Observer LLM | Sincronización best-effort y snapshots de capacidad |
-| Control de presupuesto | Guardrails de compactación y rutas de bajo costo |
-| Ejecución automática | Rust `orq-agent` operativo con receipts JSON; Go solo lo consume como puente temporal |
-| Documentación | ROADMAP/RELEASES/README/docs funcionan como changelog operativo |
-
-> ⚠️ **No es un ejecutor autónomo de producción.** Acciones destructivas, credenciales, deploys o cambios remotos requieren confirmación explícita.
-
----
-
-## Qué resuelve
-
-- Evita usar modelos caros para tareas mecánicas.
-- Decide cuándo una tarea requiere un validador fuerte por riesgo o seguridad.
-- Registra qué agente/modelo actuó, con recibos verificables.
-- Integra telemetría hacia Observer LLM.
-- Usa snapshots de capacidad/cuota para no enrutar tareas no críticas hacia agentes agotados.
-- Mantiene una política documental pública y auditable por PR.
-
----
-
-## Quickstart de desarrollo
-
-Este repo está migrando a Rust-first. Go se conserva temporalmente para compatibilidad y como referencia de paridad.
+## Inicio rapido
 
 ```bash
-# Tests Rust
+# Validar el crate Rust
 cd orq-agent && rtk cargo test
 
-# Tests Go legacy mientras dure la migración
-rtk go test ./...
-
-# Ejecución real progresiva vía Rust
-rtk go run ./cmd/orq run --execute --agent qwen-code --model qwen3.8-max --orq-agent-bin ./orq-agent/target/debug/orq-agent "Responde exactamente: OK"
-
-# Alias Rust en transición: el crate ya compila `orq-agent` y `orq`.
-# Mientras el binario Go legacy siga instalado como `orq`, no instalar el alias Rust
-# sobre PATH compartido sin decidir explícitamente el handoff.
-cd orq-agent && rtk cargo build --bins
-./target/debug/orq models --agent qwen-code --format json
-```
-
-Instalación local del binario legacy Go, solo si necesitas comandos aún no migrados:
-
-```bash
-rtk docker compose run --rm dev make build
-mkdir -p ~/.local/bin
-install -m 0755 bin/orq ~/.local/bin/orq-go
-orq-go --help
-```
-
-> ⚠️ Transición CLI: `scripts/install.sh` instala Rust `orq`/`orq-agent` por defecto. Si necesitas el CLI Go legacy para comandos pendientes (`task`, `handoff`, `inbox`, `observer`, etc.), usa `--with-go-legacy` para instalarlo como `orq-go`.
-
-Instalador simple con modo seguro:
-
-```bash
-# Ver acciones sin modificar archivos
+# Ver que instalaria sin modificar el sistema
 rtk bash scripts/install.sh --dry-run
 
-# Instalación interactiva
+# Instalar orq y orq-agent en ~/.local/bin
 rtk bash scripts/install.sh
+
+# Ver comandos y enrutar una tarea explicita
+orq --help
+orq route --task-kind mechanical --format json
 ```
 
-El instalador crea backup de `~/.local/bin/orq`, `orq-agent` y `orq-go` antes de reemplazarlos y advierte si falta `rtk`.
+Tambien puedes usar los objetivos del proyecto:
 
----
+```bash
+make build
+make install
+```
 
 ## Uso esencial
 
 ```bash
-# Clasificar una tarea
-orq classify "corregir una referencia rota"
-
-# Recomendar agente/modelo
-orq route "rotar token de producción"
-
-# Routing asistido por capacidad/cuota agregada
-orq route --capacity-file /ruta/capacity.json "tarea mecánica simple"
-
-# Registrar evidencia
-orq record --task test --agent pi --model gpt-5.5 --status ok
-
-# Estado del ledger
-orq status
-
-# Delegación controlada
-orq delegate "ordenar información del vault relacionada con GLPI"
-
-# Sincronizar Observer
-orq observer sync --format json
-
-# Enviar snapshot manual de capacidad
-orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
+orq detect --format json
+orq discover --format json
+orq agents discover
+orq models --agent qwen-code --format json
+orq route --task-kind mechanical --format json
+orq quota --help
+orq compliance --rtk-usage --format json
 ```
 
----
+Usa `orq <comando> --help` antes de ejecutar `exec`, `smoke`, `certify`,
+`delegate` u `observer`, que pueden interactuar con runners o estado local.
 
-## Arquitectura resumida
+## Arquitectura
 
 | Componente | Rol |
 |---|---|
-| `cmd/orq` | CLI principal |
-| `internal/route` | Clasificación, routing y ajuste por capacidad |
-| `internal/ledger` / `internal/receipt` | Evidencia local y receipts |
-| `internal/observer` | Cliente hacia Observer LLM |
-| `internal/adapters` | Integración con herramientas del workspace (`rtk`, `vg`, runners) |
-| `examples/config.example.toml` | Configuración de referencia |
+| `orq-agent/src/bin/orq.rs` | CLI Rust instalado como `orq` |
+| `orq-agent/src/bin/orq_agent.rs` | Entrada Rust compatible `orq-agent` |
+| `orq-agent/src/route.rs` | Routing basado en catalogo, certificados y cuota |
+| `orq-agent/config/` | Matriz, catalogo y politicas de routing |
+| `cmd/`, `internal/` | Referencia Go archivada; no instalable |
 
----
+## Documentacion
 
-## Documentación clave
+- [docs/uso.md](docs/uso.md) - guia de uso en espanol.
+- [docs/usage.md](docs/usage.md) - English usage guide.
+- [docs/legacy-go.md](docs/legacy-go.md) - estado y retiro del codigo Go.
+- [docs/matriz-paridad-rust.md](docs/matriz-paridad-rust.md) - paridad pendiente.
+- [ROADMAP.md](ROADMAP.md) - fases y estado operativo.
+- [RELEASES.md](RELEASES.md) - historial de cambios.
 
-- [ROADMAP.md](ROADMAP.md) — estado vivo, fases y política de actualización.
-- [RELEASES.md](RELEASES.md) — changelog operativo por entregable.
-- [docs/uso.md](docs/uso.md) — guía de uso en español.
-- [docs/usage.md](docs/usage.md) — usage guide in English.
-- [docs/prueba-integral-orq.md](docs/prueba-integral-orq.md) — prueba integral del arnés.
-- [docs/orca-inspiracion.md](docs/orca-inspiracion.md) — inspiración técnica Orca.
+## Desarrollo y CI
 
----
+```bash
+rtk cargo test --manifest-path orq-agent/Cargo.toml
+rtk cargo clippy --manifest-path orq-agent/Cargo.toml --all-targets -- -D warnings
+```
 
-## Política de documentación
-
-Todo issue, PR o entregable cerrado debe actualizar, según corresponda:
-
-- `ROADMAP.md`
-- `RELEASES.md`
-- `README.md` / `README.en.md`
-- `docs/uso.md` / `docs/usage.md`
-- documentación operativa relacionada
-
-Si no aplica, el PR debe decir explícitamente: `Docs: no aplica` con justificación.
-
----
-
-## Seguridad
-
-`main` está protegido con Pull Request obligatorio, bloqueo de force-push/borrado y check `go-test` requerido.
-
-Ver [SECURITY.md](SECURITY.md).
-
----
-
-## Filosofía e inspiración
-
-Este proyecto reutiliza patrones buenos del ecosistema AI coding —Engram, Gentle-AI, Gentleman Guardian Angel, skills y sistemas de receipts— solo cuando encajan con el objetivo local-first.
-
-Principios:
-
-- Obsidian puede ser la SSoT humana, pero el proyecto debe funcionar sin Obsidian.
-- Kuzu/vg puede ser graph layer documental, pero es opcional.
-- rtk reduce ruido de comandos, pero no reemplaza la evidencia.
-- Hechos verificados > opiniones de modelos.
-- Dry-run primero.
-
----
+El CI ejecuta tests y clippy de Rust. Las acciones destructivas, credenciales,
+deploys y cambios remotos requieren confirmacion explicita.
 
 ## Licencia
 
-GNU AGPL-3.0-or-later. Si ejecutas una versión modificada como servicio de red, debes ofrecer el código fuente correspondiente según la licencia.
+GNU AGPL-3.0-or-later.
