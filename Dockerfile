@@ -1,10 +1,7 @@
-FROM golang:1.25
+FROM rust:1.97
 
 WORKDIR /workspace
 
-COPY go.mod ./
-RUN go mod download
-
 COPY . .
 
-CMD ["go", "test", "./..."]
+CMD ["cargo", "test", "--manifest-path", "orq-agent/Cargo.toml"]

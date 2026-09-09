@@ -1,119 +1,61 @@
 # `orq` usage
 
-`orq` is the local CLI for `agent-orchestrator`.
-
-> Note: the command is `orq`, with **q**. It is not `org`.
+`orq` is the Rust CLI for `agent-orchestrator`. The Go implementation is an
+archived parity reference and is not installed or supported as `orq`.
 
 ## Validate installation
 
 ```bash
 orq --help
+orq route --help
 ```
 
-If your shell cannot find it, use the full path:
+If the shell cannot find it, use the local installation path:
 
 ```bash
-/home/freddy/.local/bin/orq --help
+$HOME/.local/bin/orq --help
 ```
 
-On this machine the installed binary lives at:
+Install both Rust binaries with the project installer:
 
-```txt
-/home/freddy/.local/bin/orq
+```bash
+rtk bash scripts/install.sh --dry-run
+rtk bash scripts/install.sh
 ```
 
 ## Basic commands
 
-Versioned guides from the binary:
+```bash
+# Discover local runners without reading secrets.
+orq detect --format json
+orq discover --format json
+orq agents discover
+
+# Inspect known models and route an explicit task kind.
+orq models --agent qwen-code --format json
+orq route --task-kind mechanical --format json
+
+# Inspect quota, evidence and available command options.
+orq quota --help
+orq score --help
+orq compliance --rtk-usage --format json
+```
+
+Run `orq <command> --help` before using a command with external effects such as
+`exec`, `smoke`, `certify`, `delegate`, or `observer`.
+
+## Development
 
 ```bash
-orq docs usage
-orq docs orchestration
+rtk cargo test --manifest-path orq-agent/Cargo.toml
+rtk cargo clippy --manifest-path orq-agent/Cargo.toml --all-targets -- -D warnings
+make build
+make install
 ```
 
-Common commands:
+`make install` installs `orq` and `orq-agent` under `~/.local/bin` by default.
 
-```bash
-orq classify "fix a broken reference"
-orq route "rotate production token"
-orq route --capacity-file /path/capacity.json "simple mechanical task"
-orq route "validate possible false positive in CWP deploy: SSH exec request failed"
-orq delegate --handoff /home/freddy/Workspace/.agents/handoffs/task.md
-orq delegate "implement feature" --agent agy
-orq delegate "implement feature" --agent agy --write-handoff /home/freddy/Workspace/.agents/handoffs/task.md --write-receipt /tmp/receipt.json
-orq run "audit project" --dry-run
-orq record --task test --agent pi --model gpt-5.5 --status ok
-orq status
-orq agents
-orq agents detect
-orq doctor  # checks key tools (rtk, git, gh, orq, vg via ORQ_VG_PATH/PATH/known workspace paths)
-orq observer send-capacity --agent claude-code --provider-group anthropic --model-group haiku --remaining-percent 80 --window daily
-```
+## Legacy source
 
-## Task tracking for future mobile dashboard
-
-```bash
-orq task create "organize GLPI vault"
-orq task list
-orq task assign <id> --agent pi --model cheap-or-fast --host minipc
-orq handoff draft --task-id <id>
-orq handoff draft --task-id <id> --template reviewer-4r
-orq handoff draft --task-id <id> --template security-reviewer
-orq handoff draft --task-id <id> --template implementer
-orq handoff draft --task-id <id> --template documenter
-orq handoff draft --task-id <id> --template architect
-orq handoff validate-template --file handoff.md
-orq task update <id> --state running
-orq task update <id> --state done --evidence "validated commit or PR"
-```
-
-By default tasks are stored at:
-
-```txt
-~/.local/state/orq/tasks.jsonl
-```
-
-These states will feed the future WireGuard-only dashboard/PWA.
-
-## Vault order planning
-
-This command **does not move files**. It only proposes actions to create indexes and detect documents without numeric prefixes.
-
-```bash
-orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi
-```
-
-For machine-readable output:
-
-```bash
-orq vault-order --vault /home/freddy/Workspace/Obsidian --query glpi --format json
-```
-
-## Config validation
-
-From inside the repo:
-
-```bash
-cd /home/freddy/Workspace/Desarrollo/agent-orchestrator
-orq config --config examples/config.example.toml --check-adapters --format json
-```
-
-From any directory, use the absolute path:
-
-```bash
-orq config --config /home/freddy/Workspace/Desarrollo/agent-orchestrator/examples/config.example.toml --check-adapters --format json
-```
-
-## Current MVP state
-
-`orq` is still advisory-only:
-
-- classifies tasks;
-- recommends agent/model routing;
-- prioritizes Claude Opus for critical production/deploy/CI validation, doubtful diagnoses, incidents and possible assistant false positives;
-- records events;
-- records tasks with verifiable state;
-- validates basic guards;
-- loads config and adapters;
-- generates documentation-order plans with `vault-order`;
-- **does not automatically execute agents yet**.
+See [legacy-go.md](legacy-go.md) for the archived Go reference and the planned
+removal criteria.

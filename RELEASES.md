@@ -6,6 +6,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 
 ### Agregado
 
+- `orq` pasa a ser Rust-only en sus rutas operativas: `scripts/install.sh`, `make build`, `make install`, Docker, CI y las guias instalan, prueban y documentan los binarios Rust `orq` y `orq-agent` (#194). El codigo Go queda archivado como referencia de paridad y no se instala.
 - Estándar profesional de presentación GitHub en `docs/github-repository-standard.md`.
 - README en español e inglés rediseñados con badges, estado, quickstart, arquitectura resumida y política documental.
 - Plantillas GitHub piloto para issues de bug/documentación, alineadas con PRs con evidencia Orq.
@@ -45,7 +46,7 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 ### Validación recurrente
 
 ```bash
-rtk docker compose run --rm dev go test ./...
+rtk docker compose run --rm dev cargo test --manifest-path orq-agent/Cargo.toml
 rtk orq guard-collision --path .
 rtk orq repo check --path .
 rtk orq safety check --path .

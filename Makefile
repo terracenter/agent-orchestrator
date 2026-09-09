@@ -3,21 +3,20 @@
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN ?= orq
-
-GO ?= go
+CARGO ?= cargo
+CARGO_MANIFEST ?= orq-agent/Cargo.toml
 
 build:
-	$(GO) build -buildvcs=false -o bin/$(BIN) ./cmd/orq
+	$(CARGO) build --release --manifest-path $(CARGO_MANIFEST) --bins
 
 test:
-	$(GO) test ./...
+	$(CARGO) test --manifest-path $(CARGO_MANIFEST)
 
 install:
-	@tmpdir=$$(mktemp -d 2>/dev/null || mktemp -d -t 'orq-install'); \
-	trap 'rm -rf "$$tmpdir"' EXIT INT TERM; \
-	$(GO) build -buildvcs=false -o "$$tmpdir/$(BIN)" ./cmd/orq && \
-	mkdir -p $(BINDIR) && \
-	install -m 0755 "$$tmpdir/$(BIN)" $(BINDIR)/$(BIN)
+	$(CARGO) build --release --manifest-path $(CARGO_MANIFEST) --bins
+	mkdir -p $(BINDIR)
+	install -m 0755 orq-agent/target/release/orq $(BINDIR)/$(BIN)
+	install -m 0755 orq-agent/target/release/orq-agent $(BINDIR)/orq-agent
 
 clean:
 	rm -rf bin
