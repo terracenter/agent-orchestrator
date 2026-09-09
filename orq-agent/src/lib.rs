@@ -17,6 +17,7 @@ mod home_sandbox;
 mod models;
 pub mod observer;
 mod policy;
+mod profiles;
 mod quota;
 pub mod receipt;
 mod route;
@@ -37,9 +38,15 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Manage, discover and diagnose local agents.
+    /// Without a subcommand, lists the static agent profiles catalog
+    /// (compat contract for `orq agents --format json`, used by
+    /// guardia-mandato-18-diagramas.sh).
     Agents {
         #[command(subcommand)]
-        command: AgentsSubcommand,
+        command: Option<AgentsSubcommand>,
+        /// Output format. Only applies when no subcommand is given.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
     },
     /// Detect local agent runners without reading secrets.
     Detect {
@@ -704,7 +711,17 @@ pub async fn run_cli() -> Result<()> {
 
 async fn run_command(command: Commands) -> Result<()> {
     match command {
-        Commands::Agents { command } => match command {
+        Commands::Agents {
+            command: None,
+            format,
+        } => {
+            let profiles = profiles::default_profiles()?;
+            print_json(format, &profiles)
+        }
+        Commands::Agents {
+            command: Some(command),
+            ..
+        } => match command {
             AgentsSubcommand::Discover {
                 adapters_config,
                 models_config,
