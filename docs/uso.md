@@ -117,6 +117,92 @@ agente/modelo). Ventana y umbral son fijos por ahora
 (`orq-agent/src/event_log.rs`: `DEFAULT_LOOP_WINDOW_SECONDS`,
 `DEFAULT_LOOP_THRESHOLD`); hacerlos configurables queda para un follow-up.
 
+## Presupuesto real en dinero (issue #183)
+
+`orq exec` y `orq delegate --execute` aplican un segundo gate de politica,
+ortogonal a `approval_required_model_patterns` (`policy.json`): un techo real
+de gasto diario/mensual contra el `cost_hint` (USD estimados por ejecucion)
+del catalogo de modelos. Antes de este gate, el unico control de gasto era
+el patron de substring `sonnet`/`opus` en el nombre del modelo — cualquier
+modelo caro futuro (`gpt-5.5`, `gemini-3.1-pro`, `kimi-k2.5`, endpoints
+NVIDIA/OpenRouter) pasaba sin aprobacion si no contenia esos substrings.
+
+### Formato de configuracion (`orq-agent/config/budget.json`)
+
+```json
+{
+  "schema_version": 1,
+  "currency": "USD",
+  "daily_limit_usd": null,
+  "monthly_limit_usd": null
+}
+```
+
+El builtin no trae techos configurados (`null`): el gate queda deshabilitado
+por defecto, sin cambiar comportamiento existente hasta que alguien lo
+active explicitamente. `daily_limit_usd`/`monthly_limit_usd` aceptan
+cualquier numero mayor a 0, o `null` para desactivar ese techo especifico.
+
+### Flag CLI
+
+Igual que `--policy-config`, `--budget-config` es la **unica** forma de
+sobreescribir el builtin — no hay variable de entorno, para que el techo no
+pueda cambiarse silenciosamente desde el shell:
+
+```bash
+orq exec --agent qwen-code --model qwen3.8-max --task-file tarea.md \
+  --budget-config /ruta/a/budget.json \
+  --models-config /ruta/a/models-catalog.json \
+  --db-path /ruta/al/state.sqlite
+
+orq delegate --agent agy --model kimi-k2.5-ultra-max --execute \
+  --task "..." --budget-config /ruta/a/budget.json \
+  --models-config /ruta/a/models-catalog.json \
+  --db-path /ruta/al/state.sqlite
+```
+
+### Reglas operativas
+
+- **Fallback a policy legacy:** Si el modelo objetivo no tiene `cost_hint`
+  configurado en el catalogo de modelos (`--models-config`), el gate de
+  presupuesto no bloquea nada; `approval_required_model_patterns` sigue
+  siendo la unica autoridad para ese modelo.
+- **Sin techos configurados, nunca bloquea:** con `daily_limit_usd` y
+  `monthly_limit_usd` en `null` (builtin), el gate esta desactivado
+  independientemente del `cost_hint`.
+- **Gasto acumulado, no solo por llamada:** el techo aplica sobre
+  `gasto_ya_registrado + cost_hint_de_esta_llamada`, sumado desde un ledger
+  SQLite (`budget_ledger`, migracion 7 del state DB) agrupado por dia y mes
+  calendario UTC. Una llamada individual barata puede bloquearse si el
+  acumulado del dia ya esta cerca del techo.
+- **No es contabilidad exacta:** `cost_hint` es una estimacion del catalogo,
+  no facturacion real reconciliada. Es un gate heuristico deliberado
+  (alcance de vertical slice); reconciliar contra costo real facturado queda
+  como follow-up.
+
+### Evidencia en salida/receipt/log
+
+- `orq exec --format json`: un bloqueo por presupuesto aparece con
+  `"status": "blocked"` y `"policy_reason": "budget_exceeded: ..."` (mismo
+  campo que un bloqueo por `policy.json`, con el prefijo `budget_exceeded:`
+  para distinguir la causa).
+- `orq delegate --format json`: mismo patron en `"status": "blocked"` y
+  `"reason": "budget_exceeded: ..."`, y por lo tanto tambien en el event log
+  de delegaciones (`delegation_blocked`, ver seccion anterior) — no hizo
+  falta tocar `event_log.rs`, el punto de integracion ya existia.
+- `orq state status --db-path ... --format json`: reporta `budget_ledger`
+  en `tables_present` y `schema_version`/`migrations_applied` con la
+  migracion 7 aplicada.
+
+### Alcance no cubierto en este slice (follow-up)
+
+- `orq route` sigue usando `cost_hint` solo para **ordenar** candidatos ya
+  permitidos (el mas barato gana en empate), no para descartarlos por techo.
+  Aplicar el mismo gate ahi es follow-up explicito.
+- `orq exec` invocado desde `smoke`/`certify` no recibe `--budget-config` ni
+  catalogo de modelos: como no hay `cost_hint` resuelto, el gate queda
+  inactivo para esos caminos (fallback seguro, no una omision silenciosa).
+
 ## Desarrollo
 
 ```bash

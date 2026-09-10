@@ -67,6 +67,7 @@ Usa `orq <comando> --help` antes de ejecutar `exec`, `smoke`, `certify`,
 | `orq-agent/src/bin/orq_agent.rs` | Entrada Rust compatible `orq-agent` |
 | `orq-agent/src/route.rs` | Routing basado en catalogo, certificados y cuota |
 | `orq-agent/src/event_log.rs` | Event log JSONL de delegaciones y watchdog anti-loop (#172) |
+| `orq-agent/src/budget.rs` | Techo real de gasto diario/mensual contra `cost_hint` del catalogo, aplicado en `exec`/`delegate` (#183) |
 | `orq-agent/config/` | Matriz, catalogo y politicas de routing |
 | `cmd/`, `internal/` | Referencia Go archivada; no instalable |
 

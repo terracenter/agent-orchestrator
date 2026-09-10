@@ -66,6 +66,7 @@ Use `orq <command> --help` before running `exec`, `smoke`, `certify`,
 | `orq-agent/src/bin/orq.rs` | Rust CLI installed as `orq` |
 | `orq-agent/src/bin/orq_agent.rs` | Compatible Rust `orq-agent` entry point |
 | `orq-agent/src/route.rs` | Catalog-, certificate-, and quota-aware routing |
+| `orq-agent/src/budget.rs` | Real daily/monthly spend ceiling checked against catalog `cost_hint`, enforced in `exec`/`delegate` (#183) |
 | `orq-agent/config/` | Routing matrix, catalog, and policies |
 | `cmd/`, `internal/` | Archived Go reference; not installable |
 
