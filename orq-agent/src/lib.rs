@@ -159,6 +159,9 @@ enum Commands {
         /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
         #[arg(long)]
         db_path: Option<String>,
+        /// Optional daily availability JSON path. Uses ORQ_DAILY_AVAILABILITY_PATH or default config when omitted.
+        #[arg(long)]
+        daily_availability_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -890,6 +893,7 @@ async fn run_command(command: Commands) -> Result<()> {
             models_config,
             cert_dir,
             db_path,
+            daily_availability_config,
             format,
         } => {
             let decision = commands::route::run(commands::route::RouteArgs {
@@ -900,6 +904,7 @@ async fn run_command(command: Commands) -> Result<()> {
                 models_config,
                 cert_dir,
                 db_path,
+                daily_availability_config,
             })
             .await?;
             print_json(format, &decision)
