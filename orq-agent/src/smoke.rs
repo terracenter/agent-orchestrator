@@ -35,6 +35,9 @@ pub async fn run(
         task_kind,
         home_capabilities,
         task_capabilities,
+        budget: crate::budget::default_loaded_budget().wrap_err("loading default budget config")?,
+        models_catalog: None,
+        state_db_path: None,
     })
     .await;
     let _ = tokio::fs::remove_file(&task_file).await;

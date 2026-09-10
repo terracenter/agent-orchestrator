@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 6;
+const LATEST_SCHEMA_VERSION: i64 = 7;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -161,6 +161,27 @@ pub struct QuotaSnapshotInput {
     pub reset_at_unix: Option<u64>,
     pub captured_at_unix: Option<u64>,
     pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BudgetSpendInput {
+    pub correlation_id: String,
+    pub agent_id: String,
+    pub model_id: String,
+    pub task_kind: String,
+    pub cost_usd: f64,
+    pub created_at_unix: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BudgetSpendRecord {
+    pub id: i64,
+    pub correlation_id: String,
+    pub agent_id: String,
+    pub model_id: String,
+    pub task_kind: String,
+    pub cost_usd: f64,
+    pub created_at_unix: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -411,10 +432,22 @@ impl StateStore {
             })?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (6, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite { context: "record migration 6", source })?;
+        self.conn
+            .execute_batch(MIGRATION_V7)
+            .map_err(|source| StoreError::Sqlite {
+                context: "apply migration 7 (budget_ledger)",
+                source,
+            })?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
-            .map_err(|source| StoreError::Sqlite { context: "record migration 6", source })?;
+            .map_err(|source| StoreError::Sqlite { context: "record migration 7", source })?;
         Ok(())
     }
 
@@ -1354,6 +1387,116 @@ impl StateStore {
         collect_rows(rows, "read all quota snapshots")
     }
 
+    /// Registra el costo estimado de una ejecucion que ya paso el gate de
+    /// presupuesto (`budget::evaluate`). No es contabilidad exacta: es el
+    /// `cost_hint` del catalogo al momento del intento, para poder aplicar
+    /// el techo diario/mensual a intentos subsiguientes.
+    pub fn record_budget_spend(&self, input: &BudgetSpendInput) -> Result<BudgetSpendRecord> {
+        let created_at_unix = input.created_at_unix.unwrap_or_else(now_unix);
+        let created_at_i64 = i64::try_from(created_at_unix).map_err(|_| {
+            StoreError::Config("created_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+
+        self.conn
+            .execute(
+                "INSERT INTO budget_ledger(correlation_id, agent_id, model_id, task_kind, cost_usd, created_at_unix)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    input.correlation_id,
+                    input.agent_id,
+                    input.model_id,
+                    input.task_kind,
+                    input.cost_usd,
+                    created_at_i64,
+                ],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "insert budget ledger row",
+                source,
+            })?;
+
+        let id = self.conn.last_insert_rowid();
+
+        Ok(BudgetSpendRecord {
+            id,
+            correlation_id: input.correlation_id.clone(),
+            agent_id: input.agent_id.clone(),
+            model_id: input.model_id.clone(),
+            task_kind: input.task_kind.clone(),
+            cost_usd: input.cost_usd,
+            created_at_unix,
+        })
+    }
+
+    /// Suma el gasto registrado en el dia calendario UTC actual.
+    pub fn budget_spent_today_usd(&self) -> Result<f64> {
+        self.conn
+            .query_row(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM budget_ledger
+                 WHERE strftime('%Y-%m-%d', created_at_unix, 'unixepoch') = strftime('%Y-%m-%d', 'now')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "sum budget spend for today",
+                source,
+            })
+    }
+
+    /// Suma el gasto registrado en el mes calendario UTC actual.
+    pub fn budget_spent_this_month_usd(&self) -> Result<f64> {
+        self.conn
+            .query_row(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM budget_ledger
+                 WHERE strftime('%Y-%m', created_at_unix, 'unixepoch') = strftime('%Y-%m', 'now')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "sum budget spend for this month",
+                source,
+            })
+    }
+
+    #[allow(dead_code)]
+    pub fn list_budget_ledger(&self) -> Result<Vec<BudgetSpendRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, correlation_id, agent_id, model_id, task_kind, cost_usd, created_at_unix
+                 FROM budget_ledger ORDER BY created_at_unix ASC, id ASC",
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare list budget ledger",
+                source,
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                let created_at_i64: i64 = row.get(6)?;
+                let created_at_unix = u64::try_from(created_at_i64).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Integer,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(BudgetSpendRecord {
+                    id: row.get(0)?,
+                    correlation_id: row.get(1)?,
+                    agent_id: row.get(2)?,
+                    model_id: row.get(3)?,
+                    task_kind: row.get(4)?,
+                    cost_usd: row.get(5)?,
+                    created_at_unix,
+                })
+            })
+            .map_err(|source| StoreError::Sqlite {
+                context: "query list budget ledger",
+                source,
+            })?;
+        collect_rows(rows, "read budget ledger")
+    }
+
     pub fn insert_empirical_record(&self, input: &EmpiricalRecordInput) -> Result<EmpiricalRecord> {
         let created_at_unix = input.created_at_unix.unwrap_or_else(now_unix);
         let created_at_i64 = i64::try_from(created_at_unix).map_err(|_| {
@@ -1920,6 +2063,23 @@ CREATE INDEX IF NOT EXISTS idx_coordination_events_project_issue ON coordination
 CREATE INDEX IF NOT EXISTS idx_coordination_memory_status_agent ON coordination_memory(status, agent_id);
 "#;
 
+/// Ledger de gasto real para el gate de presupuesto (issue #183). Cada fila
+/// es una ejecucion cuyo `cost_usd` (estimado desde `cost_hint` del catalogo
+/// de modelos) ya paso el gate y se considera "gastado" a efectos de techo
+/// diario/mensual, independientemente del resultado final del proceso.
+const MIGRATION_V7: &str = r#"
+CREATE TABLE IF NOT EXISTS budget_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    correlation_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    task_kind TEXT NOT NULL,
+    cost_usd REAL NOT NULL,
+    created_at_unix INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_budget_ledger_created_at ON budget_ledger(created_at_unix);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2371,7 +2531,7 @@ mod tests {
         let status = store.status().expect("status");
 
         assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
-        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5, 6, 7]);
         assert!(status
             .tables_present
             .contains(&"quota_snapshots".to_string()));
@@ -2381,6 +2541,7 @@ mod tests {
         assert!(status
             .tables_present
             .contains(&"empirical_history".to_string()));
+        assert!(status.tables_present.contains(&"budget_ledger".to_string()));
 
         // 3. Verify pre-existing v2 data was preserved
         let agent = store
@@ -2492,6 +2653,78 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].correlation_id, "del-corr-1");
         assert_eq!(all[0].agent, "agy");
+    }
+
+    #[test]
+    fn test_budget_ledger_records_spend_and_sums_today_and_month() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        assert_eq!(store.budget_spent_today_usd().expect("spent today"), 0.0);
+        assert_eq!(
+            store.budget_spent_this_month_usd().expect("spent month"),
+            0.0
+        );
+
+        let now = now_unix();
+        let first = store
+            .record_budget_spend(&BudgetSpendInput {
+                correlation_id: "budget-corr-1".to_string(),
+                agent_id: "kimi-cli".to_string(),
+                model_id: "kimi-k2.5-ultra-max".to_string(),
+                task_kind: "feature".to_string(),
+                cost_usd: 0.75,
+                created_at_unix: Some(now),
+            })
+            .expect("record budget spend 1");
+        assert_eq!(first.cost_usd, 0.75);
+        assert_eq!(first.agent_id, "kimi-cli");
+
+        store
+            .record_budget_spend(&BudgetSpendInput {
+                correlation_id: "budget-corr-2".to_string(),
+                agent_id: "kimi-cli".to_string(),
+                model_id: "kimi-k2.5-ultra-max".to_string(),
+                task_kind: "feature".to_string(),
+                cost_usd: 0.20,
+                created_at_unix: Some(now),
+            })
+            .expect("record budget spend 2");
+
+        assert_eq!(store.budget_spent_today_usd().expect("spent today"), 0.95);
+        assert_eq!(
+            store.budget_spent_this_month_usd().expect("spent month"),
+            0.95
+        );
+
+        let all = store.list_budget_ledger().expect("list budget ledger");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].correlation_id, "budget-corr-1");
+        assert_eq!(all[1].correlation_id, "budget-corr-2");
+    }
+
+    #[test]
+    fn test_budget_ledger_excludes_spend_outside_the_current_day() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.sqlite");
+        let store = open(Some(&path)).expect("open state");
+
+        // 10 dias atras: cuenta para el mes (si sigue siendo el mismo mes
+        // calendario) pero nunca para "hoy".
+        let ten_days_ago = now_unix().saturating_sub(10 * 86_400);
+        store
+            .record_budget_spend(&BudgetSpendInput {
+                correlation_id: "budget-corr-old".to_string(),
+                agent_id: "kimi-cli".to_string(),
+                model_id: "kimi-k2.5-ultra-max".to_string(),
+                task_kind: "feature".to_string(),
+                cost_usd: 3.0,
+                created_at_unix: Some(ten_days_ago),
+            })
+            .expect("record old budget spend");
+
+        assert_eq!(store.budget_spent_today_usd().expect("spent today"), 0.0);
     }
 
     #[test]

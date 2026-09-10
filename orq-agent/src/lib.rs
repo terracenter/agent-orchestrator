@@ -3,6 +3,7 @@ use color_eyre::eyre::Result;
 use serde::Serialize;
 
 mod adapters;
+mod budget;
 mod capabilities;
 mod certify;
 mod certstore;
@@ -99,9 +100,17 @@ enum Commands {
         /// Optional policy config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         policy_config: Option<String>,
+        /// Optional budget config JSON path (issue #183). Uses bundled config
+        /// (no limits, gate disabled) when omitted.
+        #[arg(long)]
+        budget_config: Option<String>,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional models catalog JSON path used to resolve cost_hint for budget
+        /// gating (issue #183). Uses bundled catalog when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
         /// Task kind used to resolve capability grants. Defaults to "unspecified" (no extra
         /// capabilities) when omitted.
         #[arg(long)]
@@ -351,9 +360,17 @@ enum Commands {
         /// Optional policy config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         policy_config: Option<String>,
+        /// Optional budget config JSON path (issue #183). Uses bundled config
+        /// (no limits, gate disabled) when omitted.
+        #[arg(long)]
+        budget_config: Option<String>,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Optional models catalog JSON path used to resolve cost_hint for budget
+        /// gating (issue #183). Uses bundled catalog when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
         /// Task kind used to resolve capability grants. Defaults to "unspecified" (no extra
         /// capabilities) when omitted.
         #[arg(long)]
@@ -801,7 +818,9 @@ async fn run_command(command: Commands) -> Result<()> {
             correlation_id,
             task_id,
             policy_config,
+            budget_config,
             adapters_config,
+            models_config,
             task_kind,
             home_capabilities_config,
             task_capabilities_config,
@@ -810,8 +829,15 @@ async fn run_command(command: Commands) -> Result<()> {
         } => {
             let policy_config_path = policy_config.as_deref().map(std::path::Path::new);
             let policy = policy::load_config(policy_config_path).await?;
+            let budget_config_path = budget_config.as_deref().map(std::path::Path::new);
+            let budget = budget::load_config(budget_config_path).await?;
             let adapters_config_path = adapters_config.as_deref().map(std::path::Path::new);
             let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+            let models_config_path = models_config.as_deref().map(std::path::Path::new);
+            let models_catalog = match models::load_catalog(models_config_path).await {
+                Ok((catalog, _)) => Some(catalog),
+                Err(_) => models::default_catalog().ok(),
+            };
             let home_capabilities_path = home_capabilities_config
                 .as_deref()
                 .map(std::path::Path::new);
@@ -833,6 +859,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 task_kind: task_kind.unwrap_or_else(|| "unspecified".to_string()),
                 home_capabilities,
                 task_capabilities,
+                budget,
+                models_catalog,
+                state_db_path: db_path.clone(),
             })
             .await?;
             persist_exec_receipt(db_path.as_deref(), &receipt, "exec");
@@ -1164,7 +1193,9 @@ async fn run_command(command: Commands) -> Result<()> {
             timeout,
             correlation_id,
             policy_config,
+            budget_config,
             adapters_config,
+            models_config,
             task_kind,
             home_capabilities_config,
             task_capabilities_config,
@@ -1193,10 +1224,13 @@ async fn run_command(command: Commands) -> Result<()> {
                 timeout_seconds: timeout,
                 correlation_id,
                 policy_config,
+                budget_config,
                 adapters_config,
+                models_config,
                 task_kind,
                 home_capabilities_config,
                 task_capabilities_config,
+                db_path: db_path.clone(),
             })
             .await?;
             persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate")?;

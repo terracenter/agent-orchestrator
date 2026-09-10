@@ -1,6 +1,6 @@
 use color_eyre::eyre::Result;
 
-use crate::{adapters, capabilities, delegate, home_sandbox, policy};
+use crate::{adapters, budget, capabilities, delegate, home_sandbox, models, policy};
 
 pub(crate) struct DelegateArgs {
     pub(crate) task: Option<String>,
@@ -19,17 +19,27 @@ pub(crate) struct DelegateArgs {
     pub(crate) timeout_seconds: u64,
     pub(crate) correlation_id: Option<String>,
     pub(crate) policy_config: Option<String>,
+    pub(crate) budget_config: Option<String>,
     pub(crate) adapters_config: Option<String>,
+    pub(crate) models_config: Option<String>,
     pub(crate) task_kind: Option<String>,
     pub(crate) home_capabilities_config: Option<String>,
     pub(crate) task_capabilities_config: Option<String>,
+    pub(crate) db_path: Option<String>,
 }
 
 pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> {
     let policy_config_path = args.policy_config.as_deref().map(std::path::Path::new);
     let policy = policy::load_config(policy_config_path).await?;
+    let budget_config_path = args.budget_config.as_deref().map(std::path::Path::new);
+    let budget = budget::load_config(budget_config_path).await?;
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
+    let models_config_path = args.models_config.as_deref().map(std::path::Path::new);
+    let models_catalog = match models::load_catalog(models_config_path).await {
+        Ok((catalog, _)) => Some(catalog),
+        Err(_) => models::default_catalog().ok(),
+    };
     let home_capabilities_path = args
         .home_capabilities_config
         .as_deref()
@@ -62,6 +72,9 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
         task_kind: args.task_kind.unwrap_or_else(|| "unspecified".to_string()),
         home_capabilities,
         task_capabilities,
+        budget,
+        models_catalog,
+        state_db_path: args.db_path,
     })
     .await
 }

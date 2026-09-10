@@ -1,6 +1,8 @@
 use crate::adapters::{find_adapter_in_registry, AdaptersRegistry};
+use crate::budget::{self, LoadedBudget};
 use crate::capabilities::{self, TaskCapabilitiesConfig};
 use crate::home_sandbox::{self, HomeCapabilitiesConfig, SandboxHome};
+use crate::models::ModelsCatalog;
 use crate::policy::{self, LoadedPolicy};
 use crate::receipt::{now_unix, now_unix_nanos, tail_sanitized, ExecReceipt, ExecStatus};
 use color_eyre::eyre::Result;
@@ -30,6 +32,16 @@ pub struct ExecRequest {
     pub task_kind: String,
     pub home_capabilities: HomeCapabilitiesConfig,
     pub task_capabilities: TaskCapabilitiesConfig,
+    /// Techo diario/mensual real (issue #183). Gate ortogonal a `policy`:
+    /// solo actua cuando el modelo tiene `cost_hint` en `models_catalog`.
+    pub budget: LoadedBudget,
+    /// Catalogo de modelos usado para resolver el `cost_hint` del modelo
+    /// objetivo. `None` deshabilita el gate de presupuesto (fallback a
+    /// `policy` unicamente), igual que un modelo sin `cost_hint`.
+    pub models_catalog: Option<ModelsCatalog>,
+    /// Ruta del state DB (SQLite) usada para leer/registrar el ledger de
+    /// gasto. `None` usa `ORQ_STATE_DB` o el default de `state::open`.
+    pub state_db_path: Option<String>,
 }
 
 pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
@@ -98,6 +110,71 @@ pub async fn run(request: ExecRequest) -> Result<ExecReceipt> {
             fallback_reason: None,
             fallback_attempts: Vec::new(),
         });
+    }
+
+    let model_cost_hint = request
+        .models_catalog
+        .as_ref()
+        .and_then(|catalog| catalog.agents.get(adapter.name()))
+        .and_then(|models| models.iter().find(|m| m.id == request.model))
+        .and_then(|m| m.cost_hint);
+
+    let state_db_path = request.state_db_path.as_deref().map(std::path::Path::new);
+    let (spent_today_usd, spent_month_usd) = match crate::state::open(state_db_path) {
+        Ok(store) => (
+            store.budget_spent_today_usd().unwrap_or(0.0),
+            store.budget_spent_this_month_usd().unwrap_or(0.0),
+        ),
+        Err(_) => (0.0, 0.0),
+    };
+
+    let budget_decision = budget::evaluate(
+        model_cost_hint,
+        &request.budget.config,
+        spent_today_usd,
+        spent_month_usd,
+    );
+
+    if !budget_decision.allowed {
+        return Ok(ExecReceipt {
+            schema_version: 1,
+            correlation_id,
+            agent: request.agent,
+            model: request.model,
+            command: Vec::new(),
+            status: ExecStatus::Blocked,
+            policy_reason: format!("budget_exceeded: {}", budget_decision.reason),
+            policy_source: request.policy.source.clone(),
+            policy_path: request.policy.path.clone(),
+            policy_sha256: request.policy.sha256.clone(),
+            started_at_unix,
+            duration_ms: started.elapsed().as_millis(),
+            timeout_seconds: request.timeout_seconds,
+            exit_code: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+        });
+    }
+
+    if let Some(cost_usd) = budget_decision.estimated_cost_usd {
+        if let Ok(store) = crate::state::open(state_db_path) {
+            let _ = store.record_budget_spend(&crate::state::BudgetSpendInput {
+                correlation_id: correlation_id.clone(),
+                agent_id: request.agent.clone(),
+                model_id: request.model.clone(),
+                task_kind: request.task_kind.clone(),
+                cost_usd,
+                created_at_unix: None,
+            });
+        }
     }
 
     let task_bytes = match tokio::fs::read(&request.task_file).await {

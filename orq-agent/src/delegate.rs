@@ -1,7 +1,9 @@
 use crate::adapters::{find_adapter_in_registry, AdapterStatus, AdaptersRegistry};
+use crate::budget::{self, LoadedBudget};
 use crate::capabilities::{self, TaskCapabilitiesConfig};
 use crate::event_log;
 use crate::home_sandbox::{self, HomeCapabilitiesConfig, SandboxHome};
+use crate::models::ModelsCatalog;
 use crate::policy;
 use crate::receipt::{
     now_unix, now_unix_nanos, tail_sanitized, DelegateReceipt, DelegateStatus, DelegateVerdict,
@@ -40,6 +42,16 @@ pub struct DelegateRequest {
     pub task_kind: String,
     pub home_capabilities: HomeCapabilitiesConfig,
     pub task_capabilities: TaskCapabilitiesConfig,
+    /// Techo diario/mensual real (issue #183). Gate ortogonal a `policy`:
+    /// solo actua cuando el modelo tiene `cost_hint` en `models_catalog`.
+    pub budget: LoadedBudget,
+    /// Catalogo de modelos usado para resolver el `cost_hint` del modelo
+    /// objetivo. `None` deshabilita el gate de presupuesto (fallback a
+    /// `policy` unicamente), igual que un modelo sin `cost_hint`.
+    pub models_catalog: Option<ModelsCatalog>,
+    /// Ruta del state DB (SQLite) usada para leer/registrar el ledger de
+    /// gasto. `None` usa `ORQ_STATE_DB` o el default de `state::open`.
+    pub state_db_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +242,98 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             written_receipt: None,
             receipt,
         });
+    }
+
+    // Gate ortogonal a policy: techo real de gasto diario/mensual (#183).
+    // Solo actua si el modelo objetivo tiene cost_hint en models_catalog;
+    // si no, approval_required_model_patterns sigue siendo la autoridad.
+    let model_cost_hint = request
+        .models_catalog
+        .as_ref()
+        .and_then(|catalog| catalog.agents.get(&target_agent))
+        .and_then(|models| models.iter().find(|m| m.id == target_model))
+        .and_then(|m| m.cost_hint);
+
+    let state_db_path = request.state_db_path.as_deref().map(std::path::Path::new);
+    let (spent_today_usd, spent_month_usd) = match crate::state::open(state_db_path) {
+        Ok(store) => (
+            store.budget_spent_today_usd().unwrap_or(0.0),
+            store.budget_spent_this_month_usd().unwrap_or(0.0),
+        ),
+        Err(_) => (0.0, 0.0),
+    };
+
+    let budget_decision = budget::evaluate(
+        model_cost_hint,
+        &request.budget.config,
+        spent_today_usd,
+        spent_month_usd,
+    );
+
+    if !budget_decision.allowed {
+        let reason = format!("budget_exceeded: {}", budget_decision.reason);
+        let receipt = DelegateReceipt {
+            schema_version: 1,
+            correlation_id: correlation_id.clone(),
+            agent: target_agent.clone(),
+            model: target_model.clone(),
+            command: Vec::new(),
+            status: DelegateStatus::Blocked,
+            reason: Some(reason.clone()),
+            policy_source: request.policy.source.clone(),
+            policy_path: request.policy.path.clone(),
+            policy_sha256: request.policy.sha256.clone(),
+            verdict: DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            started_at_unix,
+            duration_ms: started.elapsed().as_millis(),
+            timeout_seconds: request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS),
+            exit_code: None,
+            secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            task_id: request.task_id.clone(),
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+        };
+        return Ok(DelegateOutput {
+            status: DelegateStatus::Blocked,
+            reason: Some(reason),
+            verdict: DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            agent: target_agent,
+            model: target_model,
+            prompt,
+            command: auto_cmd.clone(),
+            autonomous_command: auto_cmd,
+            next_step: "delegacion bloqueada por presupuesto; ajustar cost_hint en el catalogo \
+                o el techo en budget.json"
+                .to_string(),
+            must_stop_for_delegation: false,
+            supervisor_only,
+            execution_agent_allowed: false,
+            written_handoff: None,
+            written_receipt: None,
+            receipt,
+        });
+    }
+
+    if let Some(cost_usd) = budget_decision.estimated_cost_usd {
+        if let Ok(store) = crate::state::open(state_db_path) {
+            let _ = store.record_budget_spend(&crate::state::BudgetSpendInput {
+                correlation_id: correlation_id.clone(),
+                agent_id: target_agent.clone(),
+                model_id: target_model.clone(),
+                task_kind: request.task_kind.clone(),
+                cost_usd,
+                created_at_unix: None,
+            });
+        }
     }
 
     if let Some(loop_reason) = detect_task_loop(request.task_id.as_deref()) {
@@ -1069,6 +1173,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("agy"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
         let command =
             build_autonomous_command(&request, "agy", "test-model", "diagnose permissions")
@@ -1165,6 +1272,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("custom-no-auto-cmd"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1198,6 +1308,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("agy"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1241,6 +1354,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1285,6 +1401,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1327,6 +1446,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1369,6 +1491,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1411,6 +1536,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1454,6 +1582,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1500,6 +1631,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("claude-code"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1541,6 +1675,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1583,6 +1720,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1631,6 +1771,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let output = run(request).await.expect("run delegate");
@@ -1699,6 +1842,9 @@ mod tests {
             task_kind: "test".to_string(),
             home_capabilities: test_home_capabilities("test-agent"),
             task_capabilities: test_task_capabilities(),
+            budget: crate::budget::default_loaded_budget().unwrap(),
+            models_catalog: None,
+            state_db_path: None,
         };
 
         let pre_head = get_git_head(temp.path()).await;
