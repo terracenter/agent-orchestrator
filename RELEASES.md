@@ -6,6 +6,11 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 
 ### Agregado
 
+- `orq delegate` registra cada transicion de estado en un event log JSONL
+  auditable (`ORQ_EVENT_LOG_PATH`, default `$HOME/.local/state/orq-agent/events.jsonl`)
+  y aplica un watchdog anti-loop minimo que bloquea reintentos cuando el
+  mismo `--task-id` acumula 3+ eventos fallidos/bloqueados/timeout en 600s,
+  como base auditable para reroute adaptivo (#172).
 - `orq` pasa a ser Rust-only en sus rutas operativas: `scripts/install.sh`, `make build`, `make install`, Docker, CI y las guias instalan, prueban y documentan los binarios Rust `orq` y `orq-agent` (#194). El codigo Go queda archivado como referencia de paridad y no se instala.
 - Estándar profesional de presentación GitHub en `docs/github-repository-standard.md`.
 - README en español e inglés rediseñados con badges, estado, quickstart, arquitectura resumida y política documental.

@@ -81,6 +81,42 @@ orq route --daily-availability-config /path/to/file.json --task-kind mechanical 
 - `availability_filtered` (`usize`): number of candidates filtered out by daily availability.
 - `availability_source` (`string`): path to the daily availability file used, or `"none"` if no filter is active.
 
+## Delegation event log and anti-loop watchdog (issue #172)
+
+`orq delegate` records every status transition (planned, blocked, executed,
+validated, failed, timed out) into a local append-only JSONL event log. This
+is the auditable foundation for adaptive reroute (#183/#217/#187); it does
+not implement reroute itself.
+
+### Path and environment variable
+
+```bash
+# Default path: $HOME/.local/state/orq-agent/events.jsonl
+ORQ_EVENT_LOG_PATH=/path/to/events.jsonl orq delegate --agent qwen-code --model qwen3.6-flash --task "..." --task-id my-task
+```
+
+The file is created with `0600` permissions. Each line is a JSON object with
+`schema_version`, `event_kind`, `timestamp_unix`, `correlation_id`,
+`task_id` (when `--task-id` was passed), `agent`, `model`, `status`,
+`verdict`, and optionally `failure_class`, `reason`, `exit_code`. It never
+includes `stdout_tail`/`stderr_tail` or credentials.
+
+`event_kind` is one of: `delegation_planned`, `delegation_command_generated`,
+`delegation_blocked`, `delegation_executed`, `delegation_validated`,
+`delegation_failed`, `delegation_timeout`, `watchdog_loop_detected`.
+
+### Anti-loop watchdog
+
+Before executing the real process (`--execute`), `orq delegate` checks the
+event log: if the same `--task-id` accumulated 3 or more
+failed/blocked/timed-out events within the last 600 seconds, the delegation
+is blocked with `reason` `loop_detected: ...` and the runner is **not**
+executed. Without `--task-id`, the watchdog does not apply (there is no
+stable key to group retries without producing false positives across
+unrelated tasks on the same agent/model). Window and threshold are fixed for
+now (`orq-agent/src/event_log.rs`: `DEFAULT_LOOP_WINDOW_SECONDS`,
+`DEFAULT_LOOP_THRESHOLD`); making them configurable is left as a follow-up.
+
 ## Development
 
 ```bash
