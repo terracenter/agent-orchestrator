@@ -81,6 +81,42 @@ orq route --daily-availability-config /ruta/al/archivo.json --task-kind mechanic
 - `availability_filtered` (`usize`): número de candidatos descartados por el filtro diario.
 - `availability_source` (`string`): ruta al archivo de disponibilidad usado, o `"none"` si no hay filtro activo.
 
+## Event log de delegaciones y watchdog anti-loop (issue #172)
+
+`orq delegate` registra cada transicion de estado (planificado, bloqueado,
+ejecutado, validado, fallido, timeout) en un event log local JSONL
+append-only. Es la base auditable para reroute adaptivo (#183/#217/#187); no
+implementa el reroute en si.
+
+### Ruta y variable de entorno
+
+```bash
+# Ruta por defecto: $HOME/.local/state/orq-agent/events.jsonl
+ORQ_EVENT_LOG_PATH=/ruta/al/events.jsonl orq delegate --agent qwen-code --model qwen3.6-flash --task "..." --task-id mi-tarea
+```
+
+El archivo se crea con permisos `0600`. Cada linea es un objeto JSON con
+`schema_version`, `event_kind`, `timestamp_unix`, `correlation_id`,
+`task_id` (si se paso `--task-id`), `agent`, `model`, `status`, `verdict`,
+y opcionalmente `failure_class`, `reason`, `exit_code`. Nunca incluye
+`stdout_tail`/`stderr_tail` ni credenciales.
+
+`event_kind` toma uno de: `delegation_planned`, `delegation_command_generated`,
+`delegation_blocked`, `delegation_executed`, `delegation_validated`,
+`delegation_failed`, `delegation_timeout`, `watchdog_loop_detected`.
+
+### Watchdog anti-loop
+
+Antes de ejecutar el proceso real (`--execute`), `orq delegate` revisa el
+event log: si el mismo `--task-id` acumulo 3 o mas eventos
+fallidos/bloqueados/timeout en los ultimos 600 segundos, la delegacion se
+bloquea con `reason` `loop_detected: ...` y **no** se ejecuta el runner. Sin
+`--task-id`, el watchdog no aplica (no hay clave estable para agrupar
+reintentos sin generar falsos positivos entre tareas distintas del mismo
+agente/modelo). Ventana y umbral son fijos por ahora
+(`orq-agent/src/event_log.rs`: `DEFAULT_LOOP_WINDOW_SECONDS`,
+`DEFAULT_LOOP_THRESHOLD`); hacerlos configurables queda para un follow-up.
+
 ## Desarrollo
 
 ```bash
