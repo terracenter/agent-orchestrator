@@ -241,6 +241,230 @@ fn exec_supports_external_policy_config() {
         .stdout(predicate::str::contains("should-not-run").not());
 }
 
+/// Issue #183: un modelo caro ficticio que NO contiene "sonnet" ni "opus"
+/// (por lo que `approval_required_model_patterns` jamas lo bloquearia) debe
+/// rechazarse por el gate de presupuesto real cuando su `cost_hint`
+/// configurado excede el techo diario.
+#[test]
+fn exec_budget_config_blocks_expensive_model_without_legacy_name_pattern() {
+    let runner = fake_runner(
+        "budget-expensive-runner",
+        "#!/usr/bin/env bash\necho should-not-run\n",
+    );
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-budget-expensive-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello budget").unwrap();
+
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-budget-expensive-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"budget-agent","binary":"budget-expensive-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    let models_config = std::env::temp_dir().join(format!(
+        "orq-agent-budget-expensive-catalog-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &models_config,
+        r#"{"schema_version":2,"agents":{"budget-agent":[{"id":"kimi-k2.5-ultra-max","source":"test","confidence":"candidate","notes":"","cost_hint":5.0}]}}"#,
+    )
+    .unwrap();
+
+    let budget_config = std::env::temp_dir().join(format!(
+        "orq-agent-budget-expensive-budget-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &budget_config,
+        r#"{"schema_version":1,"currency":"USD","daily_limit_usd":1.0,"monthly_limit_usd":20.0}"#,
+    )
+    .unwrap();
+
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-budget-expensive-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"budget-agent":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
+
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let mut cmd = test_cmd("orq-agent");
+    cmd.env("ORQ_AGENT_BIN_BUDGET_AGENT", runner)
+        .env("ORQ_STATE_DB", &db)
+        .args([
+            "exec",
+            "--agent",
+            "budget-agent",
+            // Modelo caro deliberadamente sin "sonnet" ni "opus" en el nombre:
+            // el gate legacy por patron nunca lo hubiera bloqueado.
+            "--model",
+            "kimi-k2.5-ultra-max",
+            "--task-file",
+            task.to_str().unwrap(),
+            "--adapters-config",
+            registry.to_str().unwrap(),
+            "--models-config",
+            models_config.to_str().unwrap(),
+            "--budget-config",
+            budget_config.to_str().unwrap(),
+            "--home-capabilities-config",
+            home_capabilities.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--timeout",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"blocked\""))
+        .stdout(predicate::str::contains("budget_exceeded"))
+        .stdout(predicate::str::contains("daily_limit_usd"))
+        .stdout(predicate::str::contains("should-not-run").not());
+}
+
+/// Un modelo barato bajo el techo configurado debe permitirse, y llamadas
+/// sucesivas deben acumular gasto real en el ledger (SQLite) hasta que el
+/// techo se agote, sin depender del nombre del modelo.
+#[test]
+fn exec_budget_config_allows_cheap_model_and_persists_spend_across_calls() {
+    let runner = fake_runner(
+        "budget-cheap-runner",
+        "#!/usr/bin/env bash\necho budget-cheap-ok\n",
+    );
+    let task = std::env::temp_dir().join(format!(
+        "orq-agent-budget-cheap-task-{}.md",
+        std::process::id()
+    ));
+    fs::write(&task, "hello cheap budget").unwrap();
+
+    let registry = std::env::temp_dir().join(format!(
+        "orq-agent-budget-cheap-registry-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &registry,
+        r#"{"schema_version":1,"adapters":[{"name":"budget-agent","binary":"budget-cheap-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+    )
+    .unwrap();
+
+    let models_config = std::env::temp_dir().join(format!(
+        "orq-agent-budget-cheap-catalog-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &models_config,
+        r#"{"schema_version":2,"agents":{"budget-agent":[{"id":"kimi-k2.5-mini","source":"test","confidence":"candidate","notes":"","cost_hint":0.01}]}}"#,
+    )
+    .unwrap();
+
+    // Techo bajo a proposito: la primera llamada (0.01) cabe; la segunda
+    // (0.01 + 0.01 acumulado = 0.02) excede 0.015 y debe bloquearse. Esto
+    // prueba que el gasto persiste entre invocaciones separadas del binario
+    // (ledger en SQLite), no solo en memoria del proceso.
+    let budget_config = std::env::temp_dir().join(format!(
+        "orq-agent-budget-cheap-budget-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &budget_config,
+        r#"{"schema_version":1,"currency":"USD","daily_limit_usd":0.015,"monthly_limit_usd":null}"#,
+    )
+    .unwrap();
+
+    let home_capabilities = std::env::temp_dir().join(format!(
+        "orq-agent-budget-cheap-homecap-{}.json",
+        std::process::id()
+    ));
+    fs::write(
+        &home_capabilities,
+        r#"{"schema_version":1,"adapters":{"budget-agent":{"home_paths":[]}}}"#,
+    )
+    .unwrap();
+
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+
+    let common_args = |task: &std::path::Path,
+                       registry: &std::path::Path,
+                       models_config: &std::path::Path,
+                       budget_config: &std::path::Path,
+                       home_capabilities: &std::path::Path,
+                       db: &std::path::Path| {
+        vec![
+            "exec".to_string(),
+            "--agent".to_string(),
+            "budget-agent".to_string(),
+            "--model".to_string(),
+            "kimi-k2.5-mini".to_string(),
+            "--task-file".to_string(),
+            task.to_str().unwrap().to_string(),
+            "--adapters-config".to_string(),
+            registry.to_str().unwrap().to_string(),
+            "--models-config".to_string(),
+            models_config.to_str().unwrap().to_string(),
+            "--budget-config".to_string(),
+            budget_config.to_str().unwrap().to_string(),
+            "--home-capabilities-config".to_string(),
+            home_capabilities.to_str().unwrap().to_string(),
+            "--db-path".to_string(),
+            db.to_str().unwrap().to_string(),
+            "--timeout".to_string(),
+            "5".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ]
+    };
+
+    let mut first_cmd = test_cmd("orq-agent");
+    first_cmd
+        .env("ORQ_AGENT_BIN_BUDGET_AGENT", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args(common_args(
+            &task,
+            &registry,
+            &models_config,
+            &budget_config,
+            &home_capabilities,
+            &db,
+        ))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"succeeded\""))
+        .stdout(predicate::str::contains("budget-cheap-ok"));
+
+    let mut second_cmd = test_cmd("orq-agent");
+    second_cmd
+        .env("ORQ_AGENT_BIN_BUDGET_AGENT", &runner)
+        .env("ORQ_STATE_DB", &db)
+        .args(common_args(
+            &task,
+            &registry,
+            &models_config,
+            &budget_config,
+            &home_capabilities,
+            &db,
+        ))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"blocked\""))
+        .stdout(predicate::str::contains("budget_exceeded"))
+        .stdout(predicate::str::contains("daily_limit_usd"));
+}
+
 #[test]
 fn policy_insecure_env_override_rejected_and_uses_builtin() {
     let (_runner_dir, _runner) =
@@ -456,7 +680,7 @@ fn state_status_creates_temp_db_without_secrets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 6"))
+        .stdout(predicate::str::contains("\"schema_version\": 7"))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
         .stdout(predicate::str::contains("agents"))
         .stdout(predicate::str::contains("models"));
@@ -1347,7 +1571,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 6"))
+        .stdout(predicate::str::contains("\"schema_version\": 7"))
         .stdout(predicate::str::contains("quota_snapshots"));
 
     // Migrate again explicitly
@@ -1363,7 +1587,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 6"));
+        .stdout(predicate::str::contains("\"schema_version\": 7"));
 }
 
 #[test]

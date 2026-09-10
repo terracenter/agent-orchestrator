@@ -6,6 +6,16 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 
 ### Agregado
 
+- `orq exec` y `orq delegate --execute` aplican un techo real de gasto
+  diario/mensual (`orq-agent/config/budget.json`, flag `--budget-config`)
+  contra el `cost_hint` del catalogo de modelos (`--models-config`),
+  ortogonal a `approval_required_model_patterns`: un modelo caro que no
+  contenga `sonnet`/`opus` en el nombre ahora puede rechazarse por costo
+  real. El gasto se persiste en un ledger SQLite nuevo (`budget_ledger`,
+  migracion 7 del state DB) agrupado por dia/mes calendario UTC. Sin
+  `cost_hint` configurado para el modelo, o sin techos en `budget.json`
+  (default builtin), el gate no bloquea nada y la politica por patron sigue
+  siendo la unica autoridad (#183).
 - `orq delegate` registra cada transicion de estado en un event log JSONL
   auditable (`ORQ_EVENT_LOG_PATH`, default `$HOME/.local/state/orq-agent/events.jsonl`)
   y aplica un watchdog anti-loop minimo que bloquea reintentos cuando el

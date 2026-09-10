@@ -117,6 +117,91 @@ unrelated tasks on the same agent/model). Window and threshold are fixed for
 now (`orq-agent/src/event_log.rs`: `DEFAULT_LOOP_WINDOW_SECONDS`,
 `DEFAULT_LOOP_THRESHOLD`); making them configurable is left as a follow-up.
 
+## Real money budget (issue #183)
+
+`orq exec` and `orq delegate --execute` enforce a second gate, orthogonal to
+`approval_required_model_patterns` (`policy.json`): a real daily/monthly
+spend ceiling checked against `cost_hint` (estimated USD per execution) from
+the models catalog. Before this gate, the only spend control was the
+`sonnet`/`opus` substring pattern on the model name — any future expensive
+model (`gpt-5.5`, `gemini-3.1-pro`, `kimi-k2.5`, NVIDIA/OpenRouter
+endpoints) would pass unapproved if it did not contain those substrings.
+
+### Configuration format (`orq-agent/config/budget.json`)
+
+```json
+{
+  "schema_version": 1,
+  "currency": "USD",
+  "daily_limit_usd": null,
+  "monthly_limit_usd": null
+}
+```
+
+The builtin config ships with no limits configured (`null`): the gate is
+disabled by default and does not change existing behavior until someone
+explicitly turns it on. `daily_limit_usd`/`monthly_limit_usd` accept any
+number greater than 0, or `null` to disable that specific ceiling.
+
+### CLI flag
+
+Same as `--policy-config`, `--budget-config` is the **only** way to override
+the builtin — there is no environment variable, so the ceiling cannot be
+changed silently from the shell:
+
+```bash
+orq exec --agent qwen-code --model qwen3.8-max --task-file task.md \
+  --budget-config /path/to/budget.json \
+  --models-config /path/to/models-catalog.json \
+  --db-path /path/to/state.sqlite
+
+orq delegate --agent agy --model kimi-k2.5-ultra-max --execute \
+  --task "..." --budget-config /path/to/budget.json \
+  --models-config /path/to/models-catalog.json \
+  --db-path /path/to/state.sqlite
+```
+
+### Operational rules
+
+- **Legacy policy fallback:** If the target model has no `cost_hint`
+  configured in the models catalog (`--models-config`), the budget gate does
+  not block anything; `approval_required_model_patterns` remains the sole
+  authority for that model.
+- **No limits configured, never blocks:** with `daily_limit_usd` and
+  `monthly_limit_usd` set to `null` (builtin), the gate is disabled
+  regardless of `cost_hint`.
+- **Accumulated spend, not just per call:** the ceiling applies to
+  `already_recorded_spend + this_call's_cost_hint`, summed from a SQLite
+  ledger (`budget_ledger`, state DB migration 7) grouped by UTC calendar day
+  and month. A single cheap call can still be blocked if the day's
+  accumulated spend is already close to the ceiling.
+- **Not exact accounting:** `cost_hint` is a catalog estimate, not
+  reconciled real billing. This is a deliberate heuristic gate (vertical
+  slice scope); reconciling against real billed cost is left as a
+  follow-up.
+
+### Evidence in output/receipt/log
+
+- `orq exec --format json`: a budget block shows `"status": "blocked"` and
+  `"policy_reason": "budget_exceeded: ..."` (same field a `policy.json`
+  block uses, prefixed with `budget_exceeded:` to distinguish the cause).
+- `orq delegate --format json`: same pattern in `"status": "blocked"` and
+  `"reason": "budget_exceeded: ..."`, and therefore also in the delegation
+  event log (`delegation_blocked`, see previous section) — no changes to
+  `event_log.rs` were needed, the integration point already existed.
+- `orq state status --db-path ... --format json`: reports `budget_ledger`
+  in `tables_present` and `schema_version`/`migrations_applied` including
+  migration 7.
+
+### Scope not covered by this slice (follow-up)
+
+- `orq route` still uses `cost_hint` only to **rank** already-allowed
+  candidates (cheapest wins a tie), not to reject them by ceiling. Applying
+  the same gate there is an explicit follow-up.
+- `orq exec` invoked from `smoke`/`certify` does not receive
+  `--budget-config` or a models catalog: since no `cost_hint` resolves, the
+  gate stays inactive for those paths (a safe fallback, not a silent gap).
+
 ## Development
 
 ```bash
