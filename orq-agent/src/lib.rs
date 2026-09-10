@@ -644,6 +644,36 @@ enum ObserverSubcommand {
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
     },
+    /// Send an aggregated capacity snapshot (orq budget usage + RTK token savings) to SGE
+    /// Observer's capacity endpoint (issue #33). Never fails the caller when Observer is
+    /// unreachable -- the outcome is reported in the JSON output, not via process exit status.
+    Snapshot {
+        /// Observer ingestion endpoint URL. Defaults to https://sge-panel.humanbyte.net or ORQ_OBSERVER_ENDPOINT.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Observer host token file path. Defaults to ~/.config/sge-observer/agent-orchestrator.host-token or ORQ_OBSERVER_TOKEN_FILE.
+        #[arg(long)]
+        token_file: Option<String>,
+        /// Build and preview the snapshot payload without performing the HTTP request or requiring a token.
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+        /// Optional output file path to write the formatted snapshot JSON.
+        #[arg(long)]
+        output: Option<String>,
+        /// Optional state DB path. Uses ORQ_STATE_DB or default when omitted.
+        #[arg(long)]
+        db_path: Option<String>,
+        /// Optional budget config JSON path (schema_version/currency/daily_limit_usd/monthly_limit_usd);
+        /// uses bundled builtin (no limits, budget snapshots reported as not_reported) when omitted.
+        #[arg(long)]
+        budget_config: Option<String>,
+        /// Skip shelling out to `rtk gain --format json` for the token savings metric.
+        #[arg(long, default_value_t = false)]
+        skip_rtk: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+        format: OutputFormat,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -1318,6 +1348,29 @@ async fn run_command(command: Commands) -> Result<()> {
                     models_config,
                 })
                 .await?;
+                print_json(format, &report)
+            }
+            ObserverSubcommand::Snapshot {
+                endpoint,
+                token_file,
+                dry_run,
+                output,
+                db_path,
+                budget_config,
+                skip_rtk,
+                format,
+            } => {
+                let report =
+                    commands::observer::run_snapshot(commands::observer::ObserverSnapshotArgs {
+                        endpoint,
+                        token_file,
+                        dry_run,
+                        output,
+                        db_path,
+                        budget_config,
+                        skip_rtk,
+                    })
+                    .await?;
                 print_json(format, &report)
             }
         },
