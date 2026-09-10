@@ -1,5 +1,6 @@
 use crate::adapters::{find_adapter_in_registry, AdapterStatus, AdaptersRegistry};
 use crate::capabilities::{self, TaskCapabilitiesConfig};
+use crate::event_log;
 use crate::home_sandbox::{self, HomeCapabilitiesConfig, SandboxHome};
 use crate::policy;
 use crate::receipt::{
@@ -229,6 +230,59 @@ pub async fn run(request: DelegateRequest) -> Result<DelegateOutput> {
             written_receipt: None,
             receipt,
         });
+    }
+
+    if let Some(loop_reason) = detect_task_loop(request.task_id.as_deref()) {
+        let receipt = DelegateReceipt {
+            schema_version: 1,
+            correlation_id: correlation_id.clone(),
+            agent: target_agent.clone(),
+            model: target_model.clone(),
+            command: Vec::new(),
+            status: DelegateStatus::Blocked,
+            reason: Some(loop_reason.clone()),
+            policy_source: request.policy.source.clone(),
+            policy_path: request.policy.path.clone(),
+            policy_sha256: request.policy.sha256.clone(),
+            verdict: DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            started_at_unix,
+            duration_ms: started.elapsed().as_millis(),
+            timeout_seconds: request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS),
+            exit_code: None,
+            secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            task_id: request.task_id.clone(),
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+        };
+        let mut output = DelegateOutput {
+            status: DelegateStatus::Blocked,
+            reason: Some(loop_reason),
+            verdict: DelegateVerdict::NonUtil,
+            evidence: "none".to_string(),
+            agent: target_agent,
+            model: target_model,
+            prompt,
+            command: auto_cmd.clone(),
+            autonomous_command: auto_cmd,
+            next_step: "delegacion bloqueada por watchdog anti-loop; revisar task_id repetido antes de reintentar"
+                .to_string(),
+            must_stop_for_delegation: false,
+            supervisor_only,
+            execution_agent_allowed: false,
+            written_handoff: None,
+            written_receipt: None,
+            receipt,
+        };
+        write_delegation_artifacts(&request, &mut output).await?;
+        return Ok(output);
     }
 
     let timeout_secs = request.timeout_seconds.clamp(1, MAX_TIMEOUT_SECONDS);
@@ -796,6 +850,51 @@ fn default_model_for_agent(agent: &str) -> String {
     }
 }
 
+/// Watchdog anti-loop minimo (issue #172): si el `task_id` ya acumulo
+/// intentos fallidos/bloqueados/timeout dentro de la ventana configurada,
+/// devuelve la razon `loop_detected` para bloquear el intento actual antes de
+/// ejecutar el proceso real. Sin `task_id`, el watchdog no aplica (no hay
+/// clave estable para agrupar reintentos sin falsos positivos entre tareas
+/// distintas del mismo agente/modelo).
+fn detect_task_loop(task_id: Option<&str>) -> Option<String> {
+    let task_id = task_id?;
+    let log_path = match event_log::resolve_log_path(None) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!(
+                "warning: watchdog anti-loop deshabilitado (no se pudo resolver event log): {err}"
+            );
+            return None;
+        }
+    };
+    let events = match event_log::read_events(&log_path) {
+        Ok(events) => events,
+        Err(err) => {
+            eprintln!(
+                "warning: watchdog anti-loop deshabilitado (no se pudo leer event log): {err}"
+            );
+            return None;
+        }
+    };
+    let now = event_log::now_unix();
+    if event_log::detect_loop(
+        &events,
+        task_id,
+        now,
+        event_log::DEFAULT_LOOP_WINDOW_SECONDS,
+        event_log::DEFAULT_LOOP_THRESHOLD,
+    ) {
+        return Some(format!(
+            "{}: task_id '{}' acumulo >= {} intentos fallidos/bloqueados/timeout en los ultimos {}s",
+            event_log::LOOP_DETECTED_REASON_PREFIX,
+            task_id,
+            event_log::DEFAULT_LOOP_THRESHOLD,
+            event_log::DEFAULT_LOOP_WINDOW_SECONDS,
+        ));
+    }
+    None
+}
+
 fn is_pi_agent(agent: &str) -> bool {
     let norm = agent.to_ascii_lowercase();
     norm == "pi" || norm == "pi-api" || norm.starts_with("pi/")
@@ -918,6 +1017,12 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+    use tokio::sync::Mutex;
+
+    /// Serializa los tests que mutan `ORQ_EVENT_LOG_PATH` (mismo patron que
+    /// `TEST_ENV_MUTEX` en observer.rs) para evitar interferencia entre
+    /// tests que corren en paralelo dentro del mismo proceso.
+    static EVENT_LOG_ENV_MUTEX: Mutex<()> = Mutex::const_new(());
 
     fn test_home_capabilities(adapter_name: &str) -> HomeCapabilitiesConfig {
         let mut adapters = HashMap::new();
@@ -1484,5 +1589,130 @@ mod tests {
         assert_eq!(output.status, DelegateStatus::Validated);
         assert_eq!(output.verdict, DelegateVerdict::Util);
         assert_eq!(output.receipt.task_id, Some("task-test-123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn watchdog_does_not_block_normal_delegation_without_history() {
+        let _guard = EVENT_LOG_ENV_MUTEX.lock().await;
+        let event_log_dir = tempdir().unwrap();
+        let event_log_path = event_log_dir.path().join("events.jsonl");
+        std::env::set_var(
+            crate::event_log::EVENT_LOG_PATH_ENV,
+            event_log_path.display().to_string(),
+        );
+
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+        let script = make_executable_script(
+            temp.path(),
+            "runner_watchdog_ok.sh",
+            "#!/usr/bin/env bash\necho 'change' >> README.md\ngit add README.md\ngit commit -m 'ok'\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("watchdog ok task".to_string()),
+            task_id: Some("task-watchdog-ok".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            allow_gated: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-watchdog-ok".to_string()),
+            policy: test_policy(),
+            adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
+        };
+
+        let output = run(request).await.expect("run delegate");
+        std::env::remove_var(crate::event_log::EVENT_LOG_PATH_ENV);
+
+        assert_eq!(output.status, DelegateStatus::Validated);
+        assert_ne!(output.reason.as_deref(), Some("loop_detected"));
+    }
+
+    #[tokio::test]
+    async fn watchdog_blocks_delegation_after_repeated_task_id_failures() {
+        let _guard = EVENT_LOG_ENV_MUTEX.lock().await;
+        let event_log_dir = tempdir().unwrap();
+        let event_log_path = event_log_dir.path().join("events.jsonl");
+        std::env::set_var(
+            crate::event_log::EVENT_LOG_PATH_ENV,
+            event_log_path.display().to_string(),
+        );
+
+        let now = crate::event_log::now_unix();
+        for i in 0..crate::event_log::DEFAULT_LOOP_THRESHOLD {
+            let event = crate::event_log::OrqEvent {
+                schema_version: crate::event_log::EVENT_LOG_SCHEMA_VERSION,
+                event_kind: crate::event_log::EventKind::DelegationFailed,
+                timestamp_unix: now - i as u64,
+                correlation_id: format!("corr-loop-{i}"),
+                task_id: Some("task-loop".to_string()),
+                agent: "test-agent".to_string(),
+                model: "test-model".to_string(),
+                status: "failed".to_string(),
+                verdict: "non_util".to_string(),
+                failure_class: None,
+                reason: Some("no_executed".to_string()),
+                exit_code: Some(1),
+            };
+            crate::event_log::append_event(&event_log_path, &event).unwrap();
+        }
+
+        let temp = tempdir().unwrap();
+        setup_git_repo(temp.path());
+        let script = make_executable_script(
+            temp.path(),
+            "runner_watchdog_loop.sh",
+            "#!/usr/bin/env bash\necho 'should not run' >> README.md\ngit add README.md\ngit commit -m 'should not happen'\n",
+        );
+        let registry = test_adapters_registry("test-agent", &script);
+
+        let request = DelegateRequest {
+            task: Some("watchdog loop task".to_string()),
+            task_id: Some("task-loop".to_string()),
+            agent: Some("test-agent".to_string()),
+            model: Some("test-model".to_string()),
+            handoff: None,
+            repo_path: Some(temp.path().display().to_string()),
+            agents_dir: None,
+            workspace: None,
+            write_handoff: None,
+            write_receipt: None,
+            force: false,
+            allow_gated: false,
+            execute: true,
+            timeout_seconds: 10,
+            correlation_id: Some("corr-loop-attempt".to_string()),
+            policy: test_policy(),
+            adapters_registry: registry,
+            task_kind: "test".to_string(),
+            home_capabilities: test_home_capabilities("test-agent"),
+            task_capabilities: test_task_capabilities(),
+        };
+
+        let pre_head = get_git_head(temp.path()).await;
+        let output = run(request).await.expect("run delegate");
+        let post_head = get_git_head(temp.path()).await;
+        std::env::remove_var(crate::event_log::EVENT_LOG_PATH_ENV);
+
+        assert_eq!(output.status, DelegateStatus::Blocked);
+        assert!(output
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with(crate::event_log::LOOP_DETECTED_REASON_PREFIX));
+        // El watchdog debe impedir la ejecucion real del runner: sin commit nuevo.
+        assert_eq!(pre_head, post_head);
     }
 }

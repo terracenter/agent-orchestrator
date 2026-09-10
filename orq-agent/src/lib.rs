@@ -11,6 +11,7 @@ pub mod compliance;
 pub mod delegate;
 mod detect;
 mod discover;
+pub mod event_log;
 mod exec;
 pub mod failover;
 mod home_sandbox;
@@ -1199,6 +1200,7 @@ async fn run_command(command: Commands) -> Result<()> {
             })
             .await?;
             persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate")?;
+            append_delegate_event(&output.receipt);
             persist_delegate_coordination(
                 db_path.as_deref(),
                 &output.receipt,
@@ -1431,6 +1433,23 @@ fn persist_delegate_receipt(
     let store = state::open(path)?;
     store.insert_delegate_receipt(receipt, task_kind)?;
     Ok(())
+}
+
+/// Registra el evento auditable de la delegacion en el event log JSONL
+/// (issue #172). No es fatal: un fallo de disco/permiso se advierte por
+/// stderr pero no aborta el comando, igual que `persist_exec_receipt`.
+fn append_delegate_event(receipt: &receipt::DelegateReceipt) {
+    let path = match event_log::resolve_log_path(None) {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("warning: no se pudo resolver la ruta del event log: {err}");
+            return;
+        }
+    };
+    let event = event_log::event_from_receipt(receipt);
+    if let Err(err) = event_log::append_event(&path, &event) {
+        eprintln!("warning: no se pudo registrar el evento de delegacion: {err}");
+    }
 }
 
 fn persist_delegate_coordination(
