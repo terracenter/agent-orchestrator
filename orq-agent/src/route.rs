@@ -54,10 +54,16 @@ pub struct LoadedDailyAvailability {
 impl DailyAvailability {
     pub fn is_agent_available(&self, agent: &str) -> bool {
         if !self.available_agents.is_empty() {
-            return self.available_agents.iter().any(|a| agent_matches(a, agent));
+            return self
+                .available_agents
+                .iter()
+                .any(|a| agent_matches(a, agent));
         }
         if !self.unavailable_agents.is_empty() {
-            return !self.unavailable_agents.iter().any(|u| agent_matches(u, agent));
+            return !self
+                .unavailable_agents
+                .iter()
+                .any(|u| agent_matches(u, agent));
         }
         true
     }
@@ -92,8 +98,8 @@ pub async fn load_daily_availability(
         let content = tokio::fs::read_to_string(path)
             .await
             .wrap_err_with(|| format!("reading daily availability config {}", path.display()))?;
-        let availability: DailyAvailability = serde_json::from_str(&content)
-            .wrap_err("parsing daily availability config json")?;
+        let availability: DailyAvailability =
+            serde_json::from_str(&content).wrap_err("parsing daily availability config json")?;
         return Ok(LoadedDailyAvailability {
             availability,
             source: path.display().to_string(),
@@ -104,9 +110,9 @@ pub async fn load_daily_availability(
     if let Ok(env_path) = std::env::var(DAILY_AVAILABILITY_ENV_VAR) {
         if !env_path.trim().is_empty() {
             let path = Path::new(&env_path);
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading daily availability config {}", path.display()))?;
+            let content = tokio::fs::read_to_string(path).await.wrap_err_with(|| {
+                format!("reading daily availability config {}", path.display())
+            })?;
             return parse_daily_availability(&content, &path.display().to_string());
         }
     }
@@ -119,7 +125,9 @@ pub async fn load_daily_availability(
         if candidate.exists() {
             let content = tokio::fs::read_to_string(candidate)
                 .await
-                .wrap_err_with(|| format!("reading daily availability config {}", candidate.display()))?;
+                .wrap_err_with(|| {
+                    format!("reading daily availability config {}", candidate.display())
+                })?;
             return parse_daily_availability(&content, &candidate.display().to_string());
         }
     }
@@ -283,16 +291,16 @@ pub fn decide_with_detected(
         .iter()
         .find(|route| route.task_kind == task_kind)
         .ok_or_else(|| eyre!("task_kind {task_kind} is not present in routing config"))?;
-    let selected = select_route(
-        rule,
-        &config.approval_required_model_patterns,
-        &detected.agents,
+    let ctx = SelectionContext {
+        approval_patterns: &config.approval_required_model_patterns,
+        detected: &detected.agents,
         allow_gated,
         certificate_store,
         state_store,
         models_catalog,
         daily_availability,
-    );
+    };
+    let selected = select_route(rule, &ctx);
 
     let (availability_filter_used, availability_source) = match daily_availability {
         Some(loaded) => (loaded.active, loaded.source.clone()),
@@ -524,16 +532,17 @@ impl EvaluatedCandidate {
     }
 }
 
-fn select_route(
-    rule: &RouteRule,
-    approval_patterns: &[String],
-    detected: &[AgentDetection],
+struct SelectionContext<'a> {
+    approval_patterns: &'a [String],
+    detected: &'a [AgentDetection],
     allow_gated: bool,
-    certificate_store: Option<&CertificateStore>,
-    state_store: Option<&StateStore>,
-    models_catalog: Option<&crate::models::ModelsCatalog>,
-    daily_availability: Option<&LoadedDailyAvailability>,
-) -> SelectedRoute {
+    certificate_store: Option<&'a CertificateStore>,
+    state_store: Option<&'a StateStore>,
+    models_catalog: Option<&'a crate::models::ModelsCatalog>,
+    daily_availability: Option<&'a LoadedDailyAvailability>,
+}
+
+fn select_route(rule: &RouteRule, ctx: &SelectionContext<'_>) -> SelectedRoute {
     let raw_candidates = [
         candidate_from_parts(&rule.default_agent, &rule.default_model, false),
         candidate_from_expr(&rule.cheap_sufficient, true),
@@ -544,12 +553,13 @@ fn select_route(
     let mut availability_filtered = 0usize;
     let mut allowed_candidates: Vec<EvaluatedCandidate> = Vec::new();
 
-    let quota_snapshots = state_store
+    let quota_snapshots = ctx
+        .state_store
         .and_then(|store| store.latest_quota_snapshots(None).ok())
         .unwrap_or_default();
 
     for (index, candidate) in raw_candidates.into_iter().flatten().enumerate() {
-        if let Some(store) = state_store {
+        if let Some(store) = ctx.state_store {
             match store.breaker_allows_model(&candidate.agent, &candidate.model) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -563,7 +573,7 @@ fn select_route(
             }
         }
 
-        let is_available = match daily_availability {
+        let is_available = match ctx.daily_availability {
             Some(loaded) if loaded.active => {
                 loaded.availability.is_agent_available(&candidate.agent)
             }
@@ -575,7 +585,8 @@ fn select_route(
         }
 
         let mut preferred_cert = None;
-        if let Some(certificate) = certificate_store
+        if let Some(certificate) = ctx
+            .certificate_store
             .and_then(|store| store.lookup(&candidate.agent, &candidate.model, &rule.task_kind))
         {
             if is_failed(certificate) {
@@ -586,14 +597,14 @@ fn select_route(
             }
         }
 
-        let status = match detected_status(detected, &candidate.agent) {
+        let status = match detected_status(ctx.detected, &candidate.agent) {
             Some(status) => status,
             None => continue,
         };
 
         let policy_config = policy::PolicyConfig {
             schema_version: 1,
-            approval_required_model_patterns: approval_patterns.to_vec(),
+            approval_required_model_patterns: ctx.approval_patterns.to_vec(),
             blocked_adapter_statuses: vec!["deprecated_or_quarantine".to_string()],
             gated_adapter_statuses: vec!["gated".to_string()],
         };
@@ -601,7 +612,7 @@ fn select_route(
             &candidate.agent,
             &candidate.model,
             status,
-            allow_gated,
+            ctx.allow_gated,
             &policy_config,
         );
         if !policy_eval.allowed {
@@ -611,7 +622,7 @@ fn select_route(
         let now_unix = crate::quota::now_unix();
         let catalog_ttl = crate::models::default_catalog_ttl_secs();
 
-        let (cost_hint, promo, model_status, is_stale) = if let Some(catalog) = models_catalog {
+        let (cost_hint, promo, model_status, is_stale) = if let Some(catalog) = ctx.models_catalog {
             if let Some(agent_models) = catalog.agents.get(&candidate.agent) {
                 if let Some(m) = agent_models.iter().find(|m| m.id == candidate.model) {
                     (
@@ -636,7 +647,7 @@ fn select_route(
         );
 
         let is_gated = matches!(status, AdapterStatus::Gated);
-        let requires_conf = requires_confirmation(status, &candidate.model, approval_patterns);
+        let requires_conf = requires_confirmation(status, &candidate.model, ctx.approval_patterns);
         let policy_reason = match &preferred_cert {
             Some(certificate_id) => format!("certified:{certificate_id}; {}", policy_eval.reason),
             None => policy_eval.reason,
@@ -654,7 +665,7 @@ fn select_route(
                 policy_reason,
                 preferred_certificate: preferred_cert,
                 circuit_breaker_filtered: 0,
-                quota_aware: state_store.is_some(),
+                quota_aware: ctx.state_store.is_some(),
                 quota_penalized_candidates: Vec::new(),
                 availability_filtered: 0,
             },
@@ -684,7 +695,7 @@ fn select_route(
             policy_reason: reason,
             preferred_certificate: None,
             circuit_breaker_filtered,
-            quota_aware: state_store.is_some(),
+            quota_aware: ctx.state_store.is_some(),
             quota_penalized_candidates: Vec::new(),
             availability_filtered,
         };
@@ -754,7 +765,7 @@ fn select_route(
 
     let mut chosen = allowed_candidates.remove(0).selected;
     chosen.circuit_breaker_filtered = circuit_breaker_filtered;
-    chosen.quota_aware = state_store.is_some();
+    chosen.quota_aware = ctx.state_store.is_some();
     chosen.quota_penalized_candidates = quota_penalized_candidates;
     chosen.availability_filtered = availability_filtered;
 
@@ -2597,7 +2608,8 @@ mod tests {
             "unavailable_agents": [],
             "notes": "allowlist test"
         }"#;
-        let availability = super::parse_daily_availability(daily_json, "test_allowlist.json").unwrap();
+        let availability =
+            super::parse_daily_availability(daily_json, "test_allowlist.json").unwrap();
 
         let decision = decide_with_detected(
             &config,
@@ -2672,7 +2684,8 @@ mod tests {
             "unavailable_agents": ["qwen-code"],
             "notes": "denylist test"
         }"#;
-        let availability = super::parse_daily_availability(daily_json, "test_denylist.json").unwrap();
+        let availability =
+            super::parse_daily_availability(daily_json, "test_denylist.json").unwrap();
 
         let decision = decide_with_detected(
             &config,
@@ -2744,7 +2757,8 @@ mod tests {
             "unavailable_agents": [],
             "notes": "neither candidate available"
         }"#;
-        let availability = super::parse_daily_availability(daily_json, "test_all_unavailable.json").unwrap();
+        let availability =
+            super::parse_daily_availability(daily_json, "test_all_unavailable.json").unwrap();
 
         let decision = decide_with_detected(
             &config,
