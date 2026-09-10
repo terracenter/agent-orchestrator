@@ -47,6 +47,11 @@ orq discover --format json
 orq agents discover
 orq models --agent qwen-code --format json
 orq route --task-kind mechanical --format json
+
+# Enrutar con disponibilidad diaria de agentes (allowlist/denylist)
+ORQ_DAILY_AVAILABILITY_PATH=config/daily-availability.json orq route --task-kind mechanical --format json
+orq route --daily-availability-config config/daily-availability.json --task-kind mechanical --format json
+
 orq quota --help
 orq compliance --rtk-usage --format json
 ```
