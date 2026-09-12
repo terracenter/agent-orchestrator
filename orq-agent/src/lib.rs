@@ -1265,6 +1265,7 @@ async fn run_command(command: Commands) -> Result<()> {
             .await?;
             persist_delegate_receipt(db_path.as_deref(), &output.receipt, "delegate")?;
             append_delegate_event(&output.receipt);
+            ingest_delegate_receipts_best_effort(db_path.as_deref());
             persist_delegate_coordination(
                 db_path.as_deref(),
                 &output.receipt,
@@ -1520,6 +1521,24 @@ fn persist_delegate_receipt(
     let store = state::open(path)?;
     store.insert_delegate_receipt(receipt, task_kind)?;
     Ok(())
+}
+
+/// Dispara `score::ingest_from_delegate_receipts` tras persistir cada delegate receipt,
+/// cerrando el lazo receipts -> empirical_history sin requerir `orq score
+/// ingest-from-receipts` manual. No es fatal: un fallo aqui no debe invalidar una
+/// delegacion que ya se persistio correctamente, igual que `persist_exec_receipt`.
+fn ingest_delegate_receipts_best_effort(db_path: Option<&str>) {
+    let path = db_path.map(std::path::Path::new);
+    let store = match state::open(path) {
+        Ok(store) => store,
+        Err(err) => {
+            eprintln!("warning: no se pudo abrir el store para ingest-from-receipts: {err}");
+            return;
+        }
+    };
+    if let Err(err) = score::ingest_from_delegate_receipts(&store) {
+        eprintln!("warning: fallo el ingest automatico de delegate receipts: {err}");
+    }
 }
 
 /// Registra el evento auditable de la delegacion en el event log JSONL
