@@ -2887,6 +2887,41 @@ fn score_ingest_from_receipts_and_aggregate() {
 }
 
 #[test]
+fn delegate_auto_ingests_receipt_into_empirical_history() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db = temp_dir.path().join("state.sqlite");
+
+    Command::cargo_bin("orq-agent")
+        .unwrap()
+        .args([
+            "delegate",
+            "--task",
+            "test auto ingest tras delegate",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "qwen3.6-flash",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    // No se corrio `orq score ingest-from-receipts` manualmente: el delegate
+    // en si mismo debe haber disparado el ingest y poblado empirical_history.
+    let store = orq_agent::state::open(Some(&db)).unwrap();
+    let records = store
+        .list_empirical_history(&orq_agent::state::EmpiricalHistoryFilter::default())
+        .unwrap();
+    assert!(
+        !records.is_empty(),
+        "empirical_history deberia tener al menos un registro tras delegate sin ingest manual"
+    );
+}
+
+#[test]
 fn orq_alias_supports_score_subcommands() {
     let mut cmd = Command::cargo_bin("orq").unwrap();
     cmd.args(["score", "weights", "--format", "json"])
