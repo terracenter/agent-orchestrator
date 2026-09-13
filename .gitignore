@@ -1,9 +1,3 @@
-# Local agent/internal files
-/CLAUDE.md
-/CLAUDE.es-VE.md
-/TASK_LOG.md
-/DEVELOPMENT_LOG.md
-
 # Local binaries/state
 .state/
 /bin/
