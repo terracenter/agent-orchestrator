@@ -7,6 +7,25 @@ import (
 
 var reGoKeyword = regexp.MustCompile(`\bgo\b`)
 
+var reCriticalSignals = compileCriticalSignalPatterns([]string{
+	"validacion critica", "validación crítica", "revision critica", "revisión crítica",
+	"posible falso positivo", "falso positivo", "diagnostico dudoso", "diagnóstico dudoso",
+	"deploy", "despliegue", "produccion", "producción", "cwp", "workflow", "github actions", "ci/cd",
+	"ssh", "exec request failed", "postmortem", "incidente",
+})
+
+// compileCriticalSignalPatterns compila cada señal como palabra o frase completa. El límite
+// excluye letras, dígitos, "_", ".", "-" y "/" (en vez de usar \b, que trata "-" como límite
+// de palabra) para que una señal como "cwp" o "deploy" no dispare al aparecer embebida en un
+// nombre de archivo o ruta (ej. "deploy-cwp-estandar.md").
+func compileCriticalSignalPatterns(signals []string) []*regexp.Regexp {
+	patterns := make([]*regexp.Regexp, len(signals))
+	for i, signal := range signals {
+		patterns[i] = regexp.MustCompile(`(?:^|[^\p{L}\p{N}_./-])` + regexp.QuoteMeta(signal) + `(?:$|[^\p{L}\p{N}_./-])`)
+	}
+	return patterns
+}
+
 const (
 	AnthropicOpusCriticalModel = "claude-opus-4-1-20250805"
 	AnthropicSonnetReviewModel = "claude-sonnet-4-5-20250929"
@@ -60,14 +79,8 @@ func Classify(task string) string {
 }
 
 func isCriticalReview(text string) bool {
-	criticalSignals := []string{
-		"validacion critica", "validación crítica", "revision critica", "revisión crítica",
-		"posible falso positivo", "falso positivo", "diagnostico dudoso", "diagnóstico dudoso",
-		"deploy", "despliegue", "produccion", "producción", "cwp", "workflow", "github actions", "ci/cd",
-		"ssh", "exec request failed", "postmortem", "incidente",
-	}
-	for _, signal := range criticalSignals {
-		if strings.Contains(text, signal) {
+	for _, re := range reCriticalSignals {
+		if re.MatchString(text) {
 			return true
 		}
 	}
