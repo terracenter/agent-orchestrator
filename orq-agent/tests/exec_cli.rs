@@ -510,7 +510,7 @@ fn policy_insecure_env_override_rejected_and_uses_builtin() {
         .success()
         .stdout(predicate::str::contains("\"status\": \"blocked\""))
         .stdout(predicate::str::contains(
-            "agent claude-code is gated; pass --allow-gated after human approval",
+            "agent claude-code is gated; pass --allow-gated-adapter after human approval",
         ))
         .stdout(predicate::str::contains("\"policy_source\": \"builtin\""))
         .stdout(predicate::str::contains("\"policy_path\": \"builtin\""))
@@ -1749,7 +1749,11 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
             "route",
             "--task-kind",
             "debugging",
-            "--allow-gated",
+            "--allow-gated-adapter",
+            "--approve-model",
+            "claude-sonnet-5",
+            "--approve-reason",
+            "debugging quota test",
             "--db-path",
             db.to_str().unwrap(),
             "--format",
@@ -3566,4 +3570,436 @@ fn coordination_cli_rejects_invalid_status() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid coordination status"));
+}
+
+#[test]
+fn exec_plan_mode_emits_receipt_without_running_or_spending() {
+    let runner_path = fake_runner(
+        "qwen-plan-runner",
+        "#!/usr/bin/env bash\necho 'SPAWNED'\nexit 1\n",
+    );
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let task_file = state_dir.path().join("task.md");
+    std::fs::write(&task_file, "plan only task").unwrap();
+
+    let output = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                fake_runner_dir().display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "model-1",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--plan",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "planned");
+    assert_eq!(json["executed"], false);
+    assert!(json["plan_hash"].is_string());
+    assert!(json["command"].is_array());
+    assert_eq!(json["stdout_tail"], "");
+    assert_eq!(json["stderr_tail"], "");
+}
+
+#[test]
+fn exec_apply_mode_executes_plan_and_records_spend() {
+    let runner_dir = tempfile::tempdir().unwrap();
+    let runner_path = runner_dir.path().join("qwen");
+    fs::write(
+        &runner_path,
+        "#!/usr/bin/env bash\necho 'EXECUTED OK'\nexit 0\n",
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&runner_path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&runner_path, perms).unwrap();
+
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let task_file = state_dir.path().join("task.md");
+    std::fs::write(&task_file, "apply task").unwrap();
+
+    let runner_path_env = format!(
+        "{}:{}",
+        runner_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    // 1. Emit plan receipt
+    let plan_output = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "model-1",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--plan",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(plan_output.status.success());
+    let plan_file = state_dir.path().join("plan.json");
+    std::fs::write(&plan_file, &plan_output.stdout).unwrap();
+
+    // 2. Apply the plan receipt
+    let apply_output = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--apply",
+            plan_file.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(apply_output.status.success());
+    let stdout = String::from_utf8(apply_output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["status"], "succeeded");
+    assert_eq!(json["executed"], true);
+    assert_eq!(json["exit_code"], 0);
+    assert!(json["stdout_tail"]
+        .as_str()
+        .unwrap()
+        .contains("EXECUTED OK"));
+}
+
+#[test]
+fn exec_apply_mode_rejects_tampered_plan_hash() {
+    let runner_dir = tempfile::tempdir().unwrap();
+    let runner_path = runner_dir.path().join("qwen");
+    fs::write(
+        &runner_path,
+        "#!/usr/bin/env bash\necho 'SHOULD NOT RUN'\nexit 0\n",
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&runner_path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&runner_path, perms).unwrap();
+
+    let state_dir = tempfile::tempdir().unwrap();
+    let db = state_dir.path().join("state.sqlite");
+    let task_file = state_dir.path().join("task.md");
+    std::fs::write(&task_file, "tamper test").unwrap();
+
+    let runner_path_env = format!(
+        "{}:{}",
+        runner_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    // 1. Emit plan receipt
+    let plan_output = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "model-1",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--plan",
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(plan_output.status.success());
+
+    // 2. Tamper the plan receipt (modify command)
+    let mut json: serde_json::Value = serde_json::from_slice(&plan_output.stdout).unwrap();
+    json["command"] = serde_json::json!(["rm", "-rf", "/"]);
+    let tampered_file = state_dir.path().join("tampered_plan.json");
+    std::fs::write(&tampered_file, serde_json::to_string(&json).unwrap()).unwrap();
+
+    // 3. Applying tampered plan should fail with InvalidRequest
+    let apply_output = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--apply",
+            tampered_file.to_str().unwrap(),
+            "--db-path",
+            db.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(apply_output.status.success());
+    let stdout = String::from_utf8(apply_output.stdout).unwrap();
+    let resp: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(resp["status"], "invalid_request");
+    assert_eq!(resp["executed"], false);
+    assert!(resp["policy_reason"]
+        .as_str()
+        .unwrap()
+        .contains("verification failed"));
+}
+
+#[test]
+fn policy_separated_gated_adapter_approval_enforcement() {
+    let runner_path = fake_runner("claude-gated-runner", "#!/usr/bin/env bash\necho ok\n");
+    let state_dir = tempfile::tempdir().unwrap();
+    let task_file = state_dir.path().join("task.md");
+    std::fs::write(&task_file, "policy test").unwrap();
+
+    let runner_path_env = format!(
+        "{}:{}",
+        fake_runner_dir().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    // 1. Without approval flags -> blocked
+    let out1 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_CLAUDE_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "claude-code",
+            "--model",
+            "model-1",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp1: serde_json::Value = serde_json::from_slice(&out1.stdout).unwrap();
+    assert_eq!(resp1["status"], "blocked");
+    assert_eq!(resp1["executed"], false);
+    assert!(resp1["policy_reason"].as_str().unwrap().contains("gated"));
+
+    // 2. With allow-gated-adapter but missing approve-reason -> blocked
+    let out2 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_CLAUDE_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "claude-code",
+            "--model",
+            "model-1",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--allow-gated-adapter",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp2: serde_json::Value = serde_json::from_slice(&out2.stdout).unwrap();
+    assert_eq!(resp2["status"], "blocked");
+    assert!(resp2["policy_reason"]
+        .as_str()
+        .unwrap()
+        .contains("requires a non-empty reason"));
+
+    // 3. With allow-gated-adapter AND approve-reason -> allowed / executed
+    let out3 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_CLAUDE_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "claude-code",
+            "--model",
+            "model-1",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--allow-gated-adapter",
+            "--approve-reason",
+            "authorized for maintenance",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp3: serde_json::Value = serde_json::from_slice(&out3.stdout).unwrap();
+    assert_eq!(resp3["status"], "succeeded");
+    assert_eq!(resp3["executed"], true);
+}
+
+#[test]
+fn policy_separated_restricted_model_approval_enforcement() {
+    let runner_path = fake_runner("qwen-model-runner", "#!/usr/bin/env bash\necho ok\n");
+    let state_dir = tempfile::tempdir().unwrap();
+    let task_file = state_dir.path().join("task.md");
+    std::fs::write(&task_file, "model test").unwrap();
+
+    let policy_file = state_dir.path().join("policy.json");
+    let policy_json = r#"{
+        "schema_version": 1,
+        "approval_required_model_patterns": ["opus", "claude-3-opus"],
+        "blocked_adapter_statuses": [],
+        "gated_adapter_statuses": []
+    }"#;
+    std::fs::write(&policy_file, policy_json).unwrap();
+
+    let runner_path_env = format!(
+        "{}:{}",
+        fake_runner_dir().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    // 1. Gated model without approval -> blocked
+    let out1 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "claude-3-opus-20240229",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--policy-config",
+            policy_file.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp1: serde_json::Value = serde_json::from_slice(&out1.stdout).unwrap();
+    assert_eq!(resp1["status"], "blocked");
+    assert!(resp1["policy_reason"]
+        .as_str()
+        .unwrap()
+        .contains("requires explicit human approval"));
+
+    // 2. Passing allow-gated-adapter DOES NOT approve restricted model -> still blocked!
+    let out2 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "claude-3-opus-20240229",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--policy-config",
+            policy_file.to_str().unwrap(),
+            "--allow-gated-adapter",
+            "--approve-reason",
+            "approved adapter only",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp2: serde_json::Value = serde_json::from_slice(&out2.stdout).unwrap();
+    assert_eq!(resp2["status"], "blocked");
+    assert!(resp2["policy_reason"]
+        .as_str()
+        .unwrap()
+        .contains("requires explicit human approval"));
+
+    // 3. Passing approve-model for a different model -> still blocked
+    let out3 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "claude-3-opus-20240229",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--policy-config",
+            policy_file.to_str().unwrap(),
+            "--approve-model",
+            "some-other-model",
+            "--approve-reason",
+            "approved other",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp3: serde_json::Value = serde_json::from_slice(&out3.stdout).unwrap();
+    assert_eq!(resp3["status"], "blocked");
+    assert!(resp3["policy_reason"]
+        .as_str()
+        .unwrap()
+        .contains("requires explicit human approval"));
+
+    // 4. Passing matching approve-model and approve-reason -> allowed / executed
+    let out4 = Command::cargo_bin("orq-agent")
+        .unwrap()
+        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("PATH", &runner_path_env)
+        .args([
+            "exec",
+            "--agent",
+            "qwen-code",
+            "--model",
+            "claude-3-opus-20240229",
+            "--task-file",
+            task_file.to_str().unwrap(),
+            "--policy-config",
+            policy_file.to_str().unwrap(),
+            "--approve-model",
+            "claude-3-opus-20240229",
+            "--approve-reason",
+            "deep reasoning task approved",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let resp4: serde_json::Value = serde_json::from_slice(&out4.stdout).unwrap();
+    assert_eq!(resp4["status"], "succeeded");
+    assert_eq!(resp4["executed"], true);
 }

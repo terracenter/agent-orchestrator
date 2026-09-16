@@ -45,6 +45,7 @@ pub struct FallbackAttempt {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecStatus {
+    Planned,
     Succeeded,
     Failed,
     TimedOut,
@@ -53,7 +54,7 @@ pub enum ExecStatus {
     InvalidRequest,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecReceipt {
     pub schema_version: u8,
     pub correlation_id: String,
@@ -61,6 +62,8 @@ pub struct ExecReceipt {
     pub model: String,
     pub command: Vec<String>,
     pub status: ExecStatus,
+    #[serde(default)]
+    pub executed: bool,
     pub policy_reason: String,
     #[serde(default = "default_policy_source")]
     pub policy_source: String,
@@ -89,6 +92,10 @@ pub struct ExecReceipt {
     pub fallback_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback_attempts: Vec<FallbackAttempt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -180,6 +187,12 @@ pub fn receipt_sha256(receipt: &ExecReceipt) -> Result<String> {
     Ok(hex_sha256(&receipt_json))
 }
 
+pub fn plan_receipt_sha256(receipt: &ExecReceipt) -> Result<String> {
+    let mut unanchored = receipt.clone();
+    unanchored.plan_hash = None;
+    receipt_sha256(&unanchored)
+}
+
 pub fn delegate_receipt_sha256(receipt: &DelegateReceipt) -> Result<String> {
     let receipt_json =
         serde_json::to_vec(receipt).wrap_err("serializing delegate receipt for sha256")?;
@@ -228,11 +241,14 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            executed: true,
             failure_class: None,
             fallback_agent: None,
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            estimated_cost_usd: None,
+            plan_hash: None,
             policy_source: "builtin".to_string(),
             policy_path: "builtin".to_string(),
             policy_sha256: "test-sha256".to_string(),
@@ -283,5 +299,50 @@ mod tests {
         let hash = delegate_receipt_sha256(&receipt).expect("hash delegate receipt");
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_plan_receipt_hash_verification() {
+        let mut receipt = ExecReceipt {
+            schema_version: 1,
+            correlation_id: "plan-test-123".to_string(),
+            agent: "agy".to_string(),
+            model: "gemini-3.7-flash-high".to_string(),
+            command: vec!["rtk".to_string(), "agy".to_string()],
+            status: ExecStatus::Planned,
+            executed: false,
+            policy_reason: "allowed".to_string(),
+            started_at_unix: 1000,
+            duration_ms: 10,
+            timeout_seconds: 30,
+            exit_code: None,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
+            estimated_cost_usd: Some(0.005),
+            plan_hash: None,
+        };
+
+        let hash = super::plan_receipt_sha256(&receipt).expect("plan hash");
+        receipt.plan_hash = Some(hash.clone());
+
+        // Valid hash verification
+        assert_eq!(super::plan_receipt_sha256(&receipt).unwrap(), hash);
+
+        // Tampered receipt (e.g. modified command) fails hash check
+        let mut tampered = receipt.clone();
+        tampered.command = vec!["rtk".to_string(), "malicious".to_string()];
+        let tampered_hash = super::plan_receipt_sha256(&tampered).unwrap();
+        assert_ne!(tampered_hash, *receipt.plan_hash.as_ref().unwrap());
     }
 }

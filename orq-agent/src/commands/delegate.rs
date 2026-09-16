@@ -14,7 +14,9 @@ pub(crate) struct DelegateArgs {
     pub(crate) write_handoff: Option<String>,
     pub(crate) write_receipt: Option<String>,
     pub(crate) force: bool,
-    pub(crate) allow_gated: bool,
+    pub(crate) allow_gated_adapter: bool,
+    pub(crate) approve_model: Option<String>,
+    pub(crate) approve_reason: Option<String>,
     pub(crate) execute: bool,
     pub(crate) timeout_seconds: u64,
     pub(crate) correlation_id: Option<String>,
@@ -51,6 +53,12 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
         .map(std::path::Path::new);
     let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
 
+    let approval = policy::PolicyApproval {
+        allow_gated_adapter: args.allow_gated_adapter,
+        approve_model: args.approve_model,
+        approve_reason: args.approve_reason,
+    };
+
     delegate::run(delegate::DelegateRequest {
         task: args.task,
         task_id: args.task_id,
@@ -63,7 +71,7 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
         write_handoff: args.write_handoff,
         write_receipt: args.write_receipt,
         force: args.force,
-        allow_gated: args.allow_gated,
+        approval,
         execute: args.execute,
         timeout_seconds: args.timeout_seconds,
         correlation_id: args.correlation_id,

@@ -5,7 +5,9 @@ use crate::{adapters, certstore, detect, models as domain_models, route as domai
 pub(crate) struct RouteArgs {
     pub(crate) task_kind: String,
     pub(crate) config: Option<String>,
-    pub(crate) allow_gated: bool,
+    pub(crate) allow_gated_adapter: bool,
+    pub(crate) approve_model: Option<String>,
+    pub(crate) approve_reason: Option<String>,
     pub(crate) adapters_config: Option<String>,
     pub(crate) models_config: Option<String>,
     pub(crate) cert_dir: Option<String>,
@@ -38,10 +40,15 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
     let loaded_availability =
         domain_route::load_daily_availability(daily_availability_path).await?;
     let detected = detect::detect_agents_from_registry(&adapters_registry);
+    let approval = crate::policy::PolicyApproval {
+        allow_gated_adapter: args.allow_gated_adapter,
+        approve_model: args.approve_model,
+        approve_reason: args.approve_reason,
+    };
     domain_route::decide_with_detected(
         &routing_config,
         &args.task_kind,
-        args.allow_gated,
+        &approval,
         &config_source,
         &detected,
         cert_store.as_ref(),
