@@ -257,14 +257,14 @@ fn validate_route_expr(field: &str, value: &str) -> Result<()> {
 pub fn decide(
     config: &RoutingConfig,
     task_kind: &str,
-    allow_gated: bool,
+    approval: &policy::PolicyApproval,
     config_source: &str,
 ) -> Result<RouteDecision> {
     let detected = detect::detect_agents()?;
     decide_with_detected(
         config,
         task_kind,
-        allow_gated,
+        approval,
         config_source,
         &detected,
         None,
@@ -278,7 +278,7 @@ pub fn decide(
 pub fn decide_with_detected(
     config: &RoutingConfig,
     task_kind: &str,
-    allow_gated: bool,
+    approval: &policy::PolicyApproval,
     config_source: &str,
     detected: &detect::DetectReport,
     certificate_store: Option<&CertificateStore>,
@@ -294,7 +294,7 @@ pub fn decide_with_detected(
     let ctx = SelectionContext {
         approval_patterns: &config.approval_required_model_patterns,
         detected: &detected.agents,
-        allow_gated,
+        approval,
         certificate_store,
         state_store,
         models_catalog,
@@ -535,7 +535,7 @@ impl EvaluatedCandidate {
 struct SelectionContext<'a> {
     approval_patterns: &'a [String],
     detected: &'a [AgentDetection],
-    allow_gated: bool,
+    approval: &'a policy::PolicyApproval,
     certificate_store: Option<&'a CertificateStore>,
     state_store: Option<&'a StateStore>,
     models_catalog: Option<&'a crate::models::ModelsCatalog>,
@@ -612,7 +612,7 @@ fn select_route(rule: &RouteRule, ctx: &SelectionContext<'_>) -> SelectedRoute {
             &candidate.agent,
             &candidate.model,
             status,
-            ctx.allow_gated,
+            ctx.approval,
             &policy_config,
         );
         if !policy_eval.allowed {
@@ -855,6 +855,7 @@ mod tests {
     use super::{decide, decide_with_detected, load_default_config, parse_config};
     use crate::adapters::{AdapterStatus, AgentDetection};
     use crate::detect::DetectReport;
+    use crate::policy;
     use crate::state::BreakerOutcome;
 
     #[test]
@@ -912,7 +913,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             &route.task_kind,
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -930,7 +931,13 @@ mod tests {
     #[test]
     fn missing_task_kind_is_an_error() {
         let config = load_default_config().unwrap();
-        let err = decide(&config, "unknown_kind", false, "test").unwrap_err();
+        let err = decide(
+            &config,
+            "unknown_kind",
+            &policy::PolicyApproval::default(),
+            "test",
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("not present in routing config"));
     }
 
@@ -986,7 +993,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "code",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1052,10 +1059,15 @@ mod tests {
             .record_breaker_outcome("gated-agent", "gated-model", BreakerOutcome::TimedOut)
             .unwrap();
 
+        let approval = policy::PolicyApproval {
+            allow_gated_adapter: true,
+            approve_model: None,
+            approve_reason: Some("testing gated adapter in cooldown".to_string()),
+        };
         let decision = decide_with_detected(
             &config,
             "security",
-            true,
+            &approval,
             "test",
             &detected,
             None,
@@ -1113,7 +1125,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "code",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1203,7 +1215,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1289,11 +1301,16 @@ mod tests {
         };
         store.insert_quota_snapshot(&claude_snapshot).unwrap();
 
-        // 1. With allow_gated = true, claude-code is selected as healthy fallback
+        // 1. With allow_gated_adapter = true and approve_model, claude-code is selected as healthy fallback
+        let approval_gated = policy::PolicyApproval {
+            allow_gated_adapter: true,
+            approve_model: Some("claude-sonnet-5".to_string()),
+            approve_reason: Some("approving claude-code adapter and model".to_string()),
+        };
         let decision_gated = decide_with_detected(
             &config,
             "refactor",
-            true,
+            &approval_gated,
             "test",
             &detected,
             None,
@@ -1311,11 +1328,11 @@ mod tests {
             .quota_penalized_candidates
             .contains(&"agy".to_string()));
 
-        // 2. With allow_gated = false, policy blocks claude-code and returns agy with confirmation
+        // 2. Without approval, policy blocks claude-code and returns agy with confirmation
         let decision_ungated = decide_with_detected(
             &config,
             "refactor",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1401,11 +1418,16 @@ mod tests {
         };
         store.insert_quota_snapshot(&claude_snapshot).unwrap();
 
-        // Even with allow_gated = true, healthy default AGY is selected!
+        // Even with allow_gated_adapter = true, healthy default AGY is selected!
+        let approval = policy::PolicyApproval {
+            allow_gated_adapter: true,
+            approve_model: None,
+            approve_reason: Some("approving claude-code adapter".to_string()),
+        };
         let decision = decide_with_detected(
             &config,
             "refactor",
-            true,
+            &approval,
             "test",
             &detected,
             None,
@@ -1469,7 +1491,7 @@ mod tests {
         let decision_with_store = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1482,7 +1504,7 @@ mod tests {
         let decision_without_store = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1586,7 +1608,7 @@ mod tests {
         let decision_with_certs = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             Some(&cert_store),
@@ -1599,7 +1621,7 @@ mod tests {
         let decision_baseline = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1729,7 +1751,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             Some(&cert_store),
@@ -1807,7 +1829,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1885,7 +1907,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -1975,7 +1997,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -2065,7 +2087,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -2141,7 +2163,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -2232,7 +2254,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "analysis",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -2319,7 +2341,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "coding",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
@@ -2410,7 +2432,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "coding",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
@@ -2479,7 +2501,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "coding",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
@@ -2541,7 +2563,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "mechanical",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
@@ -2614,7 +2636,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "mechanical",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
@@ -2690,7 +2712,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "mechanical",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
@@ -2763,7 +2785,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "mechanical",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,

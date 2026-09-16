@@ -77,20 +77,32 @@ enum Commands {
     /// Execute a real local agent runner and emit a verifiable JSON receipt.
     Exec {
         /// Agent adapter name.
-        #[arg(long)]
-        agent: String,
+        #[arg(long, required_unless_present = "apply")]
+        agent: Option<String>,
         /// Model identifier passed to the adapter.
-        #[arg(long)]
-        model: String,
+        #[arg(long, required_unless_present = "apply")]
+        model: Option<String>,
         /// Markdown/text task file to send as prompt.
-        #[arg(long)]
-        task_file: String,
+        #[arg(long, required_unless_present = "apply")]
+        task_file: Option<String>,
         /// Timeout in seconds.
         #[arg(long, default_value_t = 120)]
         timeout: u64,
-        /// Allow gated agents/models after explicit human approval.
+        /// Plan execution only, emit planned receipt without running agent or spending budget.
+        #[arg(long, conflicts_with = "apply", default_value_t = false)]
+        plan: bool,
+        /// Apply and execute a previously planned receipt file after hash verification.
+        #[arg(long, conflicts_with = "plan")]
+        apply: Option<String>,
+        /// Allow gated agent adapters after explicit human approval.
         #[arg(long, default_value_t = false)]
-        allow_gated: bool,
+        allow_gated_adapter: bool,
+        /// Approve restricted model identifier.
+        #[arg(long)]
+        approve_model: Option<String>,
+        /// Reason for explicit policy approval.
+        #[arg(long)]
+        approve_reason: Option<String>,
         /// Correlation id propagated from Orq legacy/Observer.
         #[arg(long)]
         correlation_id: Option<String>,
@@ -154,9 +166,15 @@ enum Commands {
         /// Optional routing config JSON path. Uses bundled config when omitted.
         #[arg(long)]
         config: Option<String>,
-        /// Allow gated agents/models after explicit human approval.
+        /// Allow gated agent adapters after explicit human approval.
         #[arg(long, default_value_t = false)]
-        allow_gated: bool,
+        allow_gated_adapter: bool,
+        /// Approve restricted model identifier.
+        #[arg(long)]
+        approve_model: Option<String>,
+        /// Reason for explicit policy approval.
+        #[arg(long)]
+        approve_reason: Option<String>,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
@@ -190,9 +208,15 @@ enum Commands {
         /// Timeout in seconds.
         #[arg(long, default_value_t = 30)]
         timeout: u64,
-        /// Allow gated agents/models after explicit human approval.
+        /// Allow gated agent adapters after explicit human approval.
         #[arg(long, default_value_t = false)]
-        allow_gated: bool,
+        allow_gated_adapter: bool,
+        /// Approve restricted model identifier.
+        #[arg(long)]
+        approve_model: Option<String>,
+        /// Reason for explicit policy approval.
+        #[arg(long)]
+        approve_reason: Option<String>,
         /// Correlation id propagated from Orq legacy/Observer.
         #[arg(long)]
         correlation_id: Option<String>,
@@ -239,9 +263,15 @@ enum Commands {
         /// Timeout in seconds.
         #[arg(long, default_value_t = 30)]
         timeout: u64,
-        /// Allow gated agents/models after explicit human approval.
+        /// Allow gated agent adapters after explicit human approval.
         #[arg(long, default_value_t = false)]
-        allow_gated: bool,
+        allow_gated_adapter: bool,
+        /// Approve restricted model identifier.
+        #[arg(long)]
+        approve_model: Option<String>,
+        /// Reason for explicit policy approval.
+        #[arg(long)]
+        approve_reason: Option<String>,
         /// Correlation id propagated from Orq legacy/Observer.
         #[arg(long)]
         correlation_id: Option<String>,
@@ -342,9 +372,15 @@ enum Commands {
         /// Force overwrite existing handoff or receipt files.
         #[arg(long, default_value_t = false)]
         force: bool,
-        /// Allow gated agents/models after human approval (mirrors `exec --allow-gated`).
+        /// Allow gated agent adapters after explicit human approval.
         #[arg(long, default_value_t = false)]
-        allow_gated: bool,
+        allow_gated_adapter: bool,
+        /// Approve restricted model identifier.
+        #[arg(long)]
+        approve_model: Option<String>,
+        /// Reason for explicit policy approval.
+        #[arg(long)]
+        approve_reason: Option<String>,
         /// Execute the agent runner directly instead of emitting plan/command only.
         #[arg(long, default_value_t = false)]
         execute: bool,
@@ -844,7 +880,11 @@ async fn run_command(command: Commands) -> Result<()> {
             model,
             task_file,
             timeout,
-            allow_gated,
+            plan,
+            apply,
+            allow_gated_adapter,
+            approve_model,
+            approve_reason,
             correlation_id,
             task_id,
             policy_config,
@@ -876,26 +916,62 @@ async fn run_command(command: Commands) -> Result<()> {
                 .as_deref()
                 .map(std::path::Path::new);
             let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
-            let receipt = exec::run(exec::ExecRequest {
-                agent,
-                model,
-                task_file,
-                timeout_seconds: timeout,
-                allow_gated,
-                correlation_id,
-                task_id,
-                policy,
-                adapters_registry,
-                task_kind: task_kind.unwrap_or_else(|| "unspecified".to_string()),
-                home_capabilities,
-                task_capabilities,
-                budget,
-                models_catalog,
-                state_db_path: db_path.clone(),
-            })
-            .await?;
-            persist_exec_receipt(db_path.as_deref(), &receipt, "exec");
-            record_exec_breaker_outcome(db_path.as_deref(), &receipt);
+
+            let approval = policy::PolicyApproval {
+                allow_gated_adapter,
+                approve_model,
+                approve_reason,
+            };
+
+            let receipt = if let Some(plan_file) = apply {
+                exec::apply(exec::ApplyRequest {
+                    plan_receipt_path: plan_file,
+                    timeout_seconds: Some(timeout),
+                    policy,
+                    adapters_registry,
+                    home_capabilities,
+                    task_capabilities,
+                    budget,
+                    models_catalog,
+                    state_db_path: db_path.clone(),
+                })
+                .await?
+            } else {
+                let agent = agent.ok_or_else(|| {
+                    color_eyre::eyre::eyre!("missing required argument '--agent <AGENT>'")
+                })?;
+                let model = model.ok_or_else(|| {
+                    color_eyre::eyre::eyre!("missing required argument '--model <MODEL>'")
+                })?;
+                let task_file = task_file.ok_or_else(|| {
+                    color_eyre::eyre::eyre!("missing required argument '--task-file <TASK_FILE>'")
+                })?;
+
+                exec::run(exec::ExecRequest {
+                    agent,
+                    model,
+                    task_file,
+                    timeout_seconds: timeout,
+                    plan,
+                    approval,
+                    correlation_id,
+                    task_id,
+                    policy,
+                    adapters_registry,
+                    task_kind: task_kind.unwrap_or_else(|| "unspecified".to_string()),
+                    home_capabilities,
+                    task_capabilities,
+                    budget,
+                    models_catalog,
+                    state_db_path: db_path.clone(),
+                })
+                .await?
+            };
+
+            if receipt.executed {
+                persist_exec_receipt(db_path.as_deref(), &receipt, "exec");
+                record_exec_breaker_outcome(db_path.as_deref(), &receipt);
+            }
             print_json(format, &receipt)
         }
         Commands::Models {
@@ -948,7 +1024,9 @@ async fn run_command(command: Commands) -> Result<()> {
         Commands::Route {
             task_kind,
             config,
-            allow_gated,
+            allow_gated_adapter,
+            approve_model,
+            approve_reason,
             adapters_config,
             models_config,
             cert_dir,
@@ -959,7 +1037,9 @@ async fn run_command(command: Commands) -> Result<()> {
             let decision = commands::route::run(commands::route::RouteArgs {
                 task_kind,
                 config,
-                allow_gated,
+                allow_gated_adapter,
+                approve_model,
+                approve_reason,
                 adapters_config,
                 models_config,
                 cert_dir,
@@ -974,7 +1054,9 @@ async fn run_command(command: Commands) -> Result<()> {
             model,
             task_kind,
             timeout,
-            allow_gated,
+            allow_gated_adapter,
+            approve_model,
+            approve_reason,
             correlation_id,
             output,
             policy_config,
@@ -996,12 +1078,17 @@ async fn run_command(command: Commands) -> Result<()> {
                 .as_deref()
                 .map(std::path::Path::new);
             let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
+            let approval = policy::PolicyApproval {
+                allow_gated_adapter,
+                approve_model,
+                approve_reason,
+            };
             let certificate = certify::run(certify::CertifyRequest {
                 agent,
                 model,
                 task_kind,
                 timeout_seconds: timeout,
-                allow_gated,
+                approval,
                 correlation_id,
                 output,
                 policy,
@@ -1075,7 +1162,9 @@ async fn run_command(command: Commands) -> Result<()> {
             agent,
             model,
             timeout,
-            allow_gated,
+            allow_gated_adapter,
+            approve_model,
+            approve_reason,
             correlation_id,
             policy_config,
             adapters_config,
@@ -1097,11 +1186,16 @@ async fn run_command(command: Commands) -> Result<()> {
                 .as_deref()
                 .map(std::path::Path::new);
             let (task_capabilities, _) = capabilities::load_config(task_capabilities_path).await?;
+            let approval = policy::PolicyApproval {
+                allow_gated_adapter,
+                approve_model,
+                approve_reason,
+            };
             let receipt = smoke::run(
                 agent,
                 model,
                 timeout,
-                allow_gated,
+                approval,
                 correlation_id,
                 policy,
                 adapters_registry,
@@ -1218,7 +1312,9 @@ async fn run_command(command: Commands) -> Result<()> {
             write_handoff,
             write_receipt,
             force,
-            allow_gated,
+            allow_gated_adapter,
+            approve_model,
+            approve_reason,
             execute,
             timeout,
             correlation_id,
@@ -1249,7 +1345,9 @@ async fn run_command(command: Commands) -> Result<()> {
                 write_handoff,
                 write_receipt,
                 force,
-                allow_gated,
+                allow_gated_adapter,
+                approve_model,
+                approve_reason,
                 execute,
                 timeout_seconds: timeout,
                 correlation_id,
@@ -1631,7 +1729,9 @@ fn map_receipt_to_breaker_outcome(receipt: &receipt::ExecReceipt) -> Option<stat
                 Some(state::BreakerOutcome::AdapterError)
             }
         }
-        receipt::ExecStatus::Blocked | receipt::ExecStatus::InvalidRequest => None,
+        receipt::ExecStatus::Blocked
+        | receipt::ExecStatus::InvalidRequest
+        | receipt::ExecStatus::Planned => None,
     }
 }
 

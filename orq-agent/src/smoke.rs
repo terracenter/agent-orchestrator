@@ -12,7 +12,7 @@ pub async fn run(
     agent: String,
     model: String,
     timeout_seconds: u64,
-    allow_gated: bool,
+    approval: crate::policy::PolicyApproval,
     correlation_id: Option<String>,
     policy: LoadedPolicy,
     adapters_registry: AdaptersRegistry,
@@ -27,7 +27,7 @@ pub async fn run(
         model,
         task_file: task_file.clone(),
         timeout_seconds,
-        allow_gated,
+        approval,
         correlation_id,
         task_id: None,
         policy,
@@ -38,6 +38,7 @@ pub async fn run(
         budget: crate::budget::default_loaded_budget().wrap_err("loading default budget config")?,
         models_catalog: None,
         state_db_path: None,
+        plan: false,
     })
     .await;
     let _ = tokio::fs::remove_file(&task_file).await;

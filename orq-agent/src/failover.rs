@@ -139,7 +139,7 @@ pub struct FallbackSelectionRequest<'a> {
     pub certificate_store: Option<&'a CertificateStore>,
     pub routing_config: Option<&'a RoutingConfig>,
     pub policy_config: Option<&'a PolicyConfig>,
-    pub allow_gated: bool,
+    pub approval: policy::PolicyApproval,
     pub now_unix: u64,
     pub catalog_ttl_secs: u64,
 }
@@ -149,7 +149,7 @@ pub struct CandidateEligibilityContext<'a> {
     pub catalog: &'a ModelsCatalog,
     pub detected: &'a [AgentDetection],
     pub policy_config: Option<&'a PolicyConfig>,
-    pub allow_gated: bool,
+    pub approval: policy::PolicyApproval,
     pub now_unix: u64,
     pub catalog_ttl_secs: u64,
 }
@@ -160,7 +160,7 @@ impl<'a> From<&'a FallbackSelectionRequest<'a>> for CandidateEligibilityContext<
             catalog: req.catalog,
             detected: req.detected,
             policy_config: req.policy_config,
-            allow_gated: req.allow_gated,
+            approval: req.approval.clone(),
             now_unix: req.now_unix,
             catalog_ttl_secs: req.catalog_ttl_secs,
         }
@@ -177,7 +177,8 @@ pub fn is_candidate_eligible(agent: &str, model: &str, ctx: &CandidateEligibilit
     }
     match detection.adapter {
         AdapterStatus::Available => {}
-        AdapterStatus::Gated if ctx.allow_gated => {}
+        AdapterStatus::Gated
+            if ctx.approval.allow_gated_adapter && ctx.approval.approve_reason.is_some() => {}
         _ => return false,
     }
 
@@ -197,7 +198,7 @@ pub fn is_candidate_eligible(agent: &str, model: &str, ctx: &CandidateEligibilit
 
     // 3. Policy check
     if let Some(policy) = ctx.policy_config {
-        let decision = policy::evaluate(agent, model, detection.adapter, ctx.allow_gated, policy);
+        let decision = policy::evaluate(agent, model, detection.adapter, &ctx.approval, policy);
         if !decision.allowed {
             return false;
         }
@@ -521,11 +522,14 @@ mod tests {
             secrets_read: false,
             cleanup_attempted: true,
             cleanup_succeeded: true,
+            executed: true,
             failure_class: None,
             fallback_agent: None,
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            estimated_cost_usd: None,
+            plan_hash: None,
             policy_source: "builtin".to_string(),
             policy_path: "builtin".to_string(),
             policy_sha256: "test-policy-sha256".to_string(),
@@ -696,7 +700,7 @@ mod tests {
             catalog: &catalog,
             detected: &detected,
             policy_config: None,
-            allow_gated: false,
+            approval: policy::PolicyApproval::default(),
             now_unix,
             catalog_ttl_secs: 86400,
         };
@@ -747,7 +751,7 @@ mod tests {
             certificate_store: Some(&cert_store),
             routing_config: Some(&routing),
             policy_config: None,
-            allow_gated: false,
+            approval: policy::PolicyApproval::default(),
             now_unix,
             catalog_ttl_secs: 86400,
         };
@@ -858,7 +862,7 @@ mod tests {
             certificate_store: None,
             routing_config: Some(&routing),
             policy_config: None,
-            allow_gated: false,
+            approval: policy::PolicyApproval::default(),
             now_unix,
             catalog_ttl_secs: 86400,
         };

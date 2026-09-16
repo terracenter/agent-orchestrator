@@ -14,7 +14,7 @@ pub struct CertifyRequest {
     pub model: String,
     pub task_kind: String,
     pub timeout_seconds: u64,
-    pub allow_gated: bool,
+    pub approval: crate::policy::PolicyApproval,
     pub correlation_id: Option<String>,
     pub output: Option<String>,
     pub policy: LoadedPolicy,
@@ -51,7 +51,7 @@ pub async fn run(request: CertifyRequest) -> Result<Certificate> {
         request.agent.clone(),
         request.model.clone(),
         request.timeout_seconds,
-        request.allow_gated,
+        request.approval,
         request.correlation_id,
         request.policy,
         request.adapters_registry,
@@ -170,11 +170,14 @@ mod tests {
             secrets_read: true,
             cleanup_attempted: false,
             cleanup_succeeded: false,
+            executed: false,
             failure_class: None,
             fallback_agent: None,
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            estimated_cost_usd: None,
+            plan_hash: None,
         };
 
         assert_eq!(
