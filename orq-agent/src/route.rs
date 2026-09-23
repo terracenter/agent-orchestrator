@@ -597,6 +597,26 @@ fn select_route(rule: &RouteRule, ctx: &SelectionContext<'_>) -> SelectedRoute {
             }
         }
 
+        if let Some(state_store) = ctx.state_store {
+            if let Ok(Some(eval_status)) = state_store.evaluate_capability_from_receipts(
+                &candidate.agent,
+                &candidate.model,
+                &rule.task_kind,
+            ) {
+                if eval_status == crate::certify::CertificateStatus::Failed {
+                    continue;
+                }
+                if eval_status == crate::certify::CertificateStatus::Certified
+                    && preferred_cert.is_none()
+                {
+                    preferred_cert = Some(format!(
+                        "cert-hist-{}-{}-{}",
+                        candidate.agent, candidate.model, rule.task_kind
+                    ));
+                }
+            }
+        }
+
         let status = match detected_status(ctx.detected, &candidate.agent) {
             Some(status) => status,
             None => continue,
@@ -956,6 +976,83 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("not present in routing config"));
+    }
+
+    #[test]
+    fn test_certified_capability_routing() {
+        let config = load_default_config().unwrap();
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "test-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("test-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "test-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("test-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let temp_dir = std::env::temp_dir().join(format!("orq-test-cert-db-{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("state.sqlite");
+        let state = crate::state::open(Some(&db_path)).unwrap();
+
+        let receipt = crate::receipt::ExecReceipt {
+            schema_version: 1,
+            correlation_id: "corr-1".to_string(),
+            agent: "qwen-code".to_string(),
+            model: "qwen3.6-flash".to_string(),
+            command: vec!["run".to_string()],
+            status: crate::receipt::ExecStatus::Succeeded,
+            policy_reason: "allowed".to_string(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "sha".to_string(),
+            started_at_unix: 1,
+            duration_ms: 10,
+            timeout_seconds: 5,
+            exit_code: Some(0),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+        };
+        state.insert_receipt(&receipt, "documentation").unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "documentation",
+            false,
+            "test",
+            &detected,
+            None,
+            Some(&state),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(decision.preferred_certificate.is_some());
     }
 
     #[test]
