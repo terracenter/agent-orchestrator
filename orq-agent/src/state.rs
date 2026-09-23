@@ -128,6 +128,18 @@ pub struct StoredReceipt {
     pub created_at_unix: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredCertification {
+    pub certificate_id: String,
+    pub agent_id: String,
+    pub model_id: String,
+    pub task_kind: String,
+    pub status: String,
+    pub receipt_hash: String,
+    pub secrets_read: bool,
+    pub created_at_unix: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CircuitBreakerRecord {
     pub agent_id: String,
@@ -781,6 +793,147 @@ impl StateStore {
                 context: "find receipt",
                 source,
             })
+    }
+
+    #[allow(dead_code)]
+    pub fn record_certification(
+        &self,
+        cert: &crate::certify::Certificate,
+    ) -> Result<StoredCertification> {
+        let created_at_i64 = i64::try_from(cert.created_at_unix).map_err(|_| {
+            StoreError::Config("certificate created_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+        let status = serde_json::to_value(&cert.status)
+            .ok()
+            .and_then(|v| v.as_str().map(ToString::to_string))
+            .unwrap_or_else(|| "unknown".to_string());
+        let secrets_read = i64::from(cert.secrets_read);
+
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO certifications(certificate_id, agent_id, model_id, task_kind, status, receipt_hash, secrets_read, created_at_unix)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    cert.certificate_id,
+                    cert.agent,
+                    cert.model,
+                    cert.task_kind,
+                    status,
+                    cert.receipt_sha256,
+                    secrets_read,
+                    created_at_i64,
+                ],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "insert certification",
+                source,
+            })?;
+
+        Ok(StoredCertification {
+            certificate_id: cert.certificate_id.clone(),
+            agent_id: cert.agent.clone(),
+            model_id: cert.model.clone(),
+            task_kind: cert.task_kind.clone(),
+            status,
+            receipt_hash: cert.receipt_sha256.clone(),
+            secrets_read: cert.secrets_read,
+            created_at_unix: cert.created_at_unix,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn get_latest_certification(
+        &self,
+        agent_id: &str,
+        model_id: &str,
+        task_kind: &str,
+    ) -> Result<Option<StoredCertification>> {
+        self.conn
+            .query_row(
+                "SELECT certificate_id, agent_id, model_id, task_kind, status, receipt_hash, secrets_read, created_at_unix
+                 FROM certifications
+                 WHERE agent_id = ?1 AND model_id = ?2 AND task_kind = ?3
+                 ORDER BY created_at_unix DESC LIMIT 1",
+                params![agent_id, model_id, task_kind],
+                |row| {
+                    let created_at_i64: i64 = row.get(7)?;
+                    let created_at_unix = u64::try_from(created_at_i64).map_err(|source| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            7,
+                            rusqlite::types::Type::Integer,
+                            Box::new(source),
+                        )
+                    })?;
+                    Ok(StoredCertification {
+                        certificate_id: row.get(0)?,
+                        agent_id: row.get(1)?,
+                        model_id: row.get(2)?,
+                        task_kind: row.get(3)?,
+                        status: row.get(4)?,
+                        receipt_hash: row.get(5)?,
+                        secrets_read: row.get::<_, i64>(6)? != 0,
+                        created_at_unix,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|source| StoreError::Sqlite {
+                context: "get latest certification",
+                source,
+            })
+    }
+
+    #[allow(dead_code)]
+    pub fn evaluate_capability_from_receipts(
+        &self,
+        agent_id: &str,
+        model_id: &str,
+        task_kind: &str,
+    ) -> Result<Option<crate::certify::CertificateStatus>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT status, secrets_read FROM receipts
+             WHERE agent_id = ?1 AND model_id = ?2 AND task_kind = ?3
+             ORDER BY created_at_unix DESC LIMIT 10",
+        ).map_err(|source| StoreError::Sqlite { context: "prepare evaluate capability", source })?;
+
+        let rows = stmt.query_map(params![agent_id, model_id, task_kind], |row| {
+            let status: String = row.get(0)?;
+            let secrets_read: i64 = row.get(1)?;
+            Ok((status, secrets_read != 0))
+        }).map_err(|source| StoreError::Sqlite { context: "query evaluate capability", source })?;
+
+        let mut total = 0;
+        let mut successes = 0;
+        let mut consecutive_failures = 0;
+        let mut recent_broken = false;
+
+        for (idx, r) in rows.enumerate() {
+            let (status, secrets) = r.map_err(|source| StoreError::Sqlite { context: "read capability row", source })?;
+            total += 1;
+            if status == "succeeded" && !secrets {
+                successes += 1;
+                if idx == 0 {
+                    consecutive_failures = 0;
+                }
+            } else {
+                if idx == 0 || consecutive_failures == idx {
+                    consecutive_failures += 1;
+                }
+                recent_broken = true;
+            }
+        }
+
+        if total == 0 {
+            return Ok(None);
+        }
+
+        if consecutive_failures >= 3 || (total > 0 && successes == 0) {
+            Ok(Some(crate::certify::CertificateStatus::Failed))
+        } else if successes > 0 && !recent_broken {
+            Ok(Some(crate::certify::CertificateStatus::Certified))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn insert_delegate_receipt(

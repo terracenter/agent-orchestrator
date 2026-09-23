@@ -110,6 +110,49 @@ pub fn is_failed(certificate: &Certificate) -> bool {
     certificate.status == CertificateStatus::Failed
 }
 
+pub fn evaluate_receipt_history(
+    agent: &str,
+    model: &str,
+    _task_kind: &str,
+    receipts: &[crate::receipt::ExecReceipt],
+) -> Option<CertificateStatus> {
+    let matching: Vec<&crate::receipt::ExecReceipt> = receipts
+        .iter()
+        .filter(|r| r.agent == agent && r.model == model)
+        .collect();
+
+    if matching.is_empty() {
+        return None;
+    }
+
+    let mut successes = 0;
+    let mut consecutive_failures = 0;
+    let mut first = true;
+
+    for r in matching.iter().rev() {
+        if r.status == crate::receipt::ExecStatus::Succeeded && !r.secrets_read {
+            successes += 1;
+            if first {
+                consecutive_failures = 0;
+            }
+            first = false;
+        } else {
+            if first || consecutive_failures > 0 {
+                consecutive_failures += 1;
+            }
+            first = false;
+        }
+    }
+
+    if consecutive_failures >= 3 || successes == 0 {
+        Some(CertificateStatus::Failed)
+    } else if successes > 0 {
+        Some(CertificateStatus::Certified)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::CertificateStore;
@@ -205,5 +248,58 @@ mod tests {
             secrets_read: false,
         };
         serde_json::to_string(&cert).unwrap()
+    }
+
+    #[test]
+    fn evaluates_receipt_history_consecutive_failures() {
+        let receipts = vec![
+            make_receipt("qwen-code", "m1", ExecStatus::Failed, false),
+            make_receipt("qwen-code", "m1", ExecStatus::Failed, false),
+            make_receipt("qwen-code", "m1", ExecStatus::Failed, false),
+        ];
+        assert_eq!(
+            super::evaluate_receipt_history("qwen-code", "m1", "docs", &receipts),
+            Some(CertificateStatus::Failed)
+        );
+    }
+
+    #[test]
+    fn evaluates_receipt_history_success() {
+        let receipts = vec![
+            make_receipt("qwen-code", "m1", ExecStatus::Succeeded, false),
+        ];
+        assert_eq!(
+            super::evaluate_receipt_history("qwen-code", "m1", "docs", &receipts),
+            Some(CertificateStatus::Certified)
+        );
+    }
+
+    fn make_receipt(agent: &str, model: &str, status: ExecStatus, secrets_read: bool) -> ExecReceipt {
+        ExecReceipt {
+            schema_version: 1,
+            correlation_id: "test".to_string(),
+            agent: agent.to_string(),
+            model: model.to_string(),
+            command: vec!["runner".to_string()],
+            status,
+            policy_reason: "allowed".to_string(),
+            started_at_unix: 1,
+            duration_ms: 1,
+            timeout_seconds: 5,
+            exit_code: Some(0),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            secrets_read,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "test-sha256".to_string(),
+        }
     }
 }
