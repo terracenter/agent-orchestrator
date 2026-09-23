@@ -110,6 +110,7 @@ pub fn is_failed(certificate: &Certificate) -> bool {
     certificate.status == CertificateStatus::Failed
 }
 
+#[allow(dead_code)]
 pub fn evaluate_receipt_history(
     agent: &str,
     model: &str,
