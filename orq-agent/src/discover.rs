@@ -14,6 +14,7 @@ pub struct DiscoverReport {
     pub agents: Vec<DiscoveredAgent>,
     pub agents_persisted: usize,
     pub models_persisted: usize,
+    pub self_reports_persisted: usize,
     pub secrets_read: bool,
 }
 
@@ -75,6 +76,64 @@ pub async fn run(request: DiscoverRequest<'_>) -> Result<DiscoverReport> {
     )
 }
 
+pub fn build_agent_self_report(
+    agent_name: &str,
+    model_candidates: &[models::ModelCandidate],
+    detected: bool,
+    now_iso: &str,
+) -> models::AgentSelfReport {
+    let mut self_models = Vec::new();
+    for model in model_candidates {
+        let is_available = detected && model.is_active();
+        let quota_status = if is_available {
+            Some("quota_available".to_string())
+        } else {
+            Some("agent_not_detected".to_string())
+        };
+        let recommended_task_kinds = match model.id.as_str() {
+            id if id.contains("pro")
+                || id.contains("opus")
+                || id.contains("sonnet")
+                || id.contains("high") =>
+            {
+                vec![
+                    "architecture".to_string(),
+                    "large_refactor".to_string(),
+                    "code_review".to_string(),
+                ]
+            }
+            id if id.contains("flash")
+                || id.contains("haiku")
+                || id.contains("mini")
+                || id.contains("fast") =>
+            {
+                vec![
+                    "write_tests".to_string(),
+                    "documentation".to_string(),
+                    "bug_fix".to_string(),
+                ]
+            }
+            _ => vec!["general".to_string()],
+        };
+
+        self_models.push(models::ModelSelfReport {
+            id: model.id.clone(),
+            available: is_available,
+            quota_status,
+            relative_cost: model.cost_hint,
+            recommended_task_kinds,
+            notes: model.notes.clone(),
+        });
+    }
+
+    models::AgentSelfReport {
+        schema_version: 1,
+        agent: agent_name.to_string(),
+        reported_at: now_iso.to_string(),
+        models: self_models,
+    }
+}
+
 pub fn discover_into_store(
     adapters_registry: &AdaptersRegistry,
     models_catalog: &ModelsCatalog,
@@ -85,6 +144,7 @@ pub fn discover_into_store(
     let detect_report = detect::detect_agents_from_registry(adapters_registry);
     let mut agents = Vec::new();
     let mut models_persisted = 0usize;
+    let mut self_reports_persisted = 0usize;
     let now = models::now_iso8601();
 
     for detection in detect_report.agents {
@@ -116,8 +176,14 @@ pub fn discover_into_store(
             })
             .wrap_err_with(|| format!("persisting discovered agent {}", detection.name))?;
 
+        let self_report =
+            build_agent_self_report(&detection.name, &model_candidates, detection.detected, &now);
+        if let Ok(recs) = store.save_agent_self_report(&self_report) {
+            self_reports_persisted += recs.len();
+        }
+
         let mut discovered_models = Vec::new();
-        for model in model_candidates {
+        for model in &model_candidates {
             let task_kind = "general".to_string();
             let model_fetched_at = model.fetched_at.clone().unwrap_or_else(|| now.clone());
             store
@@ -148,15 +214,15 @@ pub fn discover_into_store(
                 })?;
             models_persisted += 1;
             discovered_models.push(DiscoveredModel {
-                id: model.id,
-                source: model.source,
-                confidence: model.confidence,
+                id: model.id.clone(),
+                source: model.source.clone(),
+                confidence: model.confidence.clone(),
                 task_kind,
                 discovery,
                 fetched_at: Some(model_fetched_at),
                 cost_hint: model.cost_hint,
-                promo: model.promo,
-                status: model.status,
+                promo: model.promo.clone(),
+                status: model.status.clone(),
             });
         }
 
@@ -181,6 +247,7 @@ pub fn discover_into_store(
         state_source: store.path().display().to_string(),
         agents_persisted: agents.len(),
         models_persisted,
+        self_reports_persisted,
         agents,
         secrets_read: false,
     })

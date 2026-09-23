@@ -95,6 +95,24 @@ pub struct ModelsReport {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct AgentSelfReport {
+    pub schema_version: u8,
+    pub agent: String,
+    pub reported_at: String,
+    pub models: Vec<ModelSelfReport>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ModelSelfReport {
+    pub id: String,
+    pub available: bool,
+    pub quota_status: Option<String>,
+    pub relative_cost: Option<f64>,
+    pub recommended_task_kinds: Vec<String>,
+    pub notes: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ModelCandidate {
     pub id: String,
     pub source: String,

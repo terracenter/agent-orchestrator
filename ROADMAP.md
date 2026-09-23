@@ -88,6 +88,7 @@ La visión funcional no cambia. Cambia la implementación objetivo: **Orq será 
 - [x] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.
 - [x] Documentar OpenClaw, AGY, Hermes y Codex como runners independientes.
 - [x] No asumir credenciales; pedir confirmación antes de modificar configs.
+- [x] Autorreporte diario de agentes/modelos en el host del usuario (#221).
 
 ## Fase 8 — Piloto OpenClaw + vault
 
@@ -118,7 +119,7 @@ Certificación: [`docs/model-capability-certification.md`](docs/model-capability
 - [x] Implementar MVP inicial de `orq-agent exec` con timeout, stdout/stderr, exit code y receipt JSON; incluye kill por process group Unix, streaming/ring buffer acotado y salida parcial en timeout.
 - [x] Implementar `orq-agent models --agent <agent> --format json` para descubrimiento seguro de modelos sin leer secretos.
 - [x] Implementar `orq-agent smoke --agent <agent> --model <model> --format json` con receipts de validación y verificación de marcador.
-- [ ] Implementar certificación progresiva de capacidades agente/modelo por tipo de tarea usando receipts históricos.
+- [x] Implementar certificación progresiva de capacidades agente/modelo por tipo de tarea usando receipts históricos (#122).
 - [ ] Hacer que `orq route` explique selección por evidencia certificada y no por catálogo estático.
 - [ ] Implementar propuesta automática de adapter/issue/PR cuando se detecta un agente sin soporte.
 - [x] Integrar `orq run --execute` con `orq-agent exec` para ejecución real progresiva y consumo de receipts JSON.

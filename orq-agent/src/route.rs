@@ -597,6 +597,26 @@ fn select_route(rule: &RouteRule, ctx: &SelectionContext<'_>) -> SelectedRoute {
             }
         }
 
+        if let Some(state_store) = ctx.state_store {
+            if let Ok(Some(eval_status)) = state_store.evaluate_capability_from_receipts(
+                &candidate.agent,
+                &candidate.model,
+                &rule.task_kind,
+            ) {
+                if eval_status == crate::certify::CertificateStatus::Failed {
+                    continue;
+                }
+                if eval_status == crate::certify::CertificateStatus::Certified
+                    && preferred_cert.is_none()
+                {
+                    preferred_cert = Some(format!(
+                        "cert-hist-{}-{}-{}",
+                        candidate.agent, candidate.model, rule.task_kind
+                    ));
+                }
+            }
+        }
+
         let status = match detected_status(ctx.detected, &candidate.agent) {
             Some(status) => status,
             None => continue,
@@ -641,10 +661,27 @@ fn select_route(rule: &RouteRule, ctx: &SelectionContext<'_>) -> SelectedRoute {
             (None, None, None, false)
         };
 
+        let self_report_unavailable = if let Some(store) = ctx.state_store {
+            if let Ok(reports) = store.latest_agent_self_reports(Some(&candidate.agent)) {
+                reports.iter().any(|r| {
+                    r.model_id == candidate.model
+                        && (!r.available
+                            || r.quota_status.as_deref().map(str::to_lowercase).as_deref()
+                                == Some("exhausted")
+                            || r.quota_status.as_deref().map(str::to_lowercase).as_deref()
+                                == Some("down"))
+                })
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         let is_model_down_or_deprecated = matches!(
             model_status.as_deref().map(str::to_lowercase).as_deref(),
             Some("deprecated") | Some("down") | Some("disabled") | Some("offline")
-        );
+        ) || self_report_unavailable;
 
         let is_gated = matches!(status, AdapterStatus::Gated);
         let requires_conf = requires_confirmation(status, &candidate.model, ctx.approval_patterns);
@@ -939,6 +976,86 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("not present in routing config"));
+    }
+
+    #[test]
+    fn test_certified_capability_routing() {
+        let config = load_default_config().unwrap();
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "test-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("test-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "test-runner".to_string(),
+                    detected: true,
+                    binary_path: Some("test-runner".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let temp_dir = std::env::temp_dir().join(format!("orq-test-cert-db-{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("state.sqlite");
+        let state = crate::state::open(Some(&db_path)).unwrap();
+
+        let receipt = crate::receipt::ExecReceipt {
+            schema_version: 1,
+            correlation_id: "corr-1".to_string(),
+            agent: "qwen-code".to_string(),
+            model: "qwen3.6-flash".to_string(),
+            command: vec!["run".to_string()],
+            status: crate::receipt::ExecStatus::Succeeded,
+            policy_reason: "allowed".to_string(),
+            policy_source: "builtin".to_string(),
+            policy_path: "builtin".to_string(),
+            policy_sha256: "sha".to_string(),
+            started_at_unix: 1,
+            duration_ms: 10,
+            timeout_seconds: 5,
+            exit_code: Some(0),
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            secrets_read: false,
+            cleanup_attempted: false,
+            cleanup_succeeded: false,
+            failure_class: None,
+            fallback_agent: None,
+            fallback_model: None,
+            fallback_reason: None,
+            fallback_attempts: Vec::new(),
+            estimated_cost_usd: None,
+            executed: false,
+            plan_hash: None,
+        };
+        state.insert_receipt(&receipt, "documentation").unwrap();
+
+        let decision = decide_with_detected(
+            &config,
+            "documentation",
+            &policy::PolicyApproval::default(),
+            "test",
+            &detected,
+            None,
+            Some(&state),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(decision.preferred_certificate.is_some());
     }
 
     #[test]
@@ -2801,5 +2918,91 @@ mod tests {
         assert!(decision
             .selected_policy_reason
             .contains("daily_availability_unavailable"));
+    }
+
+    #[test]
+    fn test_agent_self_report_routing() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "documentation",
+                    "default_agent": "agy",
+                    "default_model": "gemini-3.7-flash-high",
+                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "escalate_to": "claude-code/claude-sonnet-5",
+                    "avoid": [],
+                    "rationale": "testing self-report routing signal"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("state.sqlite");
+        let store = crate::state::open(Some(&db_path)).unwrap();
+
+        let self_report = crate::models::AgentSelfReport {
+            schema_version: 1,
+            agent: "agy".to_string(),
+            reported_at: crate::models::now_iso8601(),
+            models: vec![crate::models::ModelSelfReport {
+                id: "gemini-3.7-flash-high".to_string(),
+                available: false,
+                quota_status: Some("exhausted".to_string()),
+                relative_cost: Some(0.001),
+                recommended_task_kinds: vec!["documentation".to_string()],
+                notes: "daily limit reached".to_string(),
+            }],
+        };
+        store.save_agent_self_report(&self_report).unwrap();
+
+        let reports = store.latest_agent_self_reports(Some("agy")).unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].agent_id, "agy");
+        assert_eq!(reports[0].model_id, "gemini-3.7-flash-high");
+        assert!(!reports[0].available);
+        assert_eq!(reports[0].quota_status, Some("exhausted".to_string()));
+
+        let decision = decide_with_detected(
+            &config,
+            "documentation",
+            &policy::PolicyApproval::default(),
+            "test_config",
+            &detected,
+            None,
+            Some(&store),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(decision.fallback_applied);
     }
 }
