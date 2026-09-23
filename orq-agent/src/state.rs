@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const STATE_DB_ENV: &str = "ORQ_STATE_DB";
-const LATEST_SCHEMA_VERSION: i64 = 7;
+const LATEST_SCHEMA_VERSION: i64 = 8;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -263,6 +263,33 @@ pub struct AggregatedScore {
     pub decay_half_life_days: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentSelfReportRecord {
+    pub id: i64,
+    pub agent_id: String,
+    pub model_id: String,
+    pub available: bool,
+    pub quota_status: Option<String>,
+    pub relative_cost: Option<f64>,
+    pub recommended_task_kinds: Vec<String>,
+    pub notes: String,
+    pub reported_at_unix: u64,
+    pub metadata_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentSelfReportInput {
+    pub agent_id: String,
+    pub model_id: String,
+    pub available: bool,
+    pub quota_status: Option<String>,
+    pub relative_cost: Option<f64>,
+    pub recommended_task_kinds: Vec<String>,
+    pub notes: String,
+    pub reported_at_unix: Option<u64>,
+    pub metadata_json: Option<String>,
+}
+
 pub fn default_db_path() -> Result<PathBuf> {
     if let Some(value) = std::env::var_os(STATE_DB_ENV) {
         return Ok(PathBuf::from(value));
@@ -444,10 +471,22 @@ impl StateStore {
             })?;
         self.conn
             .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (7, strftime('%s','now'))",
+                [],
+            )
+            .map_err(|source| StoreError::Sqlite { context: "record migration 7", source })?;
+        self.conn
+            .execute_batch(MIGRATION_V8)
+            .map_err(|source| StoreError::Sqlite {
+                context: "apply migration 8 (agent_self_reports)",
+                source,
+            })?;
+        self.conn
+            .execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at_unix) VALUES (?1, strftime('%s','now'))",
                 params![LATEST_SCHEMA_VERSION],
             )
-            .map_err(|source| StoreError::Sqlite { context: "record migration 7", source })?;
+            .map_err(|source| StoreError::Sqlite { context: "record migration 8", source })?;
         Ok(())
     }
 
@@ -1501,6 +1540,205 @@ impl StateStore {
         collect_rows(rows, "read budget ledger")
     }
 
+    pub fn insert_agent_self_report(
+        &self,
+        input: &AgentSelfReportInput,
+    ) -> Result<AgentSelfReportRecord> {
+        let reported_at_unix = input.reported_at_unix.unwrap_or_else(now_unix);
+        let reported_at_i64 = i64::try_from(reported_at_unix).map_err(|_| {
+            StoreError::Config("reported_at_unix exceeds SQLite INTEGER range".to_string())
+        })?;
+        let task_kinds_json = serde_json::to_string(&input.recommended_task_kinds)
+            .map_err(|source| StoreError::Serialization {
+                context: "serialize recommended_task_kinds",
+                source,
+            })?;
+        let metadata_json = input.metadata_json.as_deref().unwrap_or("{}");
+
+        self.conn
+            .execute(
+                "INSERT INTO agent_self_reports(agent_id, model_id, available, quota_status, relative_cost, recommended_task_kinds_json, notes, reported_at_unix, metadata_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    input.agent_id,
+                    input.model_id,
+                    input.available as i64,
+                    input.quota_status,
+                    input.relative_cost,
+                    task_kinds_json,
+                    input.notes,
+                    reported_at_i64,
+                    metadata_json,
+                ],
+            )
+            .map_err(|source| StoreError::Sqlite {
+                context: "insert agent self report",
+                source,
+            })?;
+
+        let id = self.conn.last_insert_rowid();
+
+        Ok(AgentSelfReportRecord {
+            id,
+            agent_id: input.agent_id.clone(),
+            model_id: input.model_id.clone(),
+            available: input.available,
+            quota_status: input.quota_status.clone(),
+            relative_cost: input.relative_cost,
+            recommended_task_kinds: input.recommended_task_kinds.clone(),
+            notes: input.notes.clone(),
+            reported_at_unix,
+            metadata_json: metadata_json.to_string(),
+        })
+    }
+
+    pub fn save_agent_self_report(
+        &self,
+        report: &crate::models::AgentSelfReport,
+    ) -> Result<Vec<AgentSelfReportRecord>> {
+        let reported_at_unix = crate::models::parse_iso8601_to_unix(&report.reported_at)
+            .unwrap_or_else(now_unix);
+        let mut records = Vec::new();
+        for m in &report.models {
+            let input = AgentSelfReportInput {
+                agent_id: report.agent.clone(),
+                model_id: m.id.clone(),
+                available: m.available,
+                quota_status: m.quota_status.clone(),
+                relative_cost: m.relative_cost,
+                recommended_task_kinds: m.recommended_task_kinds.clone(),
+                notes: m.notes.clone(),
+                reported_at_unix: Some(reported_at_unix),
+                metadata_json: Some(serde_json::json!({
+                    "schema_version": report.schema_version,
+                    "reported_at": report.reported_at,
+                    "secrets_read": false
+                }).to_string()),
+            };
+            let rec = self.insert_agent_self_report(&input)?;
+            records.push(rec);
+
+            let metadata_json = serde_json::json!({
+                "source": "self_report",
+                "quota_status": m.quota_status,
+                "relative_cost": m.relative_cost,
+                "recommended_task_kinds": m.recommended_task_kinds,
+                "notes": m.notes,
+                "reported_at": report.reported_at,
+                "secrets_read": false
+            }).to_string();
+
+            let task_kinds = if m.recommended_task_kinds.is_empty() {
+                vec!["general".to_string()]
+            } else {
+                m.recommended_task_kinds.clone()
+            };
+
+            for task_kind in task_kinds {
+                let _ = self.upsert_model(&ModelRecord {
+                    agent_id: report.agent.clone(),
+                    model_id: m.id.clone(),
+                    task_kind,
+                    gated: false,
+                    active: m.available,
+                    metadata_json: metadata_json.clone(),
+                });
+            }
+        }
+        Ok(records)
+    }
+
+    pub fn latest_agent_self_reports(
+        &self,
+        agent_filter: Option<&str>,
+    ) -> Result<Vec<AgentSelfReportRecord>> {
+        let filter_owned = agent_filter.map(|a| a.trim().to_lowercase());
+        let (sql, filter_param) = if let Some(ref a) = filter_owned {
+            (
+                "SELECT r.id, r.agent_id, r.model_id, r.available, r.quota_status, r.relative_cost, r.recommended_task_kinds_json, r.notes, r.reported_at_unix, r.metadata_json
+                 FROM agent_self_reports r
+                 WHERE r.agent_id = ?1 AND r.id = (
+                     SELECT r2.id FROM agent_self_reports r2
+                     WHERE r2.agent_id = r.agent_id AND r2.model_id = r.model_id
+                     ORDER BY r2.reported_at_unix DESC, r2.id DESC
+                     LIMIT 1
+                 )
+                 ORDER BY r.model_id ASC",
+                Some(a.as_str()),
+            )
+        } else {
+            (
+                "SELECT r.id, r.agent_id, r.model_id, r.available, r.quota_status, r.relative_cost, r.recommended_task_kinds_json, r.notes, r.reported_at_unix, r.metadata_json
+                 FROM agent_self_reports r
+                 WHERE r.id = (
+                     SELECT r2.id FROM agent_self_reports r2
+                     WHERE r2.agent_id = r.agent_id AND r2.model_id = r.model_id
+                     ORDER BY r2.reported_at_unix DESC, r2.id DESC
+                     LIMIT 1
+                 )
+                 ORDER BY r.agent_id ASC, r.model_id ASC",
+                None,
+            )
+        };
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|source| StoreError::Sqlite {
+                context: "prepare latest agent self reports query",
+                source,
+            })?;
+
+        let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<AgentSelfReportRecord> {
+            let id: i64 = row.get(0)?;
+            let agent_id: String = row.get(1)?;
+            let model_id: String = row.get(2)?;
+            let available: bool = row.get::<_, i64>(3)? != 0;
+            let quota_status: Option<String> = row.get(4)?;
+            let relative_cost: Option<f64> = row.get(5)?;
+            let task_kinds_json: String = row.get(6)?;
+            let notes: String = row.get(7)?;
+            let reported_at_i64: i64 = row.get(8)?;
+            let metadata_json: String = row.get(9)?;
+
+            let recommended_task_kinds: Vec<String> = serde_json::from_str(&task_kinds_json)
+                .unwrap_or_default();
+
+            let reported_at_unix = u64::try_from(reported_at_i64).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    8,
+                    rusqlite::types::Type::Integer,
+                    Box::new(e),
+                )
+            })?;
+
+            Ok(AgentSelfReportRecord {
+                id,
+                agent_id,
+                model_id,
+                available,
+                quota_status,
+                relative_cost,
+                recommended_task_kinds,
+                notes,
+                reported_at_unix,
+                metadata_json,
+            })
+        };
+
+        let rows = if let Some(a) = filter_param {
+            stmt.query_map(params![a], map_row)
+        } else {
+            stmt.query_map([], map_row)
+        }
+        .map_err(|source| StoreError::Sqlite {
+            context: "query latest agent self reports",
+            source,
+        })?;
+
+        collect_rows(rows, "read latest agent self reports")
+    }
+
     pub fn insert_empirical_record(&self, input: &EmpiricalRecordInput) -> Result<EmpiricalRecord> {
         let created_at_unix = input.created_at_unix.unwrap_or_else(now_unix);
         let created_at_i64 = i64::try_from(created_at_unix).map_err(|_| {
@@ -2084,6 +2322,22 @@ CREATE TABLE IF NOT EXISTS budget_ledger (
 CREATE INDEX IF NOT EXISTS idx_budget_ledger_created_at ON budget_ledger(created_at_unix);
 "#;
 
+const MIGRATION_V8: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_self_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    available INTEGER NOT NULL DEFAULT 1,
+    quota_status TEXT,
+    relative_cost REAL,
+    recommended_task_kinds_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT NOT NULL DEFAULT '',
+    reported_at_unix INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_agent_self_reports_agent_model ON agent_self_reports(agent_id, model_id, reported_at_unix DESC);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2538,7 +2792,7 @@ mod tests {
         let status = store.status().expect("status");
 
         assert_eq!(status.schema_version, LATEST_SCHEMA_VERSION);
-        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(status.migrations_applied, vec![1, 2, 3, 4, 5, 6, 7, 8]);
         assert!(status
             .tables_present
             .contains(&"quota_snapshots".to_string()));
@@ -2549,6 +2803,9 @@ mod tests {
             .tables_present
             .contains(&"empirical_history".to_string()));
         assert!(status.tables_present.contains(&"budget_ledger".to_string()));
+        assert!(status
+            .tables_present
+            .contains(&"agent_self_reports".to_string()));
 
         // 3. Verify pre-existing v2 data was preserved
         let agent = store

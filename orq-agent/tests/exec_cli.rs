@@ -680,7 +680,7 @@ fn state_status_creates_temp_db_without_secrets() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 7"))
+        .stdout(predicate::str::contains("\"schema_version\": 8"))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
         .stdout(predicate::str::contains("agents"))
         .stdout(predicate::str::contains("models"));
@@ -1571,7 +1571,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 7"))
+        .stdout(predicate::str::contains("\"schema_version\": 8"))
         .stdout(predicate::str::contains("quota_snapshots"));
 
     // Migrate again explicitly
@@ -1587,7 +1587,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 7"));
+        .stdout(predicate::str::contains("\"schema_version\": 8"));
 }
 
 #[test]
