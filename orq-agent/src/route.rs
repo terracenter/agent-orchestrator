@@ -641,10 +641,27 @@ fn select_route(rule: &RouteRule, ctx: &SelectionContext<'_>) -> SelectedRoute {
             (None, None, None, false)
         };
 
+        let self_report_unavailable = if let Some(store) = ctx.state_store {
+            if let Ok(reports) = store.latest_agent_self_reports(Some(&candidate.agent)) {
+                reports.iter().any(|r| {
+                    r.model_id == candidate.model
+                        && (!r.available
+                            || r.quota_status.as_deref().map(str::to_lowercase).as_deref()
+                                == Some("exhausted")
+                            || r.quota_status.as_deref().map(str::to_lowercase).as_deref()
+                                == Some("down"))
+                })
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         let is_model_down_or_deprecated = matches!(
             model_status.as_deref().map(str::to_lowercase).as_deref(),
             Some("deprecated") | Some("down") | Some("disabled") | Some("offline")
-        );
+        ) || self_report_unavailable;
 
         let is_gated = matches!(status, AdapterStatus::Gated);
         let requires_conf = requires_confirmation(status, &candidate.model, ctx.approval_patterns);

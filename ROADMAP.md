@@ -88,6 +88,7 @@ La visión funcional no cambia. Cambia la implementación objetivo: **Orq será 
 - [x] Configurar prompts/hooks de `rtk_required` cuando el agente lo soporte.
 - [x] Documentar OpenClaw, AGY, Hermes y Codex como runners independientes.
 - [x] No asumir credenciales; pedir confirmación antes de modificar configs.
+- [x] Autorreporte diario de agentes/modelos en el host del usuario (#221).
 
 ## Fase 8 — Piloto OpenClaw + vault
 
