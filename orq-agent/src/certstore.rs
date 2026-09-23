@@ -300,6 +300,9 @@ mod tests {
             policy_source: "builtin".to_string(),
             policy_path: "builtin".to_string(),
             policy_sha256: "test-sha256".to_string(),
+            estimated_cost_usd: None,
+            executed: false,
+            plan_hash: None,
         }
     }
 }

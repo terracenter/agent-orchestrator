@@ -1034,13 +1034,16 @@ mod tests {
             fallback_model: None,
             fallback_reason: None,
             fallback_attempts: Vec::new(),
+            estimated_cost_usd: None,
+            executed: false,
+            plan_hash: None,
         };
         state.insert_receipt(&receipt, "documentation").unwrap();
 
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test",
             &detected,
             None,
@@ -2988,7 +2991,7 @@ mod tests {
         let decision = decide_with_detected(
             &config,
             "documentation",
-            false,
+            &policy::PolicyApproval::default(),
             "test_config",
             &detected,
             None,
