@@ -2802,4 +2802,90 @@ mod tests {
             .selected_policy_reason
             .contains("daily_availability_unavailable"));
     }
+
+    #[test]
+    fn test_agent_self_report_routing() {
+        let config = parse_config(
+            r#"{
+                "schema_version": 1,
+                "approval_required_model_patterns": ["opus"],
+                "routes": [{
+                    "task_kind": "documentation",
+                    "default_agent": "agy",
+                    "default_model": "gemini-3.7-flash-high",
+                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "escalate_to": "claude-code/claude-sonnet-5",
+                    "avoid": [],
+                    "rationale": "testing self-report routing signal"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let detected = DetectReport {
+            schema_version: 1,
+            agents: vec![
+                AgentDetection {
+                    name: "agy".to_string(),
+                    binary: "agy".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/agy".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+                AgentDetection {
+                    name: "qwen-code".to_string(),
+                    binary: "qwen".to_string(),
+                    detected: true,
+                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    adapter: AdapterStatus::Available,
+                    secrets_read: false,
+                },
+            ],
+            secrets_read: false,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("state.sqlite");
+        let store = crate::state::open(Some(&db_path)).unwrap();
+
+        let self_report = crate::models::AgentSelfReport {
+            schema_version: 1,
+            agent: "agy".to_string(),
+            reported_at: crate::models::now_iso8601(),
+            models: vec![crate::models::ModelSelfReport {
+                id: "gemini-3.7-flash-high".to_string(),
+                available: false,
+                quota_status: Some("exhausted".to_string()),
+                relative_cost: Some(0.001),
+                recommended_task_kinds: vec!["documentation".to_string()],
+                notes: "daily limit reached".to_string(),
+            }],
+        };
+        store.save_agent_self_report(&self_report).unwrap();
+
+        let reports = store.latest_agent_self_reports(Some("agy")).unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].agent_id, "agy");
+        assert_eq!(reports[0].model_id, "gemini-3.7-flash-high");
+        assert!(!reports[0].available);
+        assert_eq!(reports[0].quota_status, Some("exhausted".to_string()));
+
+        let decision = decide_with_detected(
+            &config,
+            "documentation",
+            false,
+            "test_config",
+            &detected,
+            None,
+            Some(&store),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(decision.selected_agent, "qwen-code");
+        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert!(decision.fallback_applied);
+    }
 }
