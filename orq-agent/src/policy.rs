@@ -40,6 +40,7 @@ pub struct PolicyDecision {
     pub reason: String,
 }
 
+#[allow(dead_code)]
 pub fn default_config() -> Result<PolicyConfig> {
     let path = crate::config::resolve_path(None, POLICY_CONFIG_ENV, POLICY_CONFIG_FILE)?;
     let content = std::fs::read_to_string(&path)
@@ -47,6 +48,7 @@ pub fn default_config() -> Result<PolicyConfig> {
     parse_config(&content)
 }
 
+#[allow(dead_code)]
 pub fn default_loaded_policy() -> Result<LoadedPolicy> {
     let path = crate::config::resolve_path(None, POLICY_CONFIG_ENV, POLICY_CONFIG_FILE)?;
     let content = std::fs::read_to_string(&path)
