@@ -9,7 +9,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-pub const BUILTIN_ROUTING_CONFIG_JSON: &str = include_str!("../config/routing-matrix.json");
+pub const ROUTING_CONFIG_ENV: &str = "ORQ_ROUTING_CONFIG";
+pub const ROUTING_CONFIG_FILE: &str = "routing-matrix.json";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RoutingConfig {
@@ -182,19 +183,21 @@ pub struct RouteDecision {
 
 #[allow(dead_code)]
 pub fn load_default_config() -> Result<RoutingConfig> {
-    parse_config(BUILTIN_ROUTING_CONFIG_JSON)
+    let path = crate::config::resolve_path(None, ROUTING_CONFIG_ENV, ROUTING_CONFIG_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external routing config {}", path.display()))?;
+    parse_config(&content)
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<(RoutingConfig, String)> {
-    match path {
-        None => Ok((load_default_config()?, "builtin".to_string())),
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading routing config {}", path.display()))?;
-            Ok((parse_config(&content)?, path.display().to_string()))
-        }
-    }
+    let (content, source) = crate::config::read_json(
+        path,
+        ROUTING_CONFIG_ENV,
+        ROUTING_CONFIG_FILE,
+        "routing config",
+    )
+    .await?;
+    Ok((parse_config(&content)?, source))
 }
 
 pub fn parse_config(content: &str) -> Result<RoutingConfig> {
@@ -1004,7 +1007,8 @@ mod tests {
             secrets_read: false,
         };
 
-        let temp_dir = std::env::temp_dir().join(format!("orq-test-cert-db-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("orq-test-cert-db-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("state.sqlite");
         let state = crate::state::open(Some(&db_path)).unwrap();

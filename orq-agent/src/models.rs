@@ -8,8 +8,6 @@ use std::path::Path;
 pub const SUPPORTED_SCHEMA_VERSION_V1: u8 = 1;
 pub const SUPPORTED_SCHEMA_VERSION_V2: u8 = 2;
 pub const CURRENT_SCHEMA_VERSION: u8 = 2;
-pub const DEFAULT_MODELS_CATALOG_PATH: &str = "config/models-catalog.json";
-pub const DEFAULT_MARKET_FEED_PATH: &str = "config/market-feed.json";
 pub const MODELS_CATALOG_ENV: &str = "ORQ_MODELS_CATALOG";
 pub const MARKET_FEED_ENV: &str = "ORQ_MARKET_FEED";
 pub const DEFAULT_CATALOG_TTL_SECS: u64 = 86_400;
@@ -511,25 +509,21 @@ pub fn merge_feed_into_catalog(
 
 #[allow(dead_code)]
 pub fn default_catalog() -> Result<ModelsCatalog> {
-    let path = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+    let path = crate::config::resolve_path(None, MODELS_CATALOG_ENV, "models-catalog.json")?;
     let content = std::fs::read_to_string(&path)
         .wrap_err_with(|| format!("reading models catalog {}", path.display()))?;
     parse_catalog(&content)
 }
 
 pub async fn load_catalog(path: Option<&Path>) -> Result<(ModelsCatalog, String)> {
-    let path_buf;
-    let path = match path {
-        Some(path) => path,
-        None => {
-            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
-            path_buf.as_path()
-        }
-    };
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .wrap_err_with(|| format!("reading models catalog {}", path.display()))?;
-    Ok((parse_catalog(&content)?, path.display().to_string()))
+    let (content, source) = crate::config::read_json(
+        path,
+        MODELS_CATALOG_ENV,
+        "models-catalog.json",
+        "models catalog",
+    )
+    .await?;
+    Ok((parse_catalog(&content)?, source))
 }
 
 pub async fn save_catalog(path: Option<&Path>, catalog: &ModelsCatalog) -> Result<String> {
@@ -537,7 +531,8 @@ pub async fn save_catalog(path: Option<&Path>, catalog: &ModelsCatalog) -> Resul
     let path = match path {
         Some(path) => path,
         None => {
-            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf =
+                crate::config::resolve_path(None, MODELS_CATALOG_ENV, "models-catalog.json")?;
             path_buf.as_path()
         }
     };
@@ -562,7 +557,8 @@ pub fn save_catalog_sync(path: Option<&Path>, catalog: &ModelsCatalog) -> Result
     let path = match path {
         Some(path) => path,
         None => {
-            path_buf = default_config_path(MODELS_CATALOG_ENV, DEFAULT_MODELS_CATALOG_PATH);
+            path_buf =
+                crate::config::resolve_path(None, MODELS_CATALOG_ENV, "models-catalog.json")?;
             path_buf.as_path()
         }
     };
@@ -584,7 +580,7 @@ pub async fn load_market_feed(path: Option<&Path>) -> Result<(MarketFeed, String
     let path = match path {
         Some(path) => path,
         None => {
-            path_buf = default_config_path(MARKET_FEED_ENV, DEFAULT_MARKET_FEED_PATH);
+            path_buf = crate::config::resolve_path(None, MARKET_FEED_ENV, "market-feed.json")?;
             path_buf.as_path()
         }
     };
@@ -592,12 +588,6 @@ pub async fn load_market_feed(path: Option<&Path>) -> Result<(MarketFeed, String
         .await
         .wrap_err_with(|| format!("reading market feed {}", path.display()))?;
     Ok((parse_market_feed(&content)?, path.display().to_string()))
-}
-
-fn default_config_path(env_name: &str, relative_path: &str) -> std::path::PathBuf {
-    std::env::var_os(env_name)
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path))
 }
 
 pub fn parse_catalog(content: &str) -> Result<ModelsCatalog> {

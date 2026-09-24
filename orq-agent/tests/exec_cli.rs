@@ -237,7 +237,7 @@ fn exec_supports_external_policy_config() {
         .stdout(predicate::str::contains(
             "model qwen3.8-max requires explicit human approval",
         ))
-        .stdout(predicate::str::contains("\"policy_source\": \"override\""))
+        .stdout(predicate::str::contains("\"policy_source\": "))
         .stdout(predicate::str::contains("should-not-run").not());
 }
 
@@ -466,7 +466,7 @@ fn exec_budget_config_allows_cheap_model_and_persists_spend_across_calls() {
 }
 
 #[test]
-fn policy_insecure_env_override_rejected_and_uses_builtin() {
+fn policy_insecure_env_override_fails_closed() {
     let (_runner_dir, _runner) =
         make_runner("claude", "#!/usr/bin/env bash\necho should-not-run\n");
     let task = std::env::temp_dir().join(format!(
@@ -507,15 +507,10 @@ fn policy_insecure_env_override_rejected_and_uses_builtin() {
             "json",
         ])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"status\": \"blocked\""))
-        .stdout(predicate::str::contains(
-            "agent claude-code is gated; pass --allow-gated-adapter after human approval",
-        ))
-        .stdout(predicate::str::contains("\"policy_source\": \"builtin\""))
-        .stdout(predicate::str::contains("\"policy_path\": \"builtin\""))
-        .stdout(predicate::str::contains("\"policy_sha256\""))
-        .stdout(predicate::str::contains("should-not-run").not());
+        .failure()
+        .stderr(predicate::str::contains(
+            "policy config must define approval_required_model_patterns",
+        ));
 }
 
 #[test]
@@ -565,7 +560,7 @@ fn policy_valid_cli_override_accepted_with_receipt_hash() {
         .stdout(predicate::str::contains(
             "model qwen3.6-flash requires explicit human approval",
         ))
-        .stdout(predicate::str::contains("\"policy_source\": \"override\""))
+        .stdout(predicate::str::contains(custom_policy.to_str().unwrap()))
         .stdout(predicate::str::contains(custom_policy.to_str().unwrap()))
         .stdout(predicate::str::contains("\"policy_sha256\""))
         .stdout(predicate::str::contains("should-not-run").not());
@@ -605,8 +600,8 @@ fn policy_default_builtin_config_recorded_in_receipt() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"status\": \"succeeded\""))
-        .stdout(predicate::str::contains("\"policy_source\": \"builtin\""))
-        .stdout(predicate::str::contains("\"policy_path\": \"builtin\""))
+        .stdout(predicate::str::contains("policy.json"))
+        .stdout(predicate::str::contains("\"policy_source\": \"builtin\"").not())
         .stdout(predicate::str::contains("\"policy_sha256\""));
 }
 
@@ -705,7 +700,7 @@ fn discover_reports_sources_and_writes_temp_state_without_secrets() {
         .stdout(predicate::str::contains("\"config_source\""))
         .stdout(predicate::str::contains("\"state_source\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains("\"adapters\": \"builtin\""))
+        .stdout(predicate::str::contains("adapters-registry.json"))
         .stdout(predicate::str::contains("models-catalog.json"));
 
     assert!(db.exists());
@@ -731,7 +726,8 @@ fn route_default_config_reports_documentation_without_secrets() {
         .success()
         .stdout(predicate::str::contains("\"task_kind\": \"documentation\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains("\"config_source\": \"builtin\""));
+        .stdout(predicate::str::contains("routing-matrix.json"))
+        .stdout(predicate::str::contains("\"config_source\": \"builtin\"").not());
 }
 
 #[test]

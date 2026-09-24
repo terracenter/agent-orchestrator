@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-pub const BUILTIN_TASK_CAPABILITIES_JSON: &str = include_str!("../config/task-capabilities.json");
+pub const TASK_CAPABILITIES_ENV: &str = "ORQ_TASK_CAPABILITIES";
+pub const TASK_CAPABILITIES_FILE: &str = "task-capabilities.json";
 
 /// Environment variable names the sandboxed child process always receives on top of any
 /// granted capability. Declaring them again in a task-kind capability would let a task_kind
@@ -25,19 +26,21 @@ pub struct TaskCapabilityDefinition {
 
 #[allow(dead_code)]
 pub fn default_config() -> Result<TaskCapabilitiesConfig> {
-    parse_config(BUILTIN_TASK_CAPABILITIES_JSON)
+    let path = crate::config::resolve_path(None, TASK_CAPABILITIES_ENV, TASK_CAPABILITIES_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external task capabilities {}", path.display()))?;
+    parse_config(&content)
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<(TaskCapabilitiesConfig, String)> {
-    match path {
-        None => Ok((default_config()?, "builtin".to_string())),
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading task capabilities config {}", path.display()))?;
-            Ok((parse_config(&content)?, path.display().to_string()))
-        }
-    }
+    let (content, source) = crate::config::read_json(
+        path,
+        TASK_CAPABILITIES_ENV,
+        TASK_CAPABILITIES_FILE,
+        "task capabilities config",
+    )
+    .await?;
+    Ok((parse_config(&content)?, source))
 }
 
 pub fn parse_config(content: &str) -> Result<TaskCapabilitiesConfig> {

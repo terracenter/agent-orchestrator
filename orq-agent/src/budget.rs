@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-pub const BUILTIN_BUDGET_JSON: &str = include_str!("../config/budget.json");
+pub const BUDGET_CONFIG_ENV: &str = "ORQ_BUDGET_CONFIG";
+pub const BUDGET_CONFIG_FILE: &str = "budget.json";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BudgetConfig {
@@ -46,36 +47,32 @@ pub struct BudgetDecision {
 }
 
 pub fn default_config() -> Result<BudgetConfig> {
-    parse_config(BUILTIN_BUDGET_JSON)
+    let path = crate::config::resolve_path(None, BUDGET_CONFIG_ENV, BUDGET_CONFIG_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external budget config {}", path.display()))?;
+    parse_config(&content)
 }
 
 pub fn default_loaded_budget() -> Result<LoadedBudget> {
+    let path = crate::config::resolve_path(None, BUDGET_CONFIG_ENV, BUDGET_CONFIG_FILE)?;
     Ok(LoadedBudget {
         config: default_config()?,
-        source: "builtin".to_string(),
-        path: "builtin".to_string(),
+        source: path.display().to_string(),
+        path: path.display().to_string(),
     })
 }
 
 /// Carga la config de presupuesto. Igual que `policy::load_config`, un
-/// `path` explicito (flag CLI) es la unica forma de sobreescribir el
-/// builtin: no se consulta ninguna variable de entorno, para que el techo de
-/// gasto no pueda cambiarse silenciosamente desde el shell.
+/// `path` explícito o las rutas externas estándar seleccionan el archivo vivo.
 pub async fn load_config(path: Option<&Path>) -> Result<LoadedBudget> {
-    match path {
-        None => default_loaded_budget(),
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading budget config {}", path.display()))?;
-            let config = parse_config(&content)?;
-            Ok(LoadedBudget {
-                config,
-                source: "override".to_string(),
-                path: path.display().to_string(),
-            })
-        }
-    }
+    let (content, source) =
+        crate::config::read_json(path, BUDGET_CONFIG_ENV, BUDGET_CONFIG_FILE, "budget config")
+            .await?;
+    Ok(LoadedBudget {
+        config: parse_config(&content)?,
+        source: source.clone(),
+        path: source,
+    })
 }
 
 pub fn parse_config(content: &str) -> Result<BudgetConfig> {
@@ -202,8 +199,8 @@ mod tests {
     #[tokio::test]
     async fn default_loaded_budget_is_builtin() {
         let loaded = default_loaded_budget().unwrap();
-        assert_eq!(loaded.source, "builtin");
-        assert_eq!(loaded.path, "builtin");
+        assert_ne!(loaded.source, "builtin");
+        assert!(loaded.path.ends_with("budget.json"));
     }
 
     #[test]
@@ -310,10 +307,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_config_none_uses_builtin() {
+    async fn load_config_none_uses_external_config() {
         let loaded = load_config(None).await.unwrap();
-        assert_eq!(loaded.source, "builtin");
-        assert_eq!(loaded.path, "builtin");
+        assert_ne!(loaded.source, "builtin");
+        assert!(loaded.path.ends_with("budget.json"));
     }
 
     #[tokio::test]
@@ -327,7 +324,7 @@ mod tests {
         .unwrap();
 
         let loaded = load_config(Some(temp.path())).await.unwrap();
-        assert_eq!(loaded.source, "override");
+        assert_eq!(loaded.source, temp.path().display().to_string());
         assert_eq!(loaded.path, temp.path().display().to_string());
         assert_eq!(loaded.config.daily_limit_usd, Some(2.5));
         assert_eq!(loaded.config.monthly_limit_usd, Some(50.0));

@@ -421,6 +421,8 @@ fn extract_command_from_json(line: &str) -> Option<String> {
 /// embebe el auditor Go (`internal/rtkpolicy/rtkpolicy.go`, vía `go:embed`).
 /// Agregar un binario ahí actualiza ambos auditores tras un rebuild, sin
 /// tocar código en ninguno de los dos lenguajes.
+// Static scanner policy shipped with the binary; this is not a live agent/model
+// catalog and is intentionally immutable at runtime.
 const RTK_REQUIRED_JSON: &str = include_str!("../../internal/rtkpolicy/rtk_required.json");
 
 const RTK_REQUIRED_SCHEMA_VERSION: u32 = 1;

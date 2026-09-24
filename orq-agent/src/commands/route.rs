@@ -21,10 +21,7 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
     let models_config_path = args.models_config.as_deref().map(std::path::Path::new);
-    let models_catalog = match domain_models::load_catalog(models_config_path).await {
-        Ok((catalog, _)) => Some(catalog),
-        Err(_) => domain_models::default_catalog().ok(),
-    };
+    let (models_catalog, _) = domain_models::load_catalog(models_config_path).await?;
     let cert_store = match args.cert_dir.as_deref().map(std::path::Path::new) {
         Some(path) => Some(certstore::CertificateStore::load_dir(path)?),
         None => None,
@@ -53,7 +50,7 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
         &detected,
         cert_store.as_ref(),
         state_store.as_ref(),
-        models_catalog.as_ref(),
+        Some(&models_catalog),
         Some(&loaded_availability),
     )
 }

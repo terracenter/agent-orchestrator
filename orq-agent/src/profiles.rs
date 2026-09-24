@@ -1,9 +1,8 @@
 use color_eyre::eyre::{Result, WrapErr};
 use serde::{Deserialize, Serialize};
 
-/// Bundled static agent profiles catalog, mirrored from `config/agent-profiles.json`
-/// (the same file the legacy Go `orq agents --format json` used via `agentpkg.LoadProfiles`).
-pub const BUILTIN_AGENT_PROFILES_JSON: &str = include_str!("../config/agent-profiles.json");
+pub const AGENT_PROFILES_ENV: &str = "ORQ_AGENT_PROFILES";
+pub const AGENT_PROFILES_FILE: &str = "agent-profiles.json";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentProfile {
@@ -17,8 +16,10 @@ pub struct AgentProfile {
 }
 
 pub fn default_profiles() -> Result<Vec<AgentProfile>> {
-    serde_json::from_str(BUILTIN_AGENT_PROFILES_JSON)
-        .wrap_err("parsing bundled agent profiles json")
+    let path = crate::config::resolve_path(None, AGENT_PROFILES_ENV, AGENT_PROFILES_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external agent profiles {}", path.display()))?;
+    serde_json::from_str(&content).wrap_err("parsing external agent profiles json")
 }
 
 #[cfg(test)]
@@ -26,7 +27,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_profiles_parse_and_contain_known_agent() {
+    fn external_profiles_parse_and_contain_known_agent() {
         let profiles = default_profiles().unwrap();
         assert!(!profiles.is_empty());
         assert!(profiles.iter().any(|p| p.agent == "pi"));

@@ -9,6 +9,7 @@ mod certify;
 mod certstore;
 mod commands;
 pub mod compliance;
+mod config;
 pub mod delegate;
 mod detect;
 mod discover;
