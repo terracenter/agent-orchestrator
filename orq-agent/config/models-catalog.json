@@ -133,6 +133,29 @@
         "notes": "flagship/costly; reserve for deep security, architecture, or hard reasoning",
         "status": "active"
       }
+    ],
+    "codex": [
+      {
+        "id": "gpt-5.5",
+        "source": "local_codex_runtime",
+        "confidence": "installed_cli_candidate",
+        "notes": "Codex CLI 0.154.0 installed locally; use for frontend/design implementation when routed explicitly.",
+        "status": "active"
+      },
+      {
+        "id": "gpt-5.5-high",
+        "source": "local_codex_runtime",
+        "confidence": "installed_cli_candidate",
+        "notes": "Higher reasoning-effort Codex route for visual design review and complex UI refactors; use when explicitly approved.",
+        "status": "active"
+      },
+      {
+        "id": "gpt-5.5-low",
+        "source": "local_codex_runtime",
+        "confidence": "installed_cli_candidate",
+        "notes": "Lower effort Codex route for mechanical frontend checks.",
+        "status": "active"
+      }
     ]
   }
 }
