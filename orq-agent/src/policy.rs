@@ -5,7 +5,8 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-pub const BUILTIN_POLICY_JSON: &str = include_str!("../config/policy.json");
+pub const POLICY_CONFIG_ENV: &str = "ORQ_POLICY_CONFIG";
+pub const POLICY_CONFIG_FILE: &str = "policy.json";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct PolicyConfig {
@@ -40,37 +41,37 @@ pub struct PolicyDecision {
 }
 
 pub fn default_config() -> Result<PolicyConfig> {
-    parse_config(BUILTIN_POLICY_JSON)
+    let path = crate::config::resolve_path(None, POLICY_CONFIG_ENV, POLICY_CONFIG_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external policy config {}", path.display()))?;
+    parse_config(&content)
 }
 
 pub fn default_loaded_policy() -> Result<LoadedPolicy> {
-    let config = default_config()?;
-    let sha256 = hex_sha256(BUILTIN_POLICY_JSON.as_bytes());
+    let path = crate::config::resolve_path(None, POLICY_CONFIG_ENV, POLICY_CONFIG_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external policy config {}", path.display()))?;
+    let config = parse_config(&content)?;
+    let sha256 = hex_sha256(content.as_bytes());
     Ok(LoadedPolicy {
         config,
-        source: "builtin".to_string(),
-        path: "builtin".to_string(),
+        source: path.display().to_string(),
+        path: path.display().to_string(),
         sha256,
     })
 }
 
 pub async fn load_config(path: Option<&Path>) -> Result<LoadedPolicy> {
-    match path {
-        None => default_loaded_policy(),
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading policy config {}", path.display()))?;
-            let config = parse_config(&content)?;
-            let sha256 = hex_sha256(content.as_bytes());
-            Ok(LoadedPolicy {
-                config,
-                source: "override".to_string(),
-                path: path.display().to_string(),
-                sha256,
-            })
-        }
-    }
+    let (content, source) =
+        crate::config::read_json(path, POLICY_CONFIG_ENV, POLICY_CONFIG_FILE, "policy config")
+            .await?;
+    let config = parse_config(&content)?;
+    Ok(LoadedPolicy {
+        config,
+        source: source.clone(),
+        path: source,
+        sha256: hex_sha256(content.as_bytes()),
+    })
 }
 
 pub fn hex_sha256(bytes: &[u8]) -> String {
@@ -360,8 +361,8 @@ mod tests {
     #[tokio::test]
     async fn default_loaded_policy_is_builtin() {
         let loaded = default_loaded_policy().unwrap();
-        assert_eq!(loaded.source, "builtin");
-        assert_eq!(loaded.path, "builtin");
+        assert_ne!(loaded.source, "builtin");
+        assert!(loaded.path.ends_with("policy.json"));
         assert_eq!(loaded.sha256.len(), 64);
         assert!(loaded
             .config
@@ -370,12 +371,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_config_none_ignores_env_var() {
-        std::env::set_var("ORQ_POLICY_CONFIG", "/nonexistent/insecure_policy.json");
+    async fn load_config_none_uses_external_config() {
         let loaded = load_config(None).await.unwrap();
-        assert_eq!(loaded.source, "builtin");
-        assert_eq!(loaded.path, "builtin");
-        std::env::remove_var("ORQ_POLICY_CONFIG");
+        assert_ne!(loaded.source, "builtin");
+        assert!(loaded.path.ends_with("policy.json"));
     }
 
     #[tokio::test]
@@ -389,7 +388,7 @@ mod tests {
         .unwrap();
 
         let loaded = load_config(Some(temp.path())).await.unwrap();
-        assert_eq!(loaded.source, "override");
+        assert_eq!(loaded.source, temp.path().display().to_string());
         assert_eq!(loaded.path, temp.path().display().to_string());
         assert_eq!(
             loaded.config.approval_required_model_patterns,

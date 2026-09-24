@@ -39,6 +39,11 @@ make build
 make install
 ```
 
+`make install` instala los catálogos JSON vivos junto al binario bajo
+`$HOME/Workspace/.agents/orq` by default. Override that destination with
+`CONFIG_DIR=/path/to/orq-config`, or set `ORQ_CONFIG_DIR` at runtime. Explicit
+catalog flags and catalog-specific environment variables take precedence.
+
 ## Uso esencial
 
 ```bash

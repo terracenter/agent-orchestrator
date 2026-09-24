@@ -38,10 +38,7 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
     let models_config_path = args.models_config.as_deref().map(std::path::Path::new);
-    let models_catalog = match models::load_catalog(models_config_path).await {
-        Ok((catalog, _)) => Some(catalog),
-        Err(_) => models::default_catalog().ok(),
-    };
+    let (models_catalog, _) = models::load_catalog(models_config_path).await?;
     let home_capabilities_path = args
         .home_capabilities_config
         .as_deref()
@@ -81,7 +78,7 @@ pub(crate) async fn run(args: DelegateArgs) -> Result<delegate::DelegateOutput> 
         home_capabilities,
         task_capabilities,
         budget,
-        models_catalog,
+        models_catalog: Some(models_catalog),
         state_db_path: args.db_path,
     })
     .await

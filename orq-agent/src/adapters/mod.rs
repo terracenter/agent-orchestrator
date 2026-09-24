@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u8 = 1;
-pub const BUILTIN_ADAPTERS_REGISTRY_JSON: &str =
-    include_str!("../../config/adapters-registry.json");
+pub const ADAPTERS_REGISTRY_ENV: &str = "ORQ_ADAPTERS_REGISTRY";
+pub const ADAPTERS_REGISTRY_FILE: &str = "adapters-registry.json";
 
 pub trait AgentAdapter: Send + Sync {
     fn name(&self) -> &str;
@@ -101,19 +101,21 @@ impl AgentAdapter for ConfiguredAdapter {
 }
 
 pub fn default_registry() -> Result<AdaptersRegistry> {
-    parse_registry(BUILTIN_ADAPTERS_REGISTRY_JSON)
+    let path = crate::config::resolve_path(None, ADAPTERS_REGISTRY_ENV, ADAPTERS_REGISTRY_FILE)?;
+    let content = std::fs::read_to_string(&path)
+        .wrap_err_with(|| format!("reading external adapters registry {}", path.display()))?;
+    parse_registry(&content)
 }
 
 pub async fn load_registry(path: Option<&Path>) -> Result<(AdaptersRegistry, String)> {
-    match path {
-        None => Ok((default_registry()?, "builtin".to_string())),
-        Some(path) => {
-            let content = tokio::fs::read_to_string(path)
-                .await
-                .wrap_err_with(|| format!("reading adapters registry {}", path.display()))?;
-            Ok((parse_registry(&content)?, path.display().to_string()))
-        }
-    }
+    let (content, source) = crate::config::read_json(
+        path,
+        ADAPTERS_REGISTRY_ENV,
+        ADAPTERS_REGISTRY_FILE,
+        "adapters registry",
+    )
+    .await?;
+    Ok((parse_registry(&content)?, source))
 }
 
 pub fn parse_registry(content: &str) -> Result<AdaptersRegistry> {
@@ -277,15 +279,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_registry_none_uses_builtin_and_ignores_env() {
-        std::env::set_var("ORQ_ADAPTERS_REGISTRY", "/nonexistent/insecure_reg.json");
-        let (registry, path) = load_registry(None).await.unwrap();
-        assert_eq!(path, "builtin");
-        assert!(registry
-            .adapters
-            .iter()
-            .any(|adapter| adapter.name == "qwen-code"));
-        std::env::remove_var("ORQ_ADAPTERS_REGISTRY");
+    async fn load_registry_without_explicit_path_reports_external_source() {
+        let (_, path) = load_registry(None).await.unwrap();
+        assert_ne!(path, "builtin");
+        assert!(path.ends_with("adapters-registry.json"));
     }
 
     #[tokio::test]

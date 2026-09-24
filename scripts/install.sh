@@ -3,6 +3,7 @@ set -euo pipefail
 
 PREFIX="${ORQ_PREFIX:-$HOME/.local}"
 BINDIR="${ORQ_BINDIR:-$PREFIX/bin}"
+CONFIG_DIR="${ORQ_CONFIG_DIR:-$HOME/Workspace/.agents/orq}"
 REPO_URL="${ORQ_REPO_URL:-https://github.com/terracenter/agent-orchestrator.git}"
 REF="${ORQ_REF:-main}"
 DRY_RUN=0
@@ -62,7 +63,7 @@ Opciones:
 RTK
 fi
 
-log "repo=$REPO_URL ref=$REF bindir=$BINDIR dry_run=$DRY_RUN"
+log "repo=$REPO_URL ref=$REF bindir=$BINDIR config_dir=$CONFIG_DIR dry_run=$DRY_RUN"
 if [ "$YES" -ne 1 ] && [ "$DRY_RUN" -ne 1 ]; then
   printf 'Continuar instalacion? [y/N] '
   read -r answer
@@ -87,6 +88,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   log "dry-run: se ejecutaria cargo build --release --manifest-path orq-agent/Cargo.toml --bins"
   log "dry-run: se instalaria Rust $BINDIR/orq"
   log "dry-run: se instalaria Rust $BINDIR/orq-agent"
+  log "dry-run: se instalarian los catalogos JSON en $CONFIG_DIR (con backup si existen)"
   for target in "$BINDIR/orq" "$BINDIR/orq-agent"; do
     if [ -e "$target" ]; then
       log "dry-run: backup $target -> $target.backup.*"
@@ -99,10 +101,16 @@ git clone --depth 1 --branch "$REF" "$REPO_URL" "$tmpdir/src"
 cd "$tmpdir/src"
 cargo build --release --manifest-path orq-agent/Cargo.toml --bins
 mkdir -p "$BINDIR"
+mkdir -p "$CONFIG_DIR"
 backup_if_exists "$BINDIR/orq"
 backup_if_exists "$BINDIR/orq-agent"
 install -m 0755 orq-agent/target/release/orq "$BINDIR/orq"
 install -m 0755 orq-agent/target/release/orq-agent "$BINDIR/orq-agent"
+for config in orq-agent/config/*.json; do
+  target="$CONFIG_DIR/$(basename "$config")"
+  backup_if_exists "$target"
+  install -m 0644 "$config" "$target"
+done
 log "instalado $BINDIR/orq (Rust)"
 log "instalado $BINDIR/orq-agent (Rust)"
 log "ejecuta: $BINDIR/orq --help"
