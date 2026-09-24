@@ -18,6 +18,33 @@
     "verified": true
   },
   {
+    "agent": "codex",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "cost_level": 2,
+    "use_for": "implementacion de codigo y frontend con Codex CLI local; reasoning_effort estandar",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "codex",
+    "provider": "openai",
+    "model": "gpt-5.5-high",
+    "cost_level": 3,
+    "use_for": "diseno visual, UX y refactors frontend complejos con Codex CLI local",
+    "review_only": false,
+    "verified": true
+  },
+  {
+    "agent": "codex",
+    "provider": "openai",
+    "model": "gpt-5.5-low",
+    "cost_level": 1,
+    "use_for": "checks mecanicos y frontend sencillo con Codex CLI local",
+    "review_only": false,
+    "verified": true
+  },
+  {
     "agent": "nvidia-api",
     "provider": "nvidia",
     "model": "openai/gpt-oss-20b",
