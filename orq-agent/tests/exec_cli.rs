@@ -2,10 +2,42 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+use std::sync::{Mutex, Once, OnceLock};
+
+fn temp_file_path(prefix: &str) -> tempfile::TempPath {
+    tempfile::Builder::new()
+        .prefix(prefix)
+        .tempfile()
+        .unwrap()
+        .into_temp_path()
+}
+
+static FAKE_RUNNER_DIRS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
+
+fn fake_runner_dirs() -> &'static Mutex<Vec<PathBuf>> {
+    FAKE_RUNNER_DIRS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+extern "C" fn cleanup_fake_runner_dirs() {
+    if let Some(dirs) = FAKE_RUNNER_DIRS.get() {
+        for dir in dirs.lock().unwrap().drain(..) {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+}
+static REGISTER_FAKE_RUNNER_CLEANUP: Once = Once::new();
 
 fn fake_runner_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("orq-agent-test-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    REGISTER_FAKE_RUNNER_CLEANUP.call_once(|| unsafe {
+        libc::atexit(cleanup_fake_runner_dirs);
+    });
+    let dir = tempfile::Builder::new()
+        .prefix("orq-agent-test-")
+        .tempdir()
+        .unwrap()
+        .keep();
+    fake_runner_dirs().lock().unwrap().push(dir.clone());
     dir
 }
 
@@ -96,11 +128,26 @@ fn make_runner(name: &str, body: &str) -> (tempfile::TempDir, String) {
     (dir, runner_str)
 }
 
+fn runner_search_path() -> String {
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    let runner_path = fake_runner_dirs()
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .map(|dir| dir.display().to_string())
+        .collect::<Vec<_>>()
+        .join(":");
+    if runner_path.is_empty() {
+        old_path
+    } else {
+        format!("{}:{}", runner_path, old_path)
+    }
+}
+
 fn test_cmd(bin: &str) -> Command {
     let mut cmd = Command::cargo_bin(bin).unwrap();
-    let dir = fake_runner_dir();
-    let old_path = std::env::var("PATH").unwrap_or_default();
-    cmd.env("PATH", format!("{}:{}", dir.display(), old_path));
+    cmd.env("PATH", runner_search_path());
     cmd
 }
 
@@ -113,10 +160,7 @@ fn test_cmd_with_path(bin: &str, bin_dir: &std::path::Path) -> Command {
 
 #[test]
 fn detect_supports_external_adapters_registry() {
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-adapters-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-adapters-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"custom-agent","binary":"custom-agent-bin","status":"available","argv":["--model","$MODEL","--prompt","$TASK"]}]}"#,
@@ -144,22 +188,15 @@ fn exec_supports_external_adapters_registry() {
         "custom-runner",
         "#!/usr/bin/env bash\necho custom-runner-ok\n",
     );
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-custom-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-custom-task-");
     fs::write(&task, "hello custom").unwrap();
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-custom-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-custom-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"custom-agent","binary":"custom-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-custom-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-custom-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"custom-agent":{"home_paths":[]}}}"#,
@@ -199,10 +236,9 @@ fn exec_supports_external_adapters_registry() {
 #[test]
 fn exec_supports_external_policy_config() {
     let runner = fake_runner("qwen-policy", "#!/usr/bin/env bash\necho should-not-run\n");
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-policy-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-policy-task-");
     fs::write(&task, "hello policy").unwrap();
-    let policy = std::env::temp_dir().join(format!("orq-agent-policy-{}.json", std::process::id()));
+    let policy = temp_file_path("orq-agent-policy-");
     fs::write(
         &policy,
         r#"{"schema_version":1,"approval_required_model_patterns":["max"],"blocked_adapter_statuses":["deprecated_or_quarantine"],"gated_adapter_statuses":["gated"]}"#,
@@ -251,46 +287,31 @@ fn exec_budget_config_blocks_expensive_model_without_legacy_name_pattern() {
         "budget-expensive-runner",
         "#!/usr/bin/env bash\necho should-not-run\n",
     );
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-budget-expensive-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-budget-expensive-task-");
     fs::write(&task, "hello budget").unwrap();
 
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-budget-expensive-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-budget-expensive-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"budget-agent","binary":"budget-expensive-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
-    let models_config = std::env::temp_dir().join(format!(
-        "orq-agent-budget-expensive-catalog-{}.json",
-        std::process::id()
-    ));
+    let models_config = temp_file_path("orq-agent-budget-expensive-catalog-");
     fs::write(
         &models_config,
         r#"{"schema_version":2,"agents":{"budget-agent":[{"id":"kimi-k2.5-ultra-max","source":"test","confidence":"candidate","notes":"","cost_hint":5.0}]}}"#,
     )
     .unwrap();
 
-    let budget_config = std::env::temp_dir().join(format!(
-        "orq-agent-budget-expensive-budget-{}.json",
-        std::process::id()
-    ));
+    let budget_config = temp_file_path("orq-agent-budget-expensive-budget-");
     fs::write(
         &budget_config,
         r#"{"schema_version":1,"currency":"USD","daily_limit_usd":1.0,"monthly_limit_usd":20.0}"#,
     )
     .unwrap();
 
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-budget-expensive-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-budget-expensive-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"budget-agent":{"home_paths":[]}}}"#,
@@ -345,26 +366,17 @@ fn exec_budget_config_allows_cheap_model_and_persists_spend_across_calls() {
         "budget-cheap-runner",
         "#!/usr/bin/env bash\necho budget-cheap-ok\n",
     );
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-budget-cheap-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-budget-cheap-task-");
     fs::write(&task, "hello cheap budget").unwrap();
 
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-budget-cheap-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-budget-cheap-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"budget-agent","binary":"budget-cheap-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
-    let models_config = std::env::temp_dir().join(format!(
-        "orq-agent-budget-cheap-catalog-{}.json",
-        std::process::id()
-    ));
+    let models_config = temp_file_path("orq-agent-budget-cheap-catalog-");
     fs::write(
         &models_config,
         r#"{"schema_version":2,"agents":{"budget-agent":[{"id":"kimi-k2.5-mini","source":"test","confidence":"candidate","notes":"","cost_hint":0.01}]}}"#,
@@ -375,20 +387,14 @@ fn exec_budget_config_allows_cheap_model_and_persists_spend_across_calls() {
     // (0.01 + 0.01 acumulado = 0.02) excede 0.015 y debe bloquearse. Esto
     // prueba que el gasto persiste entre invocaciones separadas del binario
     // (ledger en SQLite), no solo en memoria del proceso.
-    let budget_config = std::env::temp_dir().join(format!(
-        "orq-agent-budget-cheap-budget-{}.json",
-        std::process::id()
-    ));
+    let budget_config = temp_file_path("orq-agent-budget-cheap-budget-");
     fs::write(
         &budget_config,
         r#"{"schema_version":1,"currency":"USD","daily_limit_usd":0.015,"monthly_limit_usd":null}"#,
     )
     .unwrap();
 
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-budget-cheap-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-budget-cheap-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"budget-agent":{"home_paths":[]}}}"#,
@@ -469,17 +475,11 @@ fn exec_budget_config_allows_cheap_model_and_persists_spend_across_calls() {
 fn policy_insecure_env_override_fails_closed() {
     let (_runner_dir, _runner) =
         make_runner("claude", "#!/usr/bin/env bash\necho should-not-run\n");
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-env-override-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-env-override-task-");
     fs::write(&task, "hello insecure env override").unwrap();
 
     // Insecure policy that attempts to remove human approval requirement for "opus"
-    let insecure_policy = std::env::temp_dir().join(format!(
-        "orq-agent-insecure-policy-{}.json",
-        std::process::id()
-    ));
+    let insecure_policy = temp_file_path("orq-agent-insecure-policy-");
     fs::write(
         &insecure_policy,
         r#"{"schema_version":1,"approval_required_model_patterns":[],"blocked_adapter_statuses":[],"gated_adapter_statuses":[]}"#,
@@ -519,16 +519,10 @@ fn policy_valid_cli_override_accepted_with_receipt_hash() {
         "qwen-valid-cli-override",
         "#!/usr/bin/env bash\necho should-not-run\n",
     );
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-cli-override-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-cli-override-task-");
     fs::write(&task, "hello cli override").unwrap();
 
-    let custom_policy = std::env::temp_dir().join(format!(
-        "orq-agent-custom-policy-{}.json",
-        std::process::id()
-    ));
+    let custom_policy = temp_file_path("orq-agent-custom-policy-");
     let policy_content = r#"{"schema_version":1,"approval_required_model_patterns":["flash"],"blocked_adapter_statuses":[],"gated_adapter_statuses":[]}"#;
     fs::write(&custom_policy, policy_content).unwrap();
 
@@ -572,10 +566,7 @@ fn policy_default_builtin_config_recorded_in_receipt() {
         "qwen-builtin-policy",
         "#!/usr/bin/env bash\necho qwen-builtin-ok\n",
     );
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-builtin-policy-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-builtin-policy-task-");
     fs::write(&task, "hello builtin policy").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -608,7 +599,7 @@ fn policy_default_builtin_config_recorded_in_receipt() {
 #[test]
 fn exec_qwen_fake_succeeds_with_receipt() {
     let (_runner_dir, _runner) = make_runner("qwen-ok", "#!/usr/bin/env bash\necho fake-qwen-ok\n");
-    let task = std::env::temp_dir().join(format!("orq-agent-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-task-");
     fs::write(&task, "hello fake").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -736,10 +727,11 @@ fn route_uses_certificate_directory_for_exact_match() {
         "qwen-route-cert",
         "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.6-flash'\n",
     );
-    let cert_dir =
-        std::env::temp_dir().join(format!("orq-agent-route-certs-{}", std::process::id()));
-    fs::create_dir_all(&cert_dir).unwrap();
-    let output = cert_dir.join("qwen-docs.json");
+    let cert_dir = tempfile::Builder::new()
+        .prefix("orq-agent-route-certs-")
+        .tempdir()
+        .unwrap();
+    let output = cert_dir.path().join("qwen-docs.json");
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -776,7 +768,7 @@ fn route_uses_certificate_directory_for_exact_match() {
             "--task-kind",
             "documentation",
             "--cert-dir",
-            cert_dir.to_str().unwrap(),
+            cert_dir.path().to_str().unwrap(),
             "--db-path",
             db.to_str().unwrap(),
             "--format",
@@ -825,7 +817,7 @@ fn certify_qwen_fake_writes_certificate() {
         "qwen-certify",
         "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.8-max'\n",
     );
-    let output = std::env::temp_dir().join(format!("orq-agent-cert-{}.json", std::process::id()));
+    let output = temp_file_path("orq-agent-cert-");
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -893,8 +885,7 @@ fn smoke_qwen_fake_succeeds_with_receipt() {
 
 #[test]
 fn exec_unknown_agent_returns_invalid_request_receipt() {
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-unknown-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-unknown-task-");
     fs::write(&task, "hello unknown").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -929,10 +920,7 @@ fn exec_unknown_agent_returns_invalid_request_receipt() {
 
 #[test]
 fn exec_rejects_timeout_above_ceiling_as_receipt() {
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-timeout-ceiling-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-timeout-ceiling-task-");
     fs::write(&task, "hello timeout ceiling").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -964,7 +952,7 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
 
 #[test]
 fn exec_missing_binary_returns_spawn_failed_receipt() {
-    let task = std::env::temp_dir().join(format!("orq-agent-spawn-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-spawn-task-");
     fs::write(&task, "hello spawn").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -999,8 +987,7 @@ fn exec_timeout_preserves_partial_stdout_tail() {
         "qwen-partial",
         "#!/usr/bin/env bash\necho partial-before-timeout\nsleep 5\n",
     );
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-partial-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-partial-task-");
     fs::write(&task, "hello partial").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -1031,10 +1018,7 @@ fn exec_timeout_preserves_partial_stdout_tail() {
 #[test]
 fn exec_output_tail_is_bounded_to_recent_output() {
     let (_runner_dir, _runner) = make_runner("qwen-long-output", "#!/usr/bin/env bash\npython3 - <<'PY'\nprint('A' * 20000)\nprint('RECENT-TAIL-MARKER')\nPY\n");
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-long-output-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-long-output-task-");
     fs::write(&task, "hello long output").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -1063,14 +1047,17 @@ fn exec_output_tail_is_bounded_to_recent_output() {
 
 #[test]
 fn exec_timeout_kills_child_process_group() {
-    let marker =
-        std::env::temp_dir().join(format!("orq-agent-orphan-marker-{}", std::process::id()));
+    let marker_dir = tempfile::Builder::new()
+        .prefix("orq-agent-orphan-")
+        .tempdir()
+        .unwrap();
+    let marker = marker_dir.path().join("marker");
     let body = format!(
         "#!/usr/bin/env bash\n(sleep 2; echo orphan-alive > '{}') &\nsleep 10\n",
         marker.display()
     );
     let (_runner_dir, _runner) = make_runner("qwen-process-group", &body);
-    let task = std::env::temp_dir().join(format!("orq-agent-pgid-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-pgid-task-");
     fs::write(&task, "hello pgid").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -1104,19 +1091,17 @@ fn exec_timeout_kills_child_process_group() {
 
 #[test]
 fn exec_pgid_cleanup() {
-    let marker = std::env::temp_dir().join(format!(
-        "orq-agent-pgid-cleanup-marker-{}",
-        std::process::id()
-    ));
+    let marker_dir = tempfile::Builder::new()
+        .prefix("orq-agent-pgid-cleanup-")
+        .tempdir()
+        .unwrap();
+    let marker = marker_dir.path().join("marker");
     let body = format!(
         "#!/usr/bin/env bash\ntrap '' TERM\n(sleep 2; echo child-alive > '{}') &\nwhile true; do sleep 1; done\n",
         marker.display()
     );
     let (_runner_dir, _runner) = make_runner("qwen-pgid-cleanup-runner", &body);
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-pgid-cleanup-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-pgid-cleanup-task-");
     fs::write(&task, "hello pgid cleanup").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -1154,8 +1139,7 @@ fn exec_pgid_cleanup() {
 #[test]
 fn exec_qwen_fake_timeout_is_reported() {
     let (_runner_dir, _runner) = make_runner("qwen-sleep", "#!/usr/bin/env bash\nsleep 5\n");
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-timeout-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-timeout-task-");
     fs::write(&task, "hello timeout").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -1185,8 +1169,7 @@ fn exec_qwen_fake_timeout_is_reported() {
 
 #[test]
 fn exec_without_correlation_id_uses_unique_fallback() {
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-fallback-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-fallback-task-");
     fs::write(&task, "hello fallback").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -3006,23 +2989,16 @@ fn exec_confines_home_and_denies_inherited_env_by_default() {
         "confine-runner",
         "#!/usr/bin/env bash\necho \"REPORTED_HOME=$HOME\"\necho \"SENTINEL_VAR=${ORQ_TEST_SENTINEL_VAR:-absent}\"\n",
     );
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-confine-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-confine-task-");
     fs::write(&task, "hello confinement").unwrap();
 
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-confine-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-confine-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"confine-agent":{"home_paths":[]}}}"#,
     )
     .unwrap();
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-confine-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-confine-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"confine-agent","binary":"confine-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
@@ -3074,23 +3050,16 @@ fn exec_home_sandbox_exposes_only_declared_paths() {
         "minimal-config-runner",
         "#!/usr/bin/env bash\ncat \"$HOME/allowed.txt\" 2>/dev/null || echo NO-ALLOWED\nif [ -f \"$HOME/forbidden.txt\" ]; then echo FORBIDDEN-PRESENT; else echo FORBIDDEN-ABSENT; fi\n",
     );
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-minimal-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-minimal-task-");
     fs::write(&task, "hello minimal").unwrap();
 
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-minimal-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-minimal-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"minimal-agent":{"home_paths":["allowed.txt"]}}}"#,
     )
     .unwrap();
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-minimal-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-minimal-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"minimal-agent","binary":"minimal-config-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
@@ -3137,26 +3106,17 @@ fn exec_unregistered_home_capability_adapter_fails_closed() {
         "undeclared-runner",
         "#!/usr/bin/env bash\necho should-not-run\n",
     );
-    let task = std::env::temp_dir().join(format!(
-        "orq-agent-undeclared-task-{}.md",
-        std::process::id()
-    ));
+    let task = temp_file_path("orq-agent-undeclared-task-");
     fs::write(&task, "hello undeclared").unwrap();
 
     // Home capabilities config that declares a *different* adapter, not "undeclared-agent".
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-undeclared-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-undeclared-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"some-other-agent":{"home_paths":[]}}}"#,
     )
     .unwrap();
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-undeclared-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-undeclared-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"undeclared-agent","binary":"undeclared-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
@@ -3206,10 +3166,7 @@ fn exec_cleans_up_sandbox_home_after_success_and_failure() {
         "cleanup-fail-runner",
         "#!/usr/bin/env bash\necho failing-on-purpose >&2\nexit 1\n",
     );
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-cleanup-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-cleanup-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[
@@ -3218,17 +3175,13 @@ fn exec_cleans_up_sandbox_home_after_success_and_failure() {
         ]}"#,
     )
     .unwrap();
-    let home_capabilities = std::env::temp_dir().join(format!(
-        "orq-agent-cleanup-homecap-{}.json",
-        std::process::id()
-    ));
+    let home_capabilities = temp_file_path("orq-agent-cleanup-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"cleanup-agent-ok":{"home_paths":[]},"cleanup-agent-fail":{"home_paths":[]}}}"#,
     )
     .unwrap();
-    let task =
-        std::env::temp_dir().join(format!("orq-agent-cleanup-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-cleanup-task-");
     fs::write(&task, "hello cleanup").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -3313,27 +3266,22 @@ fn exec_grants_env_only_for_declared_task_kind() {
         "cap-runner",
         "#!/usr/bin/env bash\necho \"CAP=${ORQ_TEST_CAP_VAR:-absent}\"\n",
     );
-    let task = std::env::temp_dir().join(format!("orq-agent-cap-task-{}.md", std::process::id()));
+    let task = temp_file_path("orq-agent-cap-task-");
     fs::write(&task, "hello capability").unwrap();
 
-    let registry = std::env::temp_dir().join(format!(
-        "orq-agent-cap-registry-{}.json",
-        std::process::id()
-    ));
+    let registry = temp_file_path("orq-agent-cap-registry-");
     fs::write(
         &registry,
         r#"{"schema_version":1,"adapters":[{"name":"cap-agent","binary":"cap-runner","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
-    let home_capabilities =
-        std::env::temp_dir().join(format!("orq-agent-cap-homecap-{}.json", std::process::id()));
+    let home_capabilities = temp_file_path("orq-agent-cap-homecap-");
     fs::write(
         &home_capabilities,
         r#"{"schema_version":1,"adapters":{"cap-agent":{"home_paths":[]}}}"#,
     )
     .unwrap();
-    let task_capabilities =
-        std::env::temp_dir().join(format!("orq-agent-cap-taskcap-{}.json", std::process::id()));
+    let task_capabilities = temp_file_path("orq-agent-cap-taskcap-");
     fs::write(
         &task_capabilities,
         r#"{"schema_version":1,"task_kinds":{"granted-kind":{"env_passthrough":["ORQ_TEST_CAP_VAR"]}}}"#,
@@ -3775,16 +3723,15 @@ fn exec_apply_mode_rejects_tampered_plan_hash() {
 
 #[test]
 fn policy_separated_gated_adapter_approval_enforcement() {
-    let runner_path = fake_runner("claude-gated-runner", "#!/usr/bin/env bash\necho ok\n");
+    let runner_path = fake_runner(
+        "claude-gated-runner",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=claude-code model=model-1'\n",
+    );
     let state_dir = tempfile::tempdir().unwrap();
     let task_file = state_dir.path().join("task.md");
     std::fs::write(&task_file, "policy test").unwrap();
 
-    let runner_path_env = format!(
-        "{}:{}",
-        fake_runner_dir().display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
+    let runner_path_env = runner_search_path();
 
     // 1. Without approval flags -> blocked
     let out1 = Command::cargo_bin("orq-agent")
@@ -3863,7 +3810,10 @@ fn policy_separated_gated_adapter_approval_enforcement() {
 
 #[test]
 fn policy_separated_restricted_model_approval_enforcement() {
-    let runner_path = fake_runner("qwen-model-runner", "#!/usr/bin/env bash\necho ok\n");
+    let runner_path = fake_runner(
+        "qwen-model-runner",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=claude-3-opus-20240229'\n",
+    );
     let state_dir = tempfile::tempdir().unwrap();
     let task_file = state_dir.path().join("task.md");
     std::fs::write(&task_file, "model test").unwrap();
@@ -3877,11 +3827,7 @@ fn policy_separated_restricted_model_approval_enforcement() {
     }"#;
     std::fs::write(&policy_file, policy_json).unwrap();
 
-    let runner_path_env = format!(
-        "{}:{}",
-        fake_runner_dir().display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
+    let runner_path_env = runner_search_path();
 
     // 1. Gated model without approval -> blocked
     let out1 = Command::cargo_bin("orq-agent")
