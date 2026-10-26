@@ -150,7 +150,7 @@ Criterio de aceptación por slice:
 
 ## Fase 11 — Catálogo vivo / doc-watcher
 
-Objetivo: convertir Orq en un orquestador *evidence-driven*: el routing no debe depender de memoria conversacional ni de listas estáticas desalineadas, sino de catálogo vivo, receipts, certificaciones, circuit-breaker/backoff, cleanup por PGID y sincronización explícita con Vault, Engram/memoria y `vg`.
+Objetivo: convertir Orq en un orquestador *evidence-driven*: el routing no debe depender de memoria conversacional ni de listas estáticas desalineadas, sino de catálogo vivo, receipts, certificaciones, circuit-breaker/backoff, cleanup por PGID y sincronización explícita con Vault y `vg`.
 
 Entregables:
 
@@ -159,7 +159,7 @@ Entregables:
 3. **Circuit-breaker/backoff**: poner en backoff automático pares agente/modelo con timeouts o fallos consecutivos; no reintentar modelos cuarentenados hasta smoke/certify exitoso.
 4. **Cleanup PGID verificable**: asegurar que timeouts y cancelaciones terminan todo el process group y dejan receipt con evidencia de limpieza.
 5. **Certificación por evidencia**: vincular `agent/model/task_kind` a receipts JSON, snapshots sha256 y veredictos humanos cuando aplique.
-6. **Sync Vault/Engram/vg**: persistir aprendizaje y decisiones en Engram/memoria, notas del Vault, Roadmap/docs/config y grafo `vg`.
+6. **Sync Vault/vg**: persistir aprendizaje y decisiones en notas del Vault, Roadmap/docs/config y grafo `vg`.
 
 Criterios de aceptación:
 
@@ -167,7 +167,7 @@ Criterios de aceptación:
 - Dado un receipt `timed_out` para un par agente/modelo, cuando se evalúe routing para un task-kind compatible, entonces el par queda omitido por backoff/circuit-breaker. Verificación: `rtk cargo test circuit_breaker`.
 - Dado un runner que deja procesos hijos, cuando `orq-agent exec` termina por timeout, entonces Orq mata el PGID completo y registra salida acotada. Verificación: `rtk cargo test exec_pgid_cleanup`.
 - Dado un autorreporte vigente de agente/modelo, cuando `orq route` decide, entonces usa disponibilidad, cuota, costo relativo y recomendación por task-kind como señal viva y explica la fuente. Verificación: `rtk cargo test agent_self_report_routing`.
-- Dado un receipt validado para un task-kind, cuando se certifique un modelo, entonces la evidencia queda disponible para routing y sincronizada hacia Engram, Vault y `vg`. Verificación: `rtk cargo test certify_sync`.
+- Dado un receipt validado para un task-kind, cuando se certifique un modelo, entonces la evidencia queda disponible para routing y sincronizada hacia Vault y `vg`. Verificación: `rtk cargo test certify_sync`.
 
 Dependencias: Fase 9/10 en curso, `orq-agent` Rust como contrato de ejecución real, `vg` disponible en PATH, y política de aprobación humana para agentes/modelos gated.
 

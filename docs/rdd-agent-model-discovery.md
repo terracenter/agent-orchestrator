@@ -54,7 +54,7 @@ El presente RDD (*Receipt Driven Development*) define la arquitectura de autodes
 │                                │ (ej. recarga de tokens, permisos o flags).      │
 ├────────────────────────────────┼─────────────────────────────────────────────────┤
 │ orq agents doctor              │ Valida salud de binarios, dependencias de shell,│
-│                                │ wrappers (rtk, vg, engram) y sandbox de agentes.│
+│                                │ wrappers (rtk, vg) y sandbox de agentes.│
 ├────────────────────────────────┼─────────────────────────────────────────────────┤
 │ orq models snapshot            │ Genera y exporta el catálogo consolidado de     │
 │                                │ modelos/proveedores fechado para consumo local.  │
