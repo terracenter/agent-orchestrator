@@ -98,4 +98,4 @@ Todo avance inspirado en Orca debe preservar estas prioridades:
 2. no colisionar sesiones;
 3. evidencia antes que opinión;
 4. dry-run antes de mutación;
-5. adapters opcionales para Obsidian, vg, rtk, Engram y otros agentes.
+5. adapters opcionales para Obsidian, vg, rtk y otros agentes.

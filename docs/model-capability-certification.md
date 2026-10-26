@@ -157,12 +157,11 @@ El circuit-breaker/backoff forma parte de la certificación. Un timeout o fallo 
 La persistencia es obligatoria y múltiple:
 
 - **Receipts JSON**: evidencia primaria y transferible.
-- **Engram/memoria**: aprendizaje operacional entre sesiones.
 - **Vault Obsidian**: decisiones humanas, notas y contexto durable.
 - **`vg`/Kuzu**: grafo `agent -> model -> task_kind -> receipt -> snapshot` para consultas relacionales.
 - **Roadmap/docs/config**: contrato público y configuración ejecutable.
 
-No basta con que la decisión exista en el chat. Antes de cambiar routing se consulta Engram/memoria, Vault/`vg` y receipts; después de validar se sincroniza a Engram/memoria, Vault, Roadmap/docs/config y `vg`.
+No basta con que la decisión exista en el chat. Antes de cambiar routing se consulta Vault/`vg` y receipts; después de validar se sincroniza a Vault, Roadmap/docs/config y `vg`.
 
 ## Estado inicial conocido
 
