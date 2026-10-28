@@ -23,3 +23,9 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+
+# Guias internas (viven en el vault, no se versionan)
+/CLAUDE.md
+/CLAUDE.es-VE.md
+/TASK_LOG.md
+/DEVELOPMENT_LOG.md

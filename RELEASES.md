@@ -6,6 +6,8 @@ Notas de release operativas para `agent-orchestrator`, con foco en seguridad, va
 
 ### Agregado
 
+- Archivo `VERSION` con el valor inicial `0.1.0` (el repo no tenia tags).
+- Las guias internas dejan de depender de `.git/info/exclude`: `.gitignore` ignora `/CLAUDE.md`, `/CLAUDE.es-VE.md`, `/TASK_LOG.md` y `/DEVELOPMENT_LOG.md`.
 - `orq exec` y `orq delegate --execute` aplican un techo real de gasto
   diario/mensual (`orq-agent/config/budget.json`, flag `--budget-config`)
   contra el `cost_hint` del catalogo de modelos (`--models-config`),
