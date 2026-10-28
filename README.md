@@ -61,7 +61,7 @@ orq quota --help
 orq compliance --rtk-usage --format json
 ```
 
-Usa `orq <comando> --help` antes de ejecutar `exec`, `smoke`, `certify`,
+Usa `orq <subcomando> --help` antes de ejecutar `exec`, `smoke`, `certify`,
 `delegate` u `observer`, que pueden interactuar con runners o estado local.
 
 ## Arquitectura
