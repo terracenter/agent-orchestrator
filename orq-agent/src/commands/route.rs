@@ -21,7 +21,8 @@ pub(crate) async fn run(args: RouteArgs) -> Result<domain_route::RouteDecision> 
     let adapters_config_path = args.adapters_config.as_deref().map(std::path::Path::new);
     let (adapters_registry, _) = adapters::load_registry(adapters_config_path).await?;
     let models_config_path = args.models_config.as_deref().map(std::path::Path::new);
-    let (models_catalog, _) = domain_models::load_catalog(models_config_path).await?;
+    let (mut models_catalog, _) = domain_models::load_catalog(models_config_path).await?;
+    crate::models_detect::merge_resolved_models(&mut models_catalog, &adapters_registry);
     let cert_store = match args.cert_dir.as_deref().map(std::path::Path::new) {
         Some(path) => Some(certstore::CertificateStore::load_dir(path)?),
         None => None,
