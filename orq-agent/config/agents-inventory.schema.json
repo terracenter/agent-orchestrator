@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/terracenter/agent-orchestrator/agents-inventory.schema.json",
+  "title": "Agents Inventory",
+  "description": "Contrato compartido entre orq (Rust) y observer-llm (Go) para el inventario de agentes y modelos detectados. Cada proyecto produce este JSON de forma independiente; ninguno depende del otro. orq puede consumir el de observer-llm si existe (opcional, unidireccional).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "agents"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "enum": [
+        "orq",
+        "observer-llm",
+        "other"
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "binary",
+          "detected"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Nombre del adapter, ej. hermes, claude-code"
+          },
+          "binary": {
+            "type": "string"
+          },
+          "detected": {
+            "type": "boolean"
+          },
+          "binary_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version_args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "adapter_status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "gated",
+              "missing",
+              "deprecated_or_quarantine"
+            ]
+          },
+          "secrets_read": {
+            "type": "boolean",
+            "const": false
+          },
+          "notes": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "aliases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "capabilities": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "input": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "image",
+                          "audio",
+                          "video"
+                        ]
+                      }
+                    },
+                    "output": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "image",
+                          "audio",
+                          "video"
+                        ]
+                      }
+                    },
+                    "tools": {
+                      "type": "boolean"
+                    },
+                    "reasoning": {
+                      "type": "boolean"
+                    },
+                    "context_window": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "cost": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "level": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "input_per_mtok": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "output_per_mtok": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "agent",
+                    "config",
+                    "provider_api",
+                    "catalog",
+                    "aliases"
+                  ]
+                },
+                "verified_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
