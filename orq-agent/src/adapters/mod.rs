@@ -16,6 +16,10 @@ pub trait AgentAdapter: Send + Sync {
 
     fn build_argv(&self, model: &str, task: &str) -> Vec<String>;
 
+    fn models_spec(&self) -> Option<&ModelsSpec> {
+        None
+    }
+
     fn binary_path(&self) -> Option<String> {
         which::which(self.binary())
             .ok()
@@ -93,6 +97,8 @@ pub struct ModelsSpec {
     #[serde(default)]
     pub aliases: Option<Vec<String>>,
     #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
     pub note: Option<String>,
 }
 
@@ -135,6 +141,13 @@ impl AgentAdapter for ConfiguredAdapter {
                 _ => arg.to_string(),
             })
             .collect()
+    }
+
+    fn models_spec(&self) -> Option<&ModelsSpec> {
+        self.definition
+            .detect
+            .as_ref()
+            .and_then(|detect| detect.models.as_ref())
     }
 
     fn detect(&self) -> AgentDetection {

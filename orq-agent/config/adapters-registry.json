@@ -101,6 +101,7 @@
         "version_args_verified": true,
         "models": {
           "source": "config",
+          "path": "$HERMES_HOME/provider_models_cache.json",
           "note": "model picker cache / config agent.model (sin leer secretos)"
         }
       }

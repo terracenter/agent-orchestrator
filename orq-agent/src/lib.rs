@@ -18,6 +18,7 @@ mod exec;
 pub mod failover;
 mod home_sandbox;
 mod models;
+mod models_detect;
 pub mod observer;
 mod policy;
 mod profiles;
@@ -56,6 +57,12 @@ enum Commands {
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
         adapters_config: Option<String>,
+        /// Include the models exposed by each agent.
+        #[arg(long)]
+        models: bool,
+        /// Optional models catalog JSON path. Uses bundled config when omitted.
+        #[arg(long)]
+        models_config: Option<String>,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
@@ -856,10 +863,16 @@ async fn run_command(command: Commands) -> Result<()> {
         },
         Commands::Detect {
             adapters_config,
+            models,
+            models_config,
             format,
         } => {
-            let report =
-                commands::detect::run(commands::detect::DetectArgs { adapters_config }).await?;
+            let report = commands::detect::run(commands::detect::DetectArgs {
+                adapters_config,
+                models,
+                models_config,
+            })
+            .await?;
             print_json(format, &report)
         }
         Commands::Discover {
