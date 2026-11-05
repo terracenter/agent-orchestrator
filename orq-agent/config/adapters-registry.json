@@ -10,7 +10,16 @@
         "$MODEL",
         "--print",
         "$TASK"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": false,
+        "models": {
+          "source": "catalog"
+        }
+      }
     },
     {
       "name": "openclaw",
@@ -21,7 +30,16 @@
         "$MODEL",
         "--prompt",
         "$TASK"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": false,
+        "models": {
+          "source": "catalog"
+        }
+      }
     },
     {
       "name": "agy",
@@ -32,7 +50,16 @@
         "$MODEL",
         "--prompt",
         "$TASK"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": false,
+        "models": {
+          "source": "catalog"
+        }
+      }
     },
     {
       "name": "qwen-code",
@@ -46,7 +73,16 @@
         "$TASK",
         "--output-format",
         "text"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": false,
+        "models": {
+          "source": "catalog"
+        }
+      }
     },
     {
       "name": "hermes",
@@ -57,7 +93,17 @@
         "$MODEL",
         "-z",
         "$TASK"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": true,
+        "models": {
+          "source": "config",
+          "note": "model picker cache / config agent.model (sin leer secretos)"
+        }
+      }
     },
     {
       "name": "claude-code",
@@ -69,7 +115,21 @@
         "--print",
         "--",
         "$TASK"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": true,
+        "models": {
+          "source": "aliases",
+          "aliases": [
+            "fable",
+            "opus",
+            "sonnet"
+          ]
+        }
+      }
     },
     {
       "name": "codex",
@@ -83,7 +143,16 @@
         "workspace-write",
         "--",
         "$TASK"
-      ]
+      ],
+      "detect": {
+        "version_args": [
+          "--version"
+        ],
+        "version_args_verified": false,
+        "models": {
+          "source": "catalog"
+        }
+      }
     }
   ]
 }
