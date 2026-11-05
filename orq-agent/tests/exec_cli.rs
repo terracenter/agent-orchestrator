@@ -151,6 +151,13 @@ fn test_cmd(bin: &str) -> Command {
     cmd
 }
 
+/// Routing fixture for CLI tests that exercise qwen-code/agy/claude quota and
+/// certificate behaviour. Production routing lives in `config/routing-matrix.json`.
+const LEGACY_ROUTE_CONFIG: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/routing-matrix-qwen-agy.json"
+);
+
 fn test_cmd_with_path(bin: &str, bin_dir: &std::path::Path) -> Command {
     let mut cmd = Command::cargo_bin(bin).unwrap();
     let old_path = std::env::var("PATH").unwrap_or_default();
@@ -765,6 +772,8 @@ fn route_uses_certificate_directory_for_exact_match() {
         .env("ORQ_STATE_DB", &db)
         .args([
             "route",
+            "--config",
+            LEGACY_ROUTE_CONFIG,
             "--task-kind",
             "documentation",
             "--cert-dir",
@@ -806,8 +815,9 @@ fn route_supports_external_config() {
         .assert()
         .success()
         .stdout(predicate::str::contains("routing-matrix.json"))
+        .stdout(predicate::str::contains("\"default_agent\": \"hermes\""))
         .stdout(predicate::str::contains(
-            "\"default_model\": \"qwen3.6-flash\"",
+            "\"default_model\": \"deepseek-flash\"",
         ));
 }
 
@@ -1625,6 +1635,8 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
         .env("ORQ_AGENT_BIN_CLAUDE_CODE", runner_claude)
         .args([
             "route",
+            "--config",
+            LEGACY_ROUTE_CONFIG,
             "--task-kind",
             "debugging",
             "--db-path",
@@ -1726,6 +1738,8 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
         .env("ORQ_AGENT_BIN_CLAUDE_CODE", runner_claude)
         .args([
             "route",
+            "--config",
+            LEGACY_ROUTE_CONFIG,
             "--task-kind",
             "debugging",
             "--allow-gated-adapter",
@@ -1799,6 +1813,8 @@ fn route_cli_quota_unknown_does_not_penalize() {
         .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
         .args([
             "route",
+            "--config",
+            LEGACY_ROUTE_CONFIG,
             "--task-kind",
             "documentation",
             "--db-path",

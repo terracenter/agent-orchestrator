@@ -7,243 +7,250 @@
   "routes": [
     {
       "task_kind": "mechanical",
-      "default_agent": "qwen-code",
-      "default_model": "qwen3.6-flash",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
-      "escalate_to": "agy/gemini-3.6-flash-medium",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5",
-        "claude-code/claude-fable-5",
-        "qwen-code/qwen3.8-max",
-        "qwen-code/qwen3-coder-next",
-        "qwen-code/qwen3-coder-plus"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Deterministic repetitive work should use the cheapest sufficient route; qwen3.6-flash is validated as temporary default while Qwen Coder Next/Plus fail with auth 401."
+      "rationale": "Trabajo mecanico y repetitivo: Hermes deepseek-flash es el runner instalado de coste 0; Claude opus/sonnet/fable son review_only."
     },
     {
       "task_kind": "documentation",
-      "default_agent": "qwen-code",
-      "default_model": "qwen3.6-flash",
-      "cheap_sufficient": "agy/gemini-3.6-flash-low",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-fable-5",
-        "claude-code/claude-opus-5",
-        "agy/gemini-3.5-flash-low"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Long vault notes fit Qwen/AGY context without spending Claude quota; AGY 3.6 Flash Low replaced invalid 3.5 Flash Low."
+      "rationale": "Sintesis documental y notas largas: Hermes flash cubre el volumen sin gastar cuota Claude; pro solo si hay que razonar sobre el contenido."
     },
     {
       "task_kind": "simple_review",
-      "default_agent": "agy",
-      "default_model": "gemini-3.6-flash-medium",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5",
-        "qwen-code/qwen3.8-max",
-        "qwen-code/glm-4.7"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Diff and lint review rarely requires deep reasoning; avoid glm-4.7 until Qwen auth 401 is fixed."
+      "rationale": "Revision de diffs y lint: no requiere razonamiento profundo; Hermes flash y confirmacion humana cuando el modelo es gated."
     },
     {
       "task_kind": "write_tests",
-      "default_agent": "agy",
-      "default_model": "gemini-3.7-flash-high",
-      "cheap_sufficient": "agy/gemini-3.6-flash-high",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5",
-        "claude-code/claude-fable-5",
-        "qwen-code/qwen3-coder-plus",
-        "qwen-code/qwen3-coder-next"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Generate tests with the strongest currently validated non-gated model while Qwen Coder Plus/Next fail with auth 401."
+      "rationale": "Generar tests exige razonamiento y ejecucion real: Hermes deepseek-v4-pro es el unico runner instalado no gated para esta tarea."
     },
     {
       "task_kind": "debugging",
-      "default_agent": "agy",
-      "default_model": "gemini-3.7-flash-high",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "qwen-code/qwen3-coder-next"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Use thinking plus real execution for root-cause isolation."
+      "rationale": "Aislar causa raiz requiere thinking y ejecucion: Hermes pro por delante de flash."
     },
     {
       "task_kind": "small_refactor",
-      "default_agent": "agy",
-      "default_model": "gemini-3.6-flash-high",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Atomic edits with verification do not require top-tier models."
+      "rationale": "Refactor atomico con verificacion: Hermes pro reduce el riesgo de un cambio superficial."
     },
     {
       "task_kind": "large_refactor",
-      "default_agent": "agy",
-      "default_model": "gemini-3.1-pro-high",
-      "cheap_sufficient": "agy/gemini-3.1-pro-high",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "qwen-code/qwen3-coder-next",
-        "qwen-code/qwen3-coder-plus",
-        "qwen-code/glm-4.7"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Use AGY 3.1 Pro High as practical default for bounded large refactors while Claude Sonnet/Opus remain gated."
+      "rationale": "Refactor acotado de varios archivos: Hermes pro; AGY, Qwen y Codex no estan instalados."
     },
     {
       "task_kind": "monorepo_long_context",
-      "default_agent": "agy",
-      "default_model": "gemini-3.7-flash-medium",
-      "cheap_sufficient": "agy/gemini-3.7-flash-medium",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "context_lt_300k",
-        "qwen-code/qwen3-coder-plus",
-        "qwen-code/qwen3.8-max"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "AGY 3.7 Flash Medium is validated for readonly monorepo planning while Qwen Coder Plus is auth-blocked and qwen3.8-max timed out."
+      "rationale": "Contexto largo de monorepo: Hermes pro; no hay otro runner instalado con contexto suficiente."
     },
     {
       "task_kind": "frontend",
-      "default_agent": "codex",
-      "default_model": "gpt-5.5-high",
-      "cheap_sufficient": "agy/gemini-3.6-flash-medium",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "qwen-code/qwen3.6-plus",
-        "qwen-code/qwen3-coder-plus",
-        "agy/gemini-3.5-flash-medium"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Frontend and visual design work should use Codex when available because Codex CLI is installed and supports non-interactive exec with workspace-write; AGY remains cheap fallback and Claude stays gated for review."
+      "rationale": "Frontend y UX: Hermes flash para cambios mecanicos; pro cuando hay diseno o refactor visual."
     },
     {
       "task_kind": "database",
-      "default_agent": "agy",
-      "default_model": "gemini-3.7-flash-high",
-      "cheap_sufficient": "agy/gemini-3.6-flash-medium",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "qwen-code/glm-5",
-        "qwen-code/qwen3-coder-plus",
-        "qwen-code/qwen3.8-max"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "AGY 3.7 Flash High is validated for database review while Qwen Coder Plus is auth-blocked and qwen3.8-max is in timeout quarantine."
+      "rationale": "Esquema, consultas y migraciones: Hermes pro por el razonamiento y la ejecucion requeridos."
     },
     {
       "task_kind": "sysadmin_linux",
-      "default_agent": "agy",
-      "default_model": "gemini-3.7-flash-high",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "agents_without_real_tools"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Sysadmin tasks require real tools and strict sudo policy."
+      "rationale": "Operaciones con herramientas reales y sudo: Hermes pro; se evitan runners sin tools."
     },
     {
       "task_kind": "simple_cybersecurity",
-      "default_agent": "qwen-code",
-      "default_model": "qwen3.6-flash",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
-      "escalate_to": "agy/gemini-3.7-flash-high",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "qwen-code/qwen3.8-max",
-        "agy/gemini-3.5-flash-medium"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Receipt `/tmp/orq-receipt-qwen36-simple-cybersecurity-fit.json` validates qwen3.6-flash for routine dependency/lint/config/obvious-secret hygiene; Pi judge accepted in `/tmp/orq-receipt-pi-simple-cybersecurity-judge.json`."
+      "rationale": "Higiene de dependencias, config y secretos: Hermes flash; pro para analisis mas profundo."
     },
     {
       "task_kind": "deep_cybersecurity",
-      "default_agent": "agy",
-      "default_model": "gemini-3.1-pro-high",
-      "cheap_sufficient": "agy/gemini-3.1-pro-high",
-      "escalate_to": "claude-code/claude-opus-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "models_without_thinking_or_short_context",
-        "qwen-code/qwen3.8-max"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Deep threat analysis needs formal reasoning; use AGY 3.1 Pro High while qwen3.8-max is in timeout quarantine and Claude Opus is gated."
+      "rationale": "Analisis de amenazas profundo: Hermes pro; Claude opus es review_only."
     },
     {
       "task_kind": "architecture",
-      "default_agent": "agy",
-      "default_model": "gemini-3.1-pro-high",
-      "cheap_sufficient": "agy/gemini-3.1-pro-high",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "gemini-3.5-flash-*",
-        "qwen-code/qwen3-coder-next",
-        "qwen-code/qwen3-coder-plus"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "AGY 3.1 Pro High is validated for architecture/deep reasoning and avoids selecting gated Claude by default."
+      "rationale": "Decisiones de arquitectura y razonamiento profundo: Hermes pro; Claude queda para revision humana."
     },
     {
       "task_kind": "deep_reasoning",
-      "default_agent": "agy",
-      "default_model": "gemini-3.1-pro-high",
-      "cheap_sufficient": "agy/gemini-3.6-flash-medium",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "qwen-code/qwen3.8-max",
-        "qwen-code/qwen3-coder-plus"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Use AGY for deep reasoning while qwen3.8-max is in timeout backoff and Claude remains gated."
+      "rationale": "Razonamiento profundo: Hermes pro; flash queda como cheap_sufficient."
     },
     {
       "task_kind": "real_tool_execution",
-      "default_agent": "agy",
-      "default_model": "gemini-3.6-flash-medium",
-      "cheap_sufficient": "claude-code/claude-haiku-4-5",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-v4-pro",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "pi",
-        "readonly_runners"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Real execution requires tool-capable agents and receipts."
+      "rationale": "Ejecucion real con herramientas: Hermes pro; se evitan agentes readonly."
     },
     {
       "task_kind": "readonly_analysis",
-      "default_agent": "qwen-code",
-      "default_model": "qwen3.6-flash",
-      "cheap_sufficient": "agy/gemini-3.6-flash-low",
-      "escalate_to": "qwen-code/glm-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5",
-        "claude-code/claude-fable-5",
-        "agy/gemini-3.5-flash-low"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Passive analysis should not spend expensive quotas; AGY 3.6 Flash Low replaced invalid 3.5 Flash Low."
+      "rationale": "Analisis pasivo de volumen: Hermes flash; no gasta cuotas caras."
     },
     {
       "task_kind": "doc_watcher",
-      "default_agent": "qwen-code",
-      "default_model": "qwen3.6-flash",
-      "cheap_sufficient": "agy/gemini-3.7-flash-low",
-      "escalate_to": "agy/gemini-3.7-flash-medium",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5",
-        "claude-code/claude-fable-5",
-        "qwen-code/qwen3.8-max"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Document watcher work is deterministic diff and metadata analysis; AGY 3.7 Flash Low is validated as cheap classifier and 3.7 Flash Medium as readonly escalation."
+      "rationale": "Diff y metadatos deterministicos: Hermes flash; pro solo para sintetizar cambios grandes."
     },
     {
       "task_kind": "short_text_review",
-      "default_agent": "agy",
-      "default_model": "gemini-3.6-flash-medium",
-      "cheap_sufficient": "pi/nvidia/openai/gpt-oss-20b",
-      "escalate_to": "claude-code/claude-sonnet-5",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
+      "escalate_to": "hermes/deepseek-v4-pro",
       "avoid": [
-        "claude-code/claude-opus-5",
-        "claude-code/claude-fable-5",
-        "qwen-code/qwen3.8-max"
+        "claude-code/claude-opus-4-1-20250805",
+        "claude-code/claude-sonnet-4-5-20250929",
+        "claude-code/fable"
       ],
-      "rationale": "Short text review is low intensity; AGY is fastest validated default and Pi is an acceptable short-only fallback."
+      "rationale": "Revision corta de bajo coste: Hermes flash."
     }
   ]
 }

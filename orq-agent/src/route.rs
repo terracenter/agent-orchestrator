@@ -906,8 +906,8 @@ mod tests {
             .iter()
             .find(|route| route.task_kind == "documentation")
             .unwrap();
-        assert_eq!(route.default_agent, "qwen-code");
-        assert_eq!(route.default_model, "qwen3.6-flash");
+        assert_eq!(route.default_agent, "hermes");
+        assert_eq!(route.default_model, "deepseek-flash");
     }
 
     #[test]
@@ -990,7 +990,7 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
+                    name: "hermes".to_string(),
                     binary: "test-runner".to_string(),
                     detected: true,
                     binary_path: Some("test-runner".to_string()),
@@ -1022,8 +1022,8 @@ mod tests {
         let receipt = crate::receipt::ExecReceipt {
             schema_version: 1,
             correlation_id: "corr-1".to_string(),
-            agent: "qwen-code".to_string(),
-            model: "qwen3.6-flash".to_string(),
+            agent: "hermes".to_string(),
+            model: "deepseek-flash".to_string(),
             command: vec!["run".to_string()],
             status: crate::receipt::ExecStatus::Succeeded,
             policy_reason: "allowed".to_string(),
@@ -1063,8 +1063,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(decision.preferred_certificate.is_some());
     }
 

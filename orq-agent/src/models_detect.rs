@@ -196,9 +196,39 @@ pub fn resolve_agent_models(
     resolve_models(agent, spec, catalog, home)
 }
 
+/// Merge the models resolved from each adapter's `detect.models` spec into
+/// `catalog`, so routing sees the same inventory as `detect --models`.
+/// Existing catalog entries win; resolved entries are only appended.
+pub fn merge_resolved_models(catalog: &mut ModelsCatalog, registry: &AdaptersRegistry) {
+    let mut additions: Vec<(String, DetectedModel, Option<String>)> = Vec::new();
+    for adapter in &registry.adapters {
+        let resolution = resolve_agent_models(registry, &adapter.name, catalog, None);
+        for model in resolution.models {
+            additions.push((adapter.name.clone(), model, resolution.note.clone()));
+        }
+    }
+
+    for (agent, model, note) in additions {
+        let entry = catalog.agents.entry(agent).or_default();
+        if entry.iter().any(|existing| existing.id == model.id) {
+            continue;
+        }
+        entry.push(crate::models::ModelCandidate {
+            id: model.id,
+            source: model.source,
+            confidence: "detected".to_string(),
+            notes: note.unwrap_or_default(),
+            fetched_at: model.verified_at,
+            cost_hint: None,
+            promo: None,
+            status: Some("active".to_string()),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{expand_path, resolve_agent_models, resolve_models};
+    use super::{expand_path, merge_resolved_models, resolve_agent_models, resolve_models};
     use crate::adapters::ModelsSpec;
     use crate::models::parse_catalog;
     use std::io::Write;
@@ -295,6 +325,54 @@ mod tests {
         let resolution = resolve_agent_models(&registry, "claude-code", &catalog(), None);
         assert_eq!(resolution.source, "aliases");
         assert_eq!(resolution.models.len(), 2);
+    }
+
+    #[test]
+    fn merge_resolved_models_appends_config_models_and_keeps_existing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("provider_models_cache.json");
+        let mut file = std::fs::File::create(&path).expect("create cache");
+        write!(
+            file,
+            r#"{{"deepseek":{{"at":1793912359.0,"models":["deepseek-flash","deepseek-v4-pro"]}}}}"#
+        )
+        .expect("write cache");
+
+        let registry = crate::adapters::parse_registry(
+            &serde_json::json!({
+                "schema_version": 1,
+                "adapters": [{
+                    "name": "hermes",
+                    "binary": "hermes",
+                    "status": "available",
+                    "argv": ["-m", "$MODEL", "-z", "$TASK"],
+                    "detect": {"models": {"source": "config", "path": path.display().to_string()}}
+                }]
+            })
+            .to_string(),
+        )
+        .expect("registry");
+
+        let mut catalog = parse_catalog(
+            r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-flash","source":"manual","confidence":"x","notes":"n","fetched_at":"2026-11-05T00:00:00Z","status":"active"}]}}"#,
+        )
+        .expect("catalog");
+
+        merge_resolved_models(&mut catalog, &registry);
+
+        let models = catalog.agents.get("hermes").expect("hermes models");
+        assert_eq!(models.len(), 2);
+        let manual = models
+            .iter()
+            .find(|model| model.id == "deepseek-flash")
+            .expect("manual model");
+        assert_eq!(manual.source, "manual");
+        let added = models
+            .iter()
+            .find(|model| model.id == "deepseek-v4-pro")
+            .expect("added model");
+        assert_eq!(added.source, "config");
+        assert!(added.fetched_at.is_some());
     }
 
     #[test]
