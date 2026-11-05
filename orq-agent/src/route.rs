@@ -947,6 +947,8 @@ mod tests {
                 binary_path: Some("test-runner".to_string()),
                 adapter: AdapterStatus::Available,
                 secrets_read: false,
+
+                version: None,
             }],
             secrets_read: false,
         };
@@ -994,6 +996,8 @@ mod tests {
                     binary_path: Some("test-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -1002,6 +1006,8 @@ mod tests {
                     binary_path: Some("test-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1094,6 +1100,8 @@ mod tests {
                     binary_path: Some("primary-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "fallback-agent".to_string(),
@@ -1102,6 +1110,8 @@ mod tests {
                     binary_path: Some("fallback-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1163,6 +1173,8 @@ mod tests {
                     binary_path: Some("gated-runner".to_string()),
                     adapter: AdapterStatus::Gated,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "healthy-agent".to_string(),
@@ -1171,6 +1183,8 @@ mod tests {
                     binary_path: Some("healthy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1235,6 +1249,8 @@ mod tests {
                 binary_path: Some("primary-runner".to_string()),
                 adapter: AdapterStatus::Available,
                 secrets_read: false,
+
+                version: None,
             }],
             secrets_read: false,
         };
@@ -1294,6 +1310,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -1302,6 +1320,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1383,6 +1403,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "claude-code".to_string(),
@@ -1391,6 +1413,8 @@ mod tests {
                     binary_path: Some("claude-runner".to_string()),
                     adapter: AdapterStatus::Gated,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1500,6 +1524,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "claude-code".to_string(),
@@ -1508,6 +1534,8 @@ mod tests {
                     binary_path: Some("claude-runner".to_string()),
                     adapter: AdapterStatus::Gated,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1595,6 +1623,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -1603,6 +1633,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1712,6 +1744,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -1720,6 +1754,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1830,6 +1866,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -1838,6 +1876,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1920,6 +1960,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -1928,6 +1970,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -1998,6 +2042,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -2006,6 +2052,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2076,6 +2124,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -2084,6 +2134,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2166,6 +2218,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -2174,6 +2228,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2256,6 +2312,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -2264,6 +2322,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2333,6 +2393,8 @@ mod tests {
                     binary_path: Some("qwen-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2341,6 +2403,8 @@ mod tests {
                     binary_path: Some("agy-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2420,6 +2484,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2428,6 +2494,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2510,6 +2578,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2518,6 +2588,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2597,6 +2669,8 @@ mod tests {
                 binary_path: Some("/usr/local/bin/qwen".to_string()),
                 adapter: AdapterStatus::Available,
                 secrets_read: false,
+
+                version: None,
             }],
             secrets_read: false,
         };
@@ -2668,6 +2742,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2676,6 +2752,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2731,6 +2809,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2739,6 +2819,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2807,6 +2889,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2815,6 +2899,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2880,6 +2966,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "agy".to_string(),
@@ -2888,6 +2976,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,
@@ -2953,6 +3043,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/agy".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
                 AgentDetection {
                     name: "qwen-code".to_string(),
@@ -2961,6 +3053,8 @@ mod tests {
                     binary_path: Some("/usr/local/bin/qwen".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
+
+                    version: None,
                 },
             ],
             secrets_read: false,

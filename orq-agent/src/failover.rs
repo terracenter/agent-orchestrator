@@ -401,6 +401,7 @@ mod tests {
             },
             adapter: status,
             secrets_read: false,
+            version: None,
         }
     }
 

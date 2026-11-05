@@ -31,6 +31,7 @@ pub trait AgentAdapter: Send + Sync {
             binary_path,
             adapter: self.status(),
             secrets_read: false,
+            version: None,
         }
     }
 }
@@ -53,6 +54,7 @@ pub struct AgentDetection {
     pub binary_path: Option<String>,
     pub adapter: AdapterStatus,
     pub secrets_read: bool,
+    pub version: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -67,6 +69,42 @@ pub struct AdapterDefinition {
     pub binary: String,
     pub status: AdapterStatus,
     pub argv: Vec<String>,
+    #[serde(default)]
+    pub detect: Option<DetectSpec>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct DetectSpec {
+    #[serde(default)]
+    pub version_args: Vec<String>,
+    #[serde(default)]
+    pub version_args_verified: bool,
+    #[serde(default)]
+    pub models: Option<ModelsSpec>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ModelsSpec {
+    pub source: ModelsSource,
+    #[serde(default)]
+    pub args: Option<Vec<String>>,
+    #[serde(default)]
+    pub aliases: Option<Vec<String>>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelsSource {
+    Agent,
+    Config,
+    ProviderApi,
+    Catalog,
+    Aliases,
 }
 
 #[derive(Clone, Debug)]
@@ -97,6 +135,28 @@ impl AgentAdapter for ConfiguredAdapter {
                 _ => arg.to_string(),
             })
             .collect()
+    }
+
+    fn detect(&self) -> AgentDetection {
+        let binary_path = self.binary_path();
+        let detected = binary_path.is_some();
+        let version = if detected {
+            self.definition
+                .detect
+                .as_ref()
+                .and_then(|spec| run_version(&self.definition.binary, &spec.version_args))
+        } else {
+            None
+        };
+        AgentDetection {
+            name: self.name().to_string(),
+            binary: self.binary().to_string(),
+            detected,
+            binary_path,
+            adapter: self.status(),
+            secrets_read: false,
+            version,
+        }
     }
 }
 
@@ -183,6 +243,30 @@ pub fn adapters_from_registry(registry: &AdaptersRegistry) -> Vec<Box<dyn AgentA
         .cloned()
         .map(|definition| Box::new(ConfiguredAdapter { definition }) as Box<dyn AgentAdapter>)
         .collect()
+}
+
+fn run_version(binary: &str, args: &[String]) -> Option<String> {
+    if args.is_empty() {
+        return None;
+    }
+    let output = std::process::Command::new(binary)
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 #[allow(dead_code)]
@@ -302,12 +386,19 @@ mod tests {
     }
 
     #[test]
+    fn run_version_reads_first_line() {
+        let args = vec!["-c".to_string(), "echo v1.2.3".to_string()];
+        assert_eq!(super::run_version("sh", &args), Some("v1.2.3".to_string()));
+    }
+
+    #[test]
     fn binary_path_ignores_env_var_override() {
         let qwen_def = super::AdapterDefinition {
             name: "qwen-code".to_string(),
             binary: "nonexistent-qwen-bin-xyz".to_string(),
             status: AdapterStatus::Available,
             argv: vec!["$MODEL".to_string(), "$TASK".to_string()],
+            detect: None,
         };
         let adapter = ConfiguredAdapter {
             definition: qwen_def,
