@@ -148,11 +148,26 @@ pub fn discover_into_store(
     let now = models::now_iso8601();
 
     for detection in detect_report.agents {
-        let model_candidates = models_catalog
-            .agents
-            .get(&detection.name)
-            .cloned()
-            .unwrap_or_default();
+        let resolution = crate::models_detect::resolve_agent_models(
+            adapters_registry,
+            &detection.name,
+            models_catalog,
+            None,
+        );
+        let model_candidates: Vec<models::ModelCandidate> = resolution
+            .models
+            .iter()
+            .map(|model| models::ModelCandidate {
+                id: model.id.clone(),
+                source: model.source.clone(),
+                confidence: "detected".to_string(),
+                notes: resolution.note.clone().unwrap_or_default(),
+                fetched_at: model.verified_at.clone().or_else(|| Some(now.clone())),
+                cost_hint: None,
+                promo: None,
+                status: Some("active".to_string()),
+            })
+            .collect();
         let discovery = if model_candidates.is_empty() {
             DiscoveryStatus::Unsupported
         } else {
@@ -318,6 +333,27 @@ mod tests {
 
         assert_eq!(report.agents[0].discovery, DiscoveryStatus::Unsupported);
         assert_eq!(report.models_persisted, 0);
+        assert!(!report.agents[0].secrets_read);
+    }
+
+    #[test]
+    fn discover_uses_adapter_models_spec_when_catalog_is_empty() {
+        let registry = parse_registry(
+            r#"{"schema_version":1,"adapters":[{"name":"fake-agent","binary":"definitely-not-orq-fake","status":"available","argv":["$MODEL","$TASK"],"detect":{"models":{"source":"aliases","aliases":["a","b"]}}}]}"#,
+        )
+        .expect("registry");
+        let catalog =
+            parse_catalog(r#"{"schema_version":1,"agents":{"other-agent":[]}}"#).expect("catalog");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("state.sqlite");
+        let store = crate::state::open(Some(&db_path)).expect("state");
+
+        let report =
+            discover_into_store(&registry, &catalog, "adapters-test", "models-test", &store)
+                .expect("discover");
+
+        assert_eq!(report.agents[0].discovery, DiscoveryStatus::ConfigCatalog);
+        assert_eq!(report.models_persisted, 2);
         assert!(!report.agents[0].secrets_read);
     }
 }
