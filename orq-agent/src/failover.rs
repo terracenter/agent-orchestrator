@@ -408,10 +408,10 @@ mod tests {
     fn make_test_catalog(now_iso: &str) -> ModelsCatalog {
         let mut agents = BTreeMap::new();
         agents.insert(
-            "qwen-code".to_string(),
+            "hermes".to_string(),
             vec![
                 ModelCandidate {
-                    id: "qwen3.6-flash".to_string(),
+                    id: "deepseek-flash".to_string(),
                     source: "catalog".to_string(),
                     confidence: "high".to_string(),
                     notes: "active flash".to_string(),
@@ -421,7 +421,7 @@ mod tests {
                     status: Some("active".to_string()),
                 },
                 ModelCandidate {
-                    id: "qwen3.8-max".to_string(),
+                    id: "deepseek-v4-pro".to_string(),
                     source: "catalog".to_string(),
                     confidence: "high".to_string(),
                     notes: "active max".to_string(),
@@ -486,15 +486,15 @@ mod tests {
                     task_kind: "architecture".to_string(),
                     default_agent: "agy".to_string(),
                     default_model: "gemini-3.1-pro-high".to_string(),
-                    cheap_sufficient: "qwen-code/qwen3.6-flash".to_string(),
+                    cheap_sufficient: "hermes/deepseek-flash".to_string(),
                     escalate_to: "claude-code/claude-sonnet-5".to_string(),
-                    avoid: vec!["qwen-code/qwen3.8-max".to_string()],
+                    avoid: vec!["hermes/deepseek-v4-pro".to_string()],
                     rationale: "architecture routing".to_string(),
                 },
                 RouteRule {
                     task_kind: "coding".to_string(),
-                    default_agent: "qwen-code".to_string(),
-                    default_model: "qwen3.6-flash".to_string(),
+                    default_agent: "hermes".to_string(),
+                    default_model: "deepseek-flash".to_string(),
                     cheap_sufficient: "agy/gemini-3.7-flash-high".to_string(),
                     escalate_to: "claude-code/claude-sonnet-5".to_string(),
                     avoid: vec![],
@@ -509,9 +509,9 @@ mod tests {
         let receipt = ExecReceipt {
             schema_version: 1,
             correlation_id: "cert-test-receipt".to_string(),
-            agent: "qwen-code".to_string(),
-            model: "qwen3.6-flash".to_string(),
-            command: vec!["qwen".to_string()],
+            agent: "hermes".to_string(),
+            model: "deepseek-flash".to_string(),
+            command: vec!["hermes".to_string()],
             status: ExecStatus::Succeeded,
             policy_reason: "allowed".to_string(),
             started_at_unix: 1000,
@@ -538,10 +538,10 @@ mod tests {
 
         let cert = Certificate {
             schema_version: 1,
-            certificate_id: "cert-12345-qwen-code-qwen3.6-flash-architecture".to_string(),
+            certificate_id: "cert-12345-hermes-deepseek-flash-architecture".to_string(),
             created_at_unix: 1000,
-            agent: "qwen-code".to_string(),
-            model: "qwen3.6-flash".to_string(),
+            agent: "hermes".to_string(),
+            model: "deepseek-flash".to_string(),
             task_kind: "architecture".to_string(),
             status: CertificateStatus::Certified,
             receipt_sha256: receipt_sha256(&receipt).unwrap(),
@@ -551,7 +551,7 @@ mod tests {
         };
 
         fs::write(
-            dir.join("qwen-arch.json"),
+            dir.join("hermes-arch.json"),
             serde_json::to_string(&cert).unwrap(),
         )
         .unwrap();
@@ -663,10 +663,10 @@ mod tests {
         // Add a stale candidate and a down candidate
         catalog
             .agents
-            .get_mut("qwen-code")
+            .get_mut("hermes")
             .unwrap()
             .push(ModelCandidate {
-                id: "qwen-stale".to_string(),
+                id: "hermes-stale".to_string(),
                 source: "catalog".to_string(),
                 confidence: "high".to_string(),
                 notes: "stale".to_string(),
@@ -677,10 +677,10 @@ mod tests {
             });
         catalog
             .agents
-            .get_mut("qwen-code")
+            .get_mut("hermes")
             .unwrap()
             .push(ModelCandidate {
-                id: "qwen-down".to_string(),
+                id: "hermes-down".to_string(),
                 source: "catalog".to_string(),
                 confidence: "high".to_string(),
                 notes: "down".to_string(),
@@ -691,7 +691,7 @@ mod tests {
             });
 
         let detected = vec![
-            make_test_detection("qwen-code", AdapterStatus::Available, true),
+            make_test_detection("hermes", AdapterStatus::Available, true),
             make_test_detection("agy", AdapterStatus::Available, true),
             make_test_detection("claude-code", AdapterStatus::Gated, true),
             make_test_detection("missing-agent", AdapterStatus::Missing, false),
@@ -707,13 +707,13 @@ mod tests {
         };
 
         // Fresh active candidate on available agent -> eligible
-        assert!(is_candidate_eligible("qwen-code", "qwen3.6-flash", &ctx,));
+        assert!(is_candidate_eligible("hermes", "deepseek-flash", &ctx,));
 
         // Stale candidate -> NOT eligible (CA-2 c)
-        assert!(!is_candidate_eligible("qwen-code", "qwen-stale", &ctx,));
+        assert!(!is_candidate_eligible("hermes", "hermes-stale", &ctx,));
 
         // Down/inactive candidate -> NOT eligible (CA-2 b)
-        assert!(!is_candidate_eligible("qwen-code", "qwen-down", &ctx,));
+        assert!(!is_candidate_eligible("hermes", "hermes-down", &ctx,));
 
         // Gated candidate without allow_gated -> NOT eligible
         assert!(!is_candidate_eligible(
@@ -733,7 +733,7 @@ mod tests {
         let catalog = make_test_catalog(&now_iso);
         let routing = make_test_routing();
         let detected = vec![
-            make_test_detection("qwen-code", AdapterStatus::Available, true),
+            make_test_detection("hermes", AdapterStatus::Available, true),
             make_test_detection("agy", AdapterStatus::Available, true),
             make_test_detection("claude-code", AdapterStatus::Available, true),
         ];
@@ -758,9 +758,9 @@ mod tests {
         };
 
         let (chosen, reason) = select_fallback_candidate(&req).expect("fallback candidate found");
-        // Certified candidate qwen-code / qwen3.6-flash is chosen!
-        assert_eq!(chosen.agent, "qwen-code");
-        assert_eq!(chosen.model, "qwen3.6-flash");
+        // Certified candidate hermes / deepseek-flash is chosen!
+        assert_eq!(chosen.agent, "hermes");
+        assert_eq!(chosen.model, "deepseek-flash");
         assert!(chosen.is_certified);
         assert!(reason.contains("certified"));
     }
@@ -788,8 +788,8 @@ mod tests {
             cleanup_succeeded: true,
             task_id: None,
             failure_class: Some(FailureClass::PermissionDenied),
-            fallback_agent: Some("qwen-code".to_string()),
-            fallback_model: Some("qwen3.6-flash".to_string()),
+            fallback_agent: Some("hermes".to_string()),
+            fallback_model: Some("deepseek-flash".to_string()),
             fallback_reason: Some("certified fallback for task_kind 'architecture'".to_string()),
             fallback_attempts: vec![
                 FallbackAttempt {
@@ -804,8 +804,8 @@ mod tests {
                 },
                 FallbackAttempt {
                     attempt_number: 2,
-                    agent: "qwen-code".to_string(),
-                    model: "qwen3.6-flash".to_string(),
+                    agent: "hermes".to_string(),
+                    model: "deepseek-flash".to_string(),
                     status: "validated".to_string(),
                     failure_class: None,
                     reason: None,
@@ -824,8 +824,8 @@ mod tests {
 
         let json = serde_json::to_string_pretty(&receipt).unwrap();
         assert!(json.contains("\"failure_class\": \"permission_denied\""));
-        assert!(json.contains("\"fallback_agent\": \"qwen-code\""));
-        assert!(json.contains("\"fallback_model\": \"qwen3.6-flash\""));
+        assert!(json.contains("\"fallback_agent\": \"hermes\""));
+        assert!(json.contains("\"fallback_model\": \"deepseek-flash\""));
         assert!(json.contains("\"fallback_attempts\""));
         assert!(json.contains("\"attempt_number\": 1"));
         assert!(json.contains("\"attempt_number\": 2"));
@@ -847,16 +847,16 @@ mod tests {
         let catalog = make_test_catalog(&now_iso);
         let routing = make_test_routing();
         let detected = vec![make_test_detection(
-            "qwen-code",
+            "hermes",
             AdapterStatus::Available,
             true,
         )];
 
-        // Attempt 1: qwen-code fails with permission_denied
+        // Attempt 1: hermes fails with permission_denied
         let req = FallbackSelectionRequest {
             task_kind: "coding",
-            failed_agent: "qwen-code",
-            failed_model: "qwen3.6-flash",
+            failed_agent: "hermes",
+            failed_model: "deepseek-flash",
             failure_class: FailureClass::PermissionDenied,
             catalog: &catalog,
             detected: &detected,

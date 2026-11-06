@@ -94,7 +94,7 @@
         "claude-code/claude-sonnet-4-5-20250929",
         "claude-code/fable"
       ],
-      "rationale": "Refactor acotado de varios archivos: Hermes pro; AGY, Qwen y Codex no estan instalados."
+      "rationale": "Refactor acotado de varios archivos: Hermes pro; AGY y Codex no estan instalados."
     },
     {
       "task_kind": "monorepo_long_context",

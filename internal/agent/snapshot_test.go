@@ -9,7 +9,7 @@ func TestCapabilitySnapshotsPreserveProfileIdentityAndEvidence(t *testing.T) {
 	capturedAt := time.Date(2026, 8, 31, 16, 0, 0, 0, time.UTC)
 	testProfiles := []Profile{
 		{Agent: "pi", Provider: "openai", Model: "gpt-5.5", CostLevel: 2, UseFor: "orquestacion", Verified: true},
-		{Agent: "qwen-code", Provider: "bailian", Model: "qwen3.8-max", CostLevel: 1, UseFor: "codigo", Verified: true},
+		{Agent: "hermes", Provider: "deepseek", Model: "deepseek-v4-pro", CostLevel: 1, UseFor: "codigo", Verified: true},
 	}
 
 	snapshots := CapabilitySnapshots(testProfiles, capturedAt)
@@ -17,7 +17,7 @@ func TestCapabilitySnapshotsPreserveProfileIdentityAndEvidence(t *testing.T) {
 		t.Fatalf("expected %d snapshots, got %d", len(testProfiles), len(snapshots))
 	}
 
-	var foundQwen bool
+	var foundHermes bool
 	for _, snapshot := range snapshots {
 		if snapshot.Agent == "" || snapshot.Provider == "" || snapshot.Model == "" {
 			t.Fatalf("snapshot identity must be complete: %+v", snapshot)
@@ -34,21 +34,21 @@ func TestCapabilitySnapshotsPreserveProfileIdentityAndEvidence(t *testing.T) {
 		if snapshot.SecurityNote == "" {
 			t.Fatalf("expected security note for %+v", snapshot)
 		}
-		if snapshot.Agent == "qwen-code" && snapshot.Model == "qwen3.8-max" {
-			foundQwen = true
+		if snapshot.Agent == "hermes" && snapshot.Model == "deepseek-v4-pro" {
+			foundHermes = true
 			if !snapshot.Verified {
-				t.Fatalf("qwen3.8-max should remain verified")
+				t.Fatalf("deepseek-v4-pro should remain verified")
 			}
-			if !contains(snapshot.Tools, "docker") {
-				t.Fatalf("expected qwen-code tools to include docker: %v", snapshot.Tools)
+			if !contains(snapshot.Tools, "shell") {
+				t.Fatalf("expected hermes tools to include shell: %v", snapshot.Tools)
 			}
-			if !hasEvidenceKind(snapshot.Evidence, "empirical") {
-				t.Fatalf("expected qwen-code empirical evidence: %v", snapshot.Evidence)
+			if hasEvidenceKind(snapshot.Evidence, "empirical") {
+				t.Fatalf("hermes must not carry empirical evidence from the registry alone: %v", snapshot.Evidence)
 			}
 		}
 	}
-	if !foundQwen {
-		t.Fatal("expected qwen-code/qwen3.8-max snapshot")
+	if !foundHermes {
+		t.Fatal("expected hermes/deepseek-v4-pro snapshot")
 	}
 }
 

@@ -1291,7 +1291,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "none",
                     "avoid": [],
                     "rationale": "testing five_hour quota exhaustion"
@@ -1314,10 +1314,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -1340,9 +1340,9 @@ mod tests {
         };
         store.insert_quota_snapshot(&exhausted_snapshot).unwrap();
 
-        // Qwen has healthy quota
+        // Hermes has healthy quota
         let healthy_snapshot = crate::state::QuotaSnapshotInput {
-            provider: "qwen".to_string(),
+            provider: "hermes".to_string(),
             scope: "general".to_string(),
             remaining_pct: Some(85.0),
             used_pct: Some(15.0),
@@ -1366,8 +1366,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(decision.fallback_applied);
     }
 
@@ -1602,8 +1602,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "documentation",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.6-flash-low",
                     "escalate_to": "none",
                     "avoid": [],
@@ -1617,10 +1617,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -1667,8 +1667,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision_with_store.selected_agent, "qwen-code");
-        assert_eq!(decision_with_store.selected_model, "qwen3.6-flash");
+        assert_eq!(decision_with_store.selected_agent, "hermes");
+        assert_eq!(decision_with_store.selected_model, "deepseek-flash");
         assert!(!decision_with_store.fallback_applied);
 
         assert_eq!(
@@ -1723,8 +1723,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "documentation",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.6-flash-low",
                     "escalate_to": "none",
                     "avoid": [],
@@ -1738,10 +1738,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -1761,7 +1761,7 @@ mod tests {
             secrets_read: false,
         };
 
-        // Decision with cert_store vs without cert_store both select qwen-code (default)
+        // Decision with cert_store vs without cert_store both select hermes (default)
         let decision_with_certs = decide_with_detected(
             &config,
             "documentation",
@@ -1788,8 +1788,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision_with_certs.selected_agent, "qwen-code");
-        assert_eq!(decision_with_certs.selected_model, "qwen3.6-flash");
+        assert_eq!(decision_with_certs.selected_agent, "hermes");
+        assert_eq!(decision_with_certs.selected_model, "deepseek-flash");
         assert!(!decision_with_certs.fallback_applied);
         assert_eq!(
             decision_with_certs.selected_agent,
@@ -1809,17 +1809,17 @@ mod tests {
         let cert_dir = tempfile::tempdir().unwrap();
         let cert_json = r#"{
             "schema_version": 1,
-            "certificate_id": "cert-qwen-001",
-            "agent": "qwen-code",
-            "model": "qwen3.6-flash",
+            "certificate_id": "cert-hermes-001",
+            "agent": "hermes",
+            "model": "deepseek-flash",
             "task_kind": "documentation",
             "issued_at_unix": 1000,
             "expires_at_unix": 9999999999,
             "receipt": {
                 "schema_version": 1,
                 "correlation_id": "test",
-                "agent": "qwen-code",
-                "model": "qwen3.6-flash",
+                "agent": "hermes",
+                "model": "deepseek-flash",
                 "task_file": "test",
                 "task_sha256": "test",
                 "started_at_unix": 1000,
@@ -1836,7 +1836,7 @@ mod tests {
                 "cleanup_succeeded": true
             }
         }"#;
-        std::fs::write(cert_dir.path().join("cert-qwen.json"), cert_json).unwrap();
+        std::fs::write(cert_dir.path().join("cert-hermes.json"), cert_json).unwrap();
         let cert_store = crate::certstore::CertificateStore::load_dir(cert_dir.path()).unwrap();
 
         let config = parse_config(
@@ -1845,8 +1845,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "documentation",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.6-flash-low",
                     "escalate_to": "none",
                     "avoid": [],
@@ -1860,10 +1860,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -1883,9 +1883,9 @@ mod tests {
             secrets_read: false,
         };
 
-        // Qwen is certified, but has exhausted quota
-        let qwen_snapshot = crate::state::QuotaSnapshotInput {
-            provider: "qwen".to_string(),
+        // Hermes is certified, but has exhausted quota
+        let hermes_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "hermes".to_string(),
             scope: "general".to_string(),
             remaining_pct: Some(0.0),
             used_pct: Some(100.0),
@@ -1894,7 +1894,7 @@ mod tests {
             captured_at_unix: Some(crate::quota::now_unix()),
             metadata_json: None,
         };
-        store.insert_quota_snapshot(&qwen_snapshot).unwrap();
+        store.insert_quota_snapshot(&hermes_snapshot).unwrap();
 
         // AGY is healthy (uncertified)
         let agy_snapshot = crate::state::QuotaSnapshotInput {
@@ -1922,7 +1922,7 @@ mod tests {
         )
         .unwrap();
 
-        // Fallback to agy because qwen-code is exhausted despite having a certificate!
+        // Fallback to agy because hermes is exhausted despite having a certificate!
         assert_eq!(decision.selected_agent, "agy");
         assert_eq!(decision.selected_model, "gemini-3.6-flash-low");
         assert!(decision.fallback_applied);
@@ -1941,7 +1941,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "none",
                     "avoid": [],
                     "rationale": "testing expired reset timestamp"
@@ -1964,10 +1964,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2023,7 +2023,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "none",
                     "avoid": [],
                     "rationale": "testing snapshot TTL expiry"
@@ -2046,10 +2046,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2105,7 +2105,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "none",
                     "avoid": [],
                     "rationale": "testing critical threshold penalty"
@@ -2128,10 +2128,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2154,9 +2154,9 @@ mod tests {
         };
         store.insert_quota_snapshot(&agy_snapshot).unwrap();
 
-        // Qwen is healthy (80%)
-        let qwen_snapshot = crate::state::QuotaSnapshotInput {
-            provider: "qwen".to_string(),
+        // Hermes is healthy (80%)
+        let hermes_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "hermes".to_string(),
             scope: "general".to_string(),
             remaining_pct: Some(80.0),
             used_pct: Some(20.0),
@@ -2165,7 +2165,7 @@ mod tests {
             captured_at_unix: Some(crate::quota::now_unix()),
             metadata_json: None,
         };
-        store.insert_quota_snapshot(&qwen_snapshot).unwrap();
+        store.insert_quota_snapshot(&hermes_snapshot).unwrap();
 
         let decision = decide_with_detected(
             &config,
@@ -2180,9 +2180,9 @@ mod tests {
         )
         .unwrap();
 
-        // Qwen is chosen as fallback because AGY is in critical warning tier (<= 15%)
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        // Hermes is chosen as fallback because AGY is in critical warning tier (<= 15%)
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(decision.fallback_applied);
     }
 
@@ -2199,7 +2199,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "none",
                     "avoid": [],
                     "rationale": "testing warning status penalty"
@@ -2222,10 +2222,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2248,9 +2248,9 @@ mod tests {
         };
         store.insert_quota_snapshot(&agy_snapshot).unwrap();
 
-        // Qwen is ok
-        let qwen_snapshot = crate::state::QuotaSnapshotInput {
-            provider: "qwen".to_string(),
+        // Hermes is ok
+        let hermes_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "hermes".to_string(),
             scope: "general".to_string(),
             remaining_pct: Some(80.0),
             used_pct: Some(20.0),
@@ -2259,7 +2259,7 @@ mod tests {
             captured_at_unix: Some(crate::quota::now_unix()),
             metadata_json: None,
         };
-        store.insert_quota_snapshot(&qwen_snapshot).unwrap();
+        store.insert_quota_snapshot(&hermes_snapshot).unwrap();
 
         let decision = decide_with_detected(
             &config,
@@ -2274,9 +2274,9 @@ mod tests {
         )
         .unwrap();
 
-        // Qwen is chosen as fallback
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        // Hermes is chosen as fallback
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(decision.fallback_applied);
     }
 
@@ -2293,7 +2293,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "none",
                     "avoid": [],
                     "rationale": "testing observability fields"
@@ -2316,10 +2316,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2372,8 +2372,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "analysis",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.6-flash-low",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2387,10 +2387,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen-runner".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes-runner".to_string(),
                     detected: true,
-                    binary_path: Some("qwen-runner".to_string()),
+                    binary_path: Some("hermes-runner".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2410,9 +2410,9 @@ mod tests {
             secrets_read: false,
         };
 
-        // Qwen is quota_unknown
-        let qwen_snapshot = crate::state::QuotaSnapshotInput {
-            provider: "qwen".to_string(),
+        // Hermes is quota_unknown
+        let hermes_snapshot = crate::state::QuotaSnapshotInput {
+            provider: "hermes".to_string(),
             scope: "general".to_string(),
             remaining_pct: None,
             used_pct: None,
@@ -2421,7 +2421,7 @@ mod tests {
             captured_at_unix: Some(1000),
             metadata_json: None,
         };
-        store.insert_quota_snapshot(&qwen_snapshot).unwrap();
+        store.insert_quota_snapshot(&hermes_snapshot).unwrap();
 
         // AGY has 90% quota
         let agy_snapshot = crate::state::QuotaSnapshotInput {
@@ -2449,9 +2449,9 @@ mod tests {
         )
         .unwrap();
 
-        // Qwen is NOT penalized, remains default selected agent
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        // Hermes is NOT penalized, remains default selected agent
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(!decision.fallback_applied);
     }
 
@@ -2463,8 +2463,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "coding",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.8-max",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-v4-pro",
                     "cheap_sufficient": "agy/gemini-3.7-flash",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2478,10 +2478,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2506,8 +2506,8 @@ mod tests {
             r#"{{
                 "schema_version": 2,
                 "agents": {{
-                    "qwen-code": [{{
-                        "id": "qwen3.8-max",
+                    "hermes": [{{
+                        "id": "deepseek-v4-pro",
                         "source": "runtime",
                         "confidence": "high",
                         "notes": "stale candidate",
@@ -2540,13 +2540,13 @@ mod tests {
         )
         .unwrap();
 
-        // Fresh AGY is selected over stale Qwen default
+        // Fresh AGY is selected over stale Hermes default
         assert_eq!(decision.selected_agent, "agy");
         assert_eq!(decision.selected_model, "gemini-3.7-flash");
         assert!(decision.fallback_applied);
         assert!(decision
             .selected_policy_reason
-            .contains("stale_catalog:qwen-code"));
+            .contains("stale_catalog:hermes"));
     }
 
     #[test]
@@ -2557,8 +2557,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "coding",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen-deprecated",
+                    "default_agent": "hermes",
+                    "default_model": "hermes-deprecated",
                     "cheap_sufficient": "agy/gemini-3.7-flash",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2572,10 +2572,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2595,14 +2595,14 @@ mod tests {
             secrets_read: false,
         };
 
-        // Qwen model has status deprecated
+        // Hermes model has status deprecated
         let now_iso = crate::models::now_iso8601();
         let catalog_json = format!(
             r#"{{
                 "schema_version": 2,
                 "agents": {{
-                    "qwen-code": [{{
-                        "id": "qwen-deprecated",
+                    "hermes": [{{
+                        "id": "hermes-deprecated",
                         "source": "runtime",
                         "confidence": "high",
                         "notes": "deprecated model",
@@ -2635,7 +2635,7 @@ mod tests {
         )
         .unwrap();
 
-        // Active AGY is selected over deprecated Qwen default
+        // Active AGY is selected over deprecated Hermes default
         assert_eq!(decision.selected_agent, "agy");
         assert_eq!(decision.selected_model, "gemini-3.7-flash");
         assert!(decision.fallback_applied);
@@ -2649,8 +2649,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "coding",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.8-max",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-v4-pro",
                     "cheap_sufficient": "none",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2663,10 +2663,10 @@ mod tests {
         let detected = DetectReport {
             schema_version: 1,
             agents: vec![AgentDetection {
-                name: "qwen-code".to_string(),
-                binary: "qwen".to_string(),
+                name: "hermes".to_string(),
+                binary: "hermes".to_string(),
                 detected: true,
-                binary_path: Some("/usr/local/bin/qwen".to_string()),
+                binary_path: Some("/usr/local/bin/hermes".to_string()),
                 adapter: AdapterStatus::Available,
                 secrets_read: false,
 
@@ -2675,13 +2675,13 @@ mod tests {
             secrets_read: false,
         };
 
-        // Qwen model is stale (expired fetched_at)
+        // Hermes model is stale (expired fetched_at)
         let catalog = crate::models::parse_catalog(
             r#"{
                 "schema_version": 2,
                 "agents": {
-                    "qwen-code": [{
-                        "id": "qwen3.8-max",
+                    "hermes": [{
+                        "id": "deepseek-v4-pro",
                         "source": "runtime",
                         "confidence": "high",
                         "notes": "stale model",
@@ -2706,11 +2706,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.8-max");
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-v4-pro");
         assert!(decision
             .selected_policy_reason
-            .contains("stale_catalog:qwen-code"));
+            .contains("stale_catalog:hermes"));
     }
 
     #[test]
@@ -2721,8 +2721,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "mechanical",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.7-flash",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2736,10 +2736,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2772,8 +2772,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(!decision.fallback_applied);
         assert!(!decision.availability_filter_used);
         assert_eq!(decision.availability_filtered, 0);
@@ -2788,8 +2788,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "mechanical",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.7-flash",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2803,10 +2803,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2857,7 +2857,7 @@ mod tests {
         assert_eq!(decision.availability_source, "test_allowlist.json");
         assert!(decision
             .selected_policy_reason
-            .contains("daily_availability_fallback:qwen-code"));
+            .contains("daily_availability_fallback:hermes"));
     }
 
     #[test]
@@ -2868,8 +2868,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "mechanical",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.7-flash",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2883,10 +2883,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -2910,7 +2910,7 @@ mod tests {
             "schema_version": 1,
             "date": "2026-09-09",
             "available_agents": [],
-            "unavailable_agents": ["qwen-code"],
+            "unavailable_agents": ["hermes"],
             "notes": "denylist test"
         }"#;
         let availability =
@@ -2945,8 +2945,8 @@ mod tests {
                 "approval_required_model_patterns": ["opus"],
                 "routes": [{
                     "task_kind": "mechanical",
-                    "default_agent": "qwen-code",
-                    "default_model": "qwen3.6-flash",
+                    "default_agent": "hermes",
+                    "default_model": "deepseek-flash",
                     "cheap_sufficient": "agy/gemini-3.7-flash",
                     "escalate_to": "none",
                     "avoid": [],
@@ -2960,10 +2960,10 @@ mod tests {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -3024,7 +3024,7 @@ mod tests {
                     "task_kind": "documentation",
                     "default_agent": "agy",
                     "default_model": "gemini-3.7-flash-high",
-                    "cheap_sufficient": "qwen-code/qwen3.6-flash",
+                    "cheap_sufficient": "hermes/deepseek-flash",
                     "escalate_to": "claude-code/claude-sonnet-5",
                     "avoid": [],
                     "rationale": "testing self-report routing signal"
@@ -3047,10 +3047,10 @@ mod tests {
                     version: None,
                 },
                 AgentDetection {
-                    name: "qwen-code".to_string(),
-                    binary: "qwen".to_string(),
+                    name: "hermes".to_string(),
+                    binary: "hermes".to_string(),
                     detected: true,
-                    binary_path: Some("/usr/local/bin/qwen".to_string()),
+                    binary_path: Some("/usr/local/bin/hermes".to_string()),
                     adapter: AdapterStatus::Available,
                     secrets_read: false,
 
@@ -3099,8 +3099,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision.selected_agent, "qwen-code");
-        assert_eq!(decision.selected_model, "qwen3.6-flash");
+        assert_eq!(decision.selected_agent, "hermes");
+        assert_eq!(decision.selected_model, "deepseek-flash");
         assert!(decision.fallback_applied);
     }
 }

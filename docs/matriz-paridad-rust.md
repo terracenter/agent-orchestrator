@@ -79,10 +79,7 @@ orq-agent models --agent pi --format json
 orq-agent smoke --agent pi --model nvidia/openai/gpt-oss-20b --format json
 orq-agent exec --agent pi --model nvidia/openai/gpt-oss-20b --task-file task.md --timeout 120 --format json
 orq-agent route --task-kind documentation --config orq-agent/config/routing-matrix.json --format json
-orq-agent exec --agent qwen-code --model qwen3.6-flash --task-file /tmp/task.md --policy-config orq-agent/config/policy.json --format json
-orq-agent models --agent qwen-code --config orq-agent/config/models-catalog.json --format json
 orq-agent detect --adapters-config orq-agent/config/adapters-registry.json --format json
-orq-agent certify --agent qwen-code --model qwen3.6-flash --task-kind documentation --output /tmp/orq-cert.json --format json
 orq-agent route --task-kind documentation --cert-dir /tmp/orq-certs --format json
 orq-agent quota record --provider agy --scope gemini-weekly --remaining-pct 47.17 --format json
 orq-agent quota record --json '[{"provider":"codex","scope":"short-term","remaining_pct":22.0,"reset_in_seconds":3600}]' --format json

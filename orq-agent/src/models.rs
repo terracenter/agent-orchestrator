@@ -660,23 +660,12 @@ pub fn list(
 
 #[cfg(test)]
 mod tests {
-    use super::{default_catalog, list, merge_feed_into_catalog, parse_catalog, parse_market_feed};
-
-    #[test]
-    fn default_catalog_reports_qwen_flash() {
-        let catalog = default_catalog().unwrap();
-        let adapters_registry = crate::adapters::default_registry().unwrap();
-        let report = list("qwen-code", &catalog, &adapters_registry, "test").unwrap();
-        assert!(report
-            .models
-            .iter()
-            .any(|model| model.id == "qwen3.6-flash"));
-    }
+    use super::{default_catalog, merge_feed_into_catalog, parse_catalog, parse_market_feed};
 
     #[test]
     fn accepts_schema_version_1_and_migrates_to_2() {
         let catalog = parse_catalog(
-            r#"{"schema_version":1,"agents":{"qwen-code":[{"id":"qwen3.6-flash","source":"s","confidence":"c","notes":"n"}]}}"#,
+            r#"{"schema_version":1,"agents":{"hermes":[{"id":"deepseek-flash","source":"s","confidence":"c","notes":"n"}]}}"#,
         )
         .unwrap();
         assert_eq!(catalog.schema_version, 2);
@@ -685,11 +674,11 @@ mod tests {
     #[test]
     fn accepts_schema_version_2_with_market_fields() {
         let catalog = parse_catalog(
-            r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.6-flash","source":"s","confidence":"c","notes":"n","fetched_at":"2026-09-04T18:00:00Z","cost_hint":0.0001,"promo":"anthropic+50%","status":"active"}]}}"#,
+            r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-flash","source":"s","confidence":"c","notes":"n","fetched_at":"2026-09-04T18:00:00Z","cost_hint":0.0001,"promo":"anthropic+50%","status":"active"}]}}"#,
         )
         .unwrap();
         assert_eq!(catalog.schema_version, 2);
-        let m = &catalog.agents["qwen-code"][0];
+        let m = &catalog.agents["hermes"][0];
         assert_eq!(m.cost_hint, Some(0.0001));
         assert_eq!(m.promo, Some("anthropic+50%".to_string()));
         assert_eq!(m.status, Some("active".to_string()));
@@ -699,14 +688,11 @@ mod tests {
     #[test]
     fn promo_handles_boolean_true_and_false() {
         let catalog = parse_catalog(
-            r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"m1","source":"s","confidence":"c","notes":"n","promo":true},{"id":"m2","source":"s","confidence":"c","notes":"n","promo":false}]}}"#,
+            r#"{"schema_version":2,"agents":{"hermes":[{"id":"m1","source":"s","confidence":"c","notes":"n","promo":true},{"id":"m2","source":"s","confidence":"c","notes":"n","promo":false}]}}"#,
         )
         .unwrap();
-        assert_eq!(
-            catalog.agents["qwen-code"][0].promo,
-            Some("true".to_string())
-        );
-        assert_eq!(catalog.agents["qwen-code"][1].promo, None);
+        assert_eq!(catalog.agents["hermes"][0].promo, Some("true".to_string()));
+        assert_eq!(catalog.agents["hermes"][1].promo, None);
     }
 
     #[test]
@@ -720,7 +706,7 @@ mod tests {
     #[test]
     fn rejects_empty_model_id() {
         let err = parse_catalog(
-            r#"{"schema_version":1,"agents":{"qwen-code":[{"id":"","source":"s","confidence":"c","notes":"n"}]}}"#,
+            r#"{"schema_version":1,"agents":{"hermes":[{"id":"","source":"s","confidence":"c","notes":"n"}]}}"#,
         )
         .unwrap_err();
         assert!(err.to_string().contains("empty id"));
@@ -729,7 +715,7 @@ mod tests {
     #[test]
     fn test_merge_feed_into_catalog_is_idempotent() {
         let mut catalog = parse_catalog(
-            r#"{"schema_version":1,"agents":{"qwen-code":[{"id":"qwen3.6-flash","source":"policy","confidence":"cand","notes":"daily"}]}}"#,
+            r#"{"schema_version":1,"agents":{"hermes":[{"id":"deepseek-flash","source":"policy","confidence":"cand","notes":"daily"}]}}"#,
         )
         .unwrap();
 
@@ -738,10 +724,10 @@ mod tests {
                 "schema_version": 1,
                 "feed_source": "test_feed",
                 "agents": {
-                    "qwen-code": [
-                        {"id": "qwen3.6-flash", "cost_hint": 0.0001, "promo": "special_offer"},
-                        {"id": "qwen3.8-max", "cost_hint": 0.005, "status": "active"},
-                        {"id": "old-qwen", "status": "deprecated"}
+                    "hermes": [
+                        {"id": "deepseek-flash", "cost_hint": 0.0001, "promo": "special_offer"},
+                        {"id": "deepseek-v4-pro", "cost_hint": 0.005, "status": "active"},
+                        {"id": "old-deepseek", "status": "deprecated"}
                     ]
                 }
             }"#,
@@ -750,15 +736,15 @@ mod tests {
 
         let summary1 =
             merge_feed_into_catalog(&mut catalog, &feed, "test_feed", "2026-09-04T18:00:00Z");
-        assert_eq!(summary1.added, 1); // qwen3.8-max
-        assert_eq!(summary1.updated, 1); // qwen3.6-flash
-        assert_eq!(summary1.deprecated, 1); // old-qwen
+        assert_eq!(summary1.added, 1); // deepseek-v4-pro
+        assert_eq!(summary1.updated, 1); // deepseek-flash
+        assert_eq!(summary1.deprecated, 1); // old-deepseek
         assert_eq!(summary1.total_models, 3);
 
         // Check model fields
-        let m_flash = catalog.agents["qwen-code"]
+        let m_flash = catalog.agents["hermes"]
             .iter()
-            .find(|m| m.id == "qwen3.6-flash")
+            .find(|m| m.id == "deepseek-flash")
             .unwrap();
         assert_eq!(m_flash.cost_hint, Some(0.0001));
         assert_eq!(m_flash.promo, Some("special_offer".to_string()));
@@ -770,7 +756,7 @@ mod tests {
         assert_eq!(summary2.added, 0);
         assert_eq!(summary2.deprecated, 0);
         assert_eq!(summary2.total_models, 3);
-        assert_eq!(catalog.agents["qwen-code"].len(), 3);
+        assert_eq!(catalog.agents["hermes"].len(), 3);
     }
 
     #[test]

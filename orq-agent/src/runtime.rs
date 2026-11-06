@@ -241,22 +241,6 @@ pub fn check_agent_credentials(agent_name: &str) -> (bool, Option<String>, Optio
     let home = std::env::var_os("HOME").map(PathBuf::from);
 
     match agent_name {
-        "qwen" | "qwen-code" => {
-            let settings_path = home.as_ref().map(|h| h.join(".qwen").join("settings.json"));
-            let exists = settings_path.as_ref().map(|p| p.exists()).unwrap_or(false)
-                || home
-                    .as_ref()
-                    .map(|h| h.join(".qwen").exists())
-                    .unwrap_or(false)
-                || std::env::var_os("QWEN_API_KEY").is_some()
-                || std::env::var_os("BAILIAN_API_KEY").is_some()
-                || local_secrets;
-            (
-                exists,
-                settings_path.map(|p| p.display().to_string()),
-                Some("token_plan_api_key".to_string()),
-            )
-        }
         "claude" | "claude-code" => {
             let settings_path = home.as_ref().map(|h| h.join(".claude.json"));
             let exists = settings_path.as_ref().map(|p| p.exists()).unwrap_or(false)
@@ -336,173 +320,6 @@ pub fn build_agent_profile(
     };
 
     match agent_name {
-        "qwen" | "qwen-code" => RuntimeAgentSnapshot {
-            id: "qwen-code".to_string(),
-            name: "Qwen Code CLI".to_string(),
-            vendor: "Alibaba Group".to_string(),
-            binary,
-            config_metadata,
-            modes: vec![
-                "chat".to_string(),
-                "agentic".to_string(),
-                "edit".to_string(),
-                "review".to_string(),
-                "architecture".to_string(),
-            ],
-            tools: vec![
-                "shell".to_string(),
-                "filesystem".to_string(),
-                "git".to_string(),
-                "docker".to_string(),
-                "workspace_skills".to_string(),
-            ],
-            providers: vec![RuntimeProvider {
-                id: "bailian".to_string(),
-                name: "Alibaba Cloud Bailian Token Plan".to_string(),
-                endpoint: Some("token-plan.ap-southeast-1.maas.aliyuncs.com".to_string()),
-                plan: Some(RuntimePlan {
-                    name: "Qwen Standard Plan".to_string(),
-                    active: true,
-                    period_start: Some("2026-08-24T07:31:52Z".to_string()),
-                    period_end: Some("2026-09-24T12:00:00Z".to_string()),
-                    auto_renewal: Some(false),
-                }),
-                models: vec![
-                    RuntimeModel {
-                        id: "qwen3.8-max".to_string(),
-                        status: if detected {
-                            "active".to_string()
-                        } else {
-                            "available".to_string()
-                        },
-                        source_type: "runtime".to_string(),
-                        verified: detected,
-                        last_verified_at: if detected {
-                            Some(probed_at.to_string())
-                        } else {
-                            None
-                        },
-                        cost_hint: Some(RuntimeCostHint {
-                            unit: "token_plan_quota".to_string(),
-                            promo: Some("unlimited_in_plan_window".to_string()),
-                        }),
-                        capabilities: Some(RuntimeCapabilities {
-                            input_modalities: vec![
-                                "text".to_string(),
-                                "code".to_string(),
-                                "files".to_string(),
-                                "repo".to_string(),
-                            ],
-                            output_modalities: vec![
-                                "text".to_string(),
-                                "code".to_string(),
-                                "patch".to_string(),
-                                "markdown".to_string(),
-                                "json".to_string(),
-                            ],
-                            tools: vec![
-                                "shell".to_string(),
-                                "filesystem".to_string(),
-                                "git".to_string(),
-                                "docker".to_string(),
-                                "workspace_skills".to_string(),
-                            ],
-                            modes: vec![
-                                "chat".to_string(),
-                                "agentic".to_string(),
-                                "edit".to_string(),
-                                "review".to_string(),
-                                "architecture".to_string(),
-                            ],
-                            context_window_tokens: Some(131072),
-                            max_output_tokens: Some(8192),
-                        }),
-                    },
-                    RuntimeModel {
-                        id: "qwen3.7-plus".to_string(),
-                        status: "available".to_string(),
-                        source_type: "docs_official".to_string(),
-                        verified: false,
-                        last_verified_at: None,
-                        cost_hint: Some(RuntimeCostHint {
-                            unit: "token_plan_quota".to_string(),
-                            promo: None,
-                        }),
-                        capabilities: Some(RuntimeCapabilities {
-                            input_modalities: vec!["text".to_string(), "code".to_string()],
-                            output_modalities: vec![
-                                "text".to_string(),
-                                "code".to_string(),
-                                "markdown".to_string(),
-                            ],
-                            tools: vec!["shell".to_string(), "filesystem".to_string()],
-                            modes: vec!["chat".to_string(), "agentic".to_string()],
-                            context_window_tokens: Some(131072),
-                            max_output_tokens: Some(8192),
-                        }),
-                    },
-                    RuntimeModel {
-                        id: "qwen3.6".to_string(),
-                        status: "available".to_string(),
-                        source_type: "docs_official".to_string(),
-                        verified: false,
-                        last_verified_at: None,
-                        cost_hint: None,
-                        capabilities: None,
-                    },
-                    RuntimeModel {
-                        id: "qwen3.5".to_string(),
-                        status: "available".to_string(),
-                        source_type: "docs_official".to_string(),
-                        verified: false,
-                        last_verified_at: None,
-                        cost_hint: None,
-                        capabilities: None,
-                    },
-                    RuntimeModel {
-                        id: "glm-5".to_string(),
-                        status: "available".to_string(),
-                        source_type: "docs_official".to_string(),
-                        verified: false,
-                        last_verified_at: None,
-                        cost_hint: None,
-                        capabilities: Some(RuntimeCapabilities {
-                            input_modalities: vec!["text".to_string(), "code".to_string()],
-                            output_modalities: vec![
-                                "text".to_string(),
-                                "code".to_string(),
-                                "markdown".to_string(),
-                            ],
-                            tools: vec!["shell".to_string(), "filesystem".to_string()],
-                            modes: vec!["chat".to_string(), "agentic".to_string()],
-                            context_window_tokens: Some(131072),
-                            max_output_tokens: Some(8192),
-                        }),
-                    },
-                    RuntimeModel {
-                        id: "kimi-k2.5".to_string(),
-                        status: "available".to_string(),
-                        source_type: "docs_official".to_string(),
-                        verified: false,
-                        last_verified_at: None,
-                        cost_hint: None,
-                        capabilities: None,
-                    },
-                    RuntimeModel {
-                        id: "MiniMax-M2.5".to_string(),
-                        status: "available".to_string(),
-                        source_type: "docs_official".to_string(),
-                        verified: false,
-                        last_verified_at: None,
-                        cost_hint: None,
-                        capabilities: None,
-                    },
-                ],
-            }],
-            probed_at: probed_at.to_string(),
-            source: "runtime_doctor".to_string(),
-            secrets_read: false,
-        },
         "claude" | "claude-code" => RuntimeAgentSnapshot {
             id: "claude-code".to_string(),
             name: "Claude Code CLI".to_string(),
@@ -1186,7 +1003,7 @@ mod tests {
     #[test]
     fn parse_version_extracts_semver() {
         assert_eq!(
-            parse_version("qwen 1.4.2 (build 2026-08-24)"),
+            parse_version("hermes 1.4.2 (build 2026-08-24)"),
             Some("1.4.2".to_string())
         );
         assert_eq!(
@@ -1206,8 +1023,8 @@ mod tests {
     async fn probe_agent_with_fake_binary() {
         let _guard = TEST_ENV_MUTEX.lock().await;
         let dir = tempfile::tempdir().unwrap();
-        let fake_bin = dir.path().join("fake-qwen");
-        std::fs::write(&fake_bin, "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n").unwrap();
+        let fake_bin = dir.path().join("fake-hermes");
+        std::fs::write(&fake_bin, "#!/usr/bin/env bash\necho 'hermes 1.4.2'\n").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1216,13 +1033,13 @@ mod tests {
             std::fs::set_permissions(&fake_bin, perms).unwrap();
         }
 
-        let env_key = "ORQ_AGENT_BIN_QWEN_CODE";
+        let env_key = "ORQ_AGENT_BIN_HERMES";
         std::env::set_var(env_key, fake_bin.to_str().unwrap());
 
-        let probe = probe_agent("qwen-code", "fake-qwen", 5).await;
+        let probe = probe_agent("hermes", "fake-hermes", 5).await;
         std::env::remove_var(env_key);
 
-        assert_eq!(probe.agent, "qwen-code");
+        assert_eq!(probe.agent, "hermes");
         assert!(probe.detected);
         assert_eq!(probe.version, Some("1.4.2".to_string()));
         assert!(!probe.secrets_read);
@@ -1245,7 +1062,7 @@ mod tests {
     async fn doctor_health_check_detects_wrappers() {
         let _guard = TEST_ENV_MUTEX.lock().await;
         let registry = adapters::parse_registry(
-            r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+            r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
         )
         .unwrap();
 
@@ -1295,7 +1112,7 @@ mod tests {
     async fn doctor_health_check_fails_when_wrapper_missing() {
         let _guard = TEST_ENV_MUTEX.lock().await;
         let registry = adapters::parse_registry(
-            r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+            r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
         )
         .unwrap();
 
@@ -1320,13 +1137,13 @@ mod tests {
         let store = crate::state::open(Some(&db_path)).unwrap();
 
         let agent = build_agent_profile(
-            "qwen-code",
-            "qwen",
-            Some("/usr/local/bin/qwen"),
+            "hermes",
+            "hermes",
+            Some("/usr/local/bin/hermes"),
             Some("1.4.2"),
             true,
             true,
-            Some("/home/user/.qwen/settings.json"),
+            Some("/home/user/.hermes/settings.json"),
             Some("token_plan_api_key"),
             "2026-09-04T22:00:00Z",
         );
@@ -1334,15 +1151,15 @@ mod tests {
         let count = persist_runtime_agent(&store, &agent).unwrap();
         assert!(count > 0);
 
-        let stored_agent = store.find_agent("qwen-code").unwrap().unwrap();
-        assert_eq!(stored_agent.agent_id, "qwen-code");
+        let stored_agent = store.find_agent("hermes").unwrap().unwrap();
+        assert_eq!(stored_agent.agent_id, "hermes");
         assert_eq!(stored_agent.adapter_status, "available");
 
         let stored_model = store
-            .find_model("qwen-code", "qwen3.8-max", "general")
+            .find_model("hermes", "hermes-3-llama-3.1-405b", "general")
             .unwrap()
             .unwrap();
-        assert_eq!(stored_model.model_id, "qwen3.8-max");
+        assert_eq!(stored_model.model_id, "hermes-3-llama-3.1-405b");
         assert!(stored_model.active);
     }
 }

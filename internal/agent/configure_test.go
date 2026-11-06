@@ -6,7 +6,7 @@ import (
 
 func TestConfigure_UnsupportedAgent(t *testing.T) {
 	req := ConfigureRequest{
-		Agent:   "qwen-code",
+		Agent:   "pi",
 		DryRun:  false,
 		AutoYes: true,
 	}
@@ -115,7 +115,6 @@ func TestIsConfigurationSupported(t *testing.T) {
 		{"agy", true},
 		{"hermes", true},
 		{"claude-code", true},
-		{"qwen-code", false},
 		{"pi", false},
 		{"nvidia-api", false},
 		{"codex", false},

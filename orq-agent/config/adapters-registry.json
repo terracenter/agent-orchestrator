@@ -62,29 +62,6 @@
       }
     },
     {
-      "name": "qwen-code",
-      "binary": "qwen",
-      "status": "available",
-      "argv": [
-        "--safe-mode",
-        "-m",
-        "$MODEL",
-        "-p",
-        "$TASK",
-        "--output-format",
-        "text"
-      ],
-      "detect": {
-        "version_args": [
-          "--version"
-        ],
-        "version_args_verified": false,
-        "models": {
-          "source": "catalog"
-        }
-      }
-    },
-    {
       "name": "hermes",
       "binary": "hermes",
       "status": "available",

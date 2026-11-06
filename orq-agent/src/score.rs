@@ -388,8 +388,6 @@ pub fn infer_provider(agent_id: &str, _model_id: &str) -> String {
         "google".to_string()
     } else if lower_agent.contains("claude") {
         "anthropic".to_string()
-    } else if lower_agent.contains("qwen") {
-        "bailian".to_string()
     } else if lower_agent.contains("hermes") {
         "openrouter".to_string()
     } else if lower_agent.contains("openclaw") {

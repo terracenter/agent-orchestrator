@@ -167,7 +167,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("valid.json"),
-            cert_json("qwen-code", "m1", "docs", true),
+            cert_json("hermes", "m1", "docs", true),
         )
         .unwrap();
         fs::write(dir.join("bad.json"), "not json").unwrap();
@@ -175,8 +175,8 @@ mod tests {
         let store = CertificateStore::load_dir(&dir).unwrap();
         assert_eq!(store.len(), 1);
         assert_eq!(store.ignored_files(), 1);
-        assert!(store.lookup("qwen-code", "m1", "docs").is_some());
-        assert!(store.lookup("qwen-code", "m1", "code").is_none());
+        assert!(store.lookup("hermes", "m1", "docs").is_some());
+        assert!(store.lookup("hermes", "m1", "code").is_none());
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("orq-certs-secret-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let mut cert: Certificate =
-            serde_json::from_str(&cert_json("qwen-code", "m1", "docs", true)).unwrap();
+            serde_json::from_str(&cert_json("hermes", "m1", "docs", true)).unwrap();
         cert.secrets_read = true;
         fs::write(
             dir.join("secret.json"),
@@ -254,28 +254,31 @@ mod tests {
     #[test]
     fn evaluates_receipt_history_consecutive_failures() {
         let receipts = vec![
-            make_receipt("qwen-code", "m1", ExecStatus::Failed, false),
-            make_receipt("qwen-code", "m1", ExecStatus::Failed, false),
-            make_receipt("qwen-code", "m1", ExecStatus::Failed, false),
+            make_receipt("hermes", "m1", ExecStatus::Failed, false),
+            make_receipt("hermes", "m1", ExecStatus::Failed, false),
+            make_receipt("hermes", "m1", ExecStatus::Failed, false),
         ];
         assert_eq!(
-            super::evaluate_receipt_history("qwen-code", "m1", "docs", &receipts),
+            super::evaluate_receipt_history("hermes", "m1", "docs", &receipts),
             Some(CertificateStatus::Failed)
         );
     }
 
     #[test]
     fn evaluates_receipt_history_success() {
-        let receipts = vec![
-            make_receipt("qwen-code", "m1", ExecStatus::Succeeded, false),
-        ];
+        let receipts = vec![make_receipt("hermes", "m1", ExecStatus::Succeeded, false)];
         assert_eq!(
-            super::evaluate_receipt_history("qwen-code", "m1", "docs", &receipts),
+            super::evaluate_receipt_history("hermes", "m1", "docs", &receipts),
             Some(CertificateStatus::Certified)
         );
     }
 
-    fn make_receipt(agent: &str, model: &str, status: ExecStatus, secrets_read: bool) -> ExecReceipt {
+    fn make_receipt(
+        agent: &str,
+        model: &str,
+        status: ExecStatus,
+        secrets_read: bool,
+    ) -> ExecReceipt {
         ExecReceipt {
             schema_version: 1,
             correlation_id: "test".to_string(),

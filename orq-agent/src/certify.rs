@@ -188,6 +188,6 @@ mod tests {
 
     #[test]
     fn ids_are_path_safe() {
-        assert_eq!(safe_id("qwen/code:flash"), "qwen-code-flash");
+        assert_eq!(safe_id("hermes/deepseek:flash"), "hermes-deepseek-flash");
     }
 }

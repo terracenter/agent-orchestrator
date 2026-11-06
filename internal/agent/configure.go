@@ -131,7 +131,6 @@ func isConfigurationSupported(agent string) bool {
 		"hermes":      true,
 		"claude-code": true,
 		"codex":       false, // No implementado aún
-		"qwen-code":   false, // Prohibido leer ~/.qwen/settings.json
 		"pi":          false, // Supervisión, no requiere configuración automática
 		"nvidia-api":  false, // API pura, sin config local
 	}
@@ -141,7 +140,6 @@ func isConfigurationSupported(agent string) bool {
 func getManualInstructions(agent string) string {
 	instructions := map[string]string{
 		"codex":      "Codex: agregar prompt de sistema recordando rtk_required=true en el directorio de trabajo. Ubicación de config pendiente de documentar.",
-		"qwen-code":  "Qwen Code: no se modifica ~/.qwen/settings.json automáticamente (prohibido). Configurar rtk_required manualmente editando prompts en el proyecto o via CLI de qwen si lo expone.",
 		"pi":         "Pi: supervisión principal. Configurar rtk_required via BOOTSTRAP.md o archivo de configuración del orquestador, no via config de Pi directamente.",
 		"nvidia-api": "NVIDIA API: servicio remoto sin configuración local. Configurar rtk_required en el wrapper o script que lo invoque.",
 	}

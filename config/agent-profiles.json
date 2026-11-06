@@ -144,42 +144,6 @@
     "verified": false
   },
   {
-    "agent": "qwen-code",
-    "provider": "bailian",
-    "model": "qwen3.8-max",
-    "cost_level": 1,
-    "use_for": "codigo, busqueda en repos, shell/git/docker y tareas tecnicas medianas bajo plan Standard reportado por runtime",
-    "review_only": false,
-    "verified": true
-  },
-  {
-    "agent": "qwen-code",
-    "provider": "bailian",
-    "model": "qwen3.5",
-    "cost_level": 1,
-    "use_for": "modelo disponible reportado por Qwen Code; validar empiricamente antes de asignacion critica",
-    "review_only": false,
-    "verified": false
-  },
-  {
-    "agent": "qwen-code",
-    "provider": "bailian",
-    "model": "qwen3.6",
-    "cost_level": 1,
-    "use_for": "modelo disponible reportado por Qwen Code; validar empiricamente antes de asignacion critica",
-    "review_only": false,
-    "verified": false
-  },
-  {
-    "agent": "qwen-code",
-    "provider": "bailian",
-    "model": "qwen3.7-plus",
-    "cost_level": 1,
-    "use_for": "modelo disponible reportado por Qwen Code; validar empiricamente antes de asignacion critica",
-    "review_only": false,
-    "verified": false
-  },
-  {
     "agent": "claude-code",
     "provider": "anthropic",
     "model": "claude-sonnet-4-5-20250929",

@@ -11,7 +11,7 @@
 
 ## 1. Problema y Contexto
 
-Históricamente, los orquestadores de agentes han operado bajo reglas de enrutamiento estáticas y suposiciones rígidas como asumir la equivalencia binaria `agente == modelo` (ej. "Claude Code solo es Claude 3.7", "Qwen Code solo es Qwen 2.5"). Esto genera fragilidad operacional, bloqueos cuando un proveedor cae o agota cuotas, e imposibilita aprovechar agentes que soportan múltiples backends o modelos de vanguardia.
+Históricamente, los orquestadores de agentes han operado bajo reglas de enrutamiento estáticas y suposiciones rígidas como asumir la equivalencia binaria `agente == modelo` (ej. "Claude Code solo es Claude 3.7"). Esto genera fragilidad operacional, bloqueos cuando un proveedor cae o agota cuotas, e imposibilita aprovechar agentes que soportan múltiples backends o modelos de vanguardia.
 
 Tal como se definió en el issue [#81](https://github.com/terracenter/agent-orchestrator/issues/81):
 > **Ningún agente debe ser tratado como ejecutor universal.** Cualquier agente puede aportar código, documentación, revisión, debate, validación o arquitectura si sus capacidades reales lo permiten.
@@ -26,12 +26,11 @@ El presente RDD (*Receipt Driven Development*) define la arquitectura de autodes
 - [x] **Criterio 1:** Existe diseño y especificación para el discovery de agentes y modelos en CLI (`discover`, `refresh`, `doctor`, `snapshot`).
 - [x] **Criterio 2:** El modelo de datos soporta agentes desacoplados con múltiples proveedores y modelos (jerarquía `usuario → agente → proveedor → modelo → capacidades → métricas`).
 - [x] **Criterio 3:** Se define el protocolo estricto para separar y etiquetar fuentes de verdad: runtime local, documentación oficial y evidencia empírica.
-- [x] **Criterio 4:** Se formaliza **Qwen Code** como caso piloto con datos reales de configuración, plan Bailian y modelos declarados sin asumir no verificados.
-- [x] **Criterio 5:** Se documenta la taxonomía integral de capacidades multimodales, herramientas del sistema y modos operativos.
-- [x] **Criterio 6:** Se define el motor de scoring multidimensional personalizado por usuario, repositorio, stack y nivel de riesgo.
-- [x] **Criterio 7:** Se establece la política estricta de seguridad: sanitización de secretos, metadata segura y control ante hallazgos de guardia de raíz.
-- [x] **Criterio 8:** Se diseña la interfaz y contrato JSON para enviar snapshots fechados de capacidades y modelos a **SGE Observer**.
-- [x] **Criterio 9:** Se documenta la penalización matemática en scoring ante fallos de delegación (`status=not_executed`, `plan_solo`, `timeout_sin_evidencia`).
+- [x] **Criterio 4:** Se documenta la taxonomía integral de capacidades multimodales, herramientas del sistema y modos operativos.
+- [x] **Criterio 5:** Se define el motor de scoring multidimensional personalizado por usuario, repositorio, stack y nivel de riesgo.
+- [x] **Criterio 6:** Se establece la política estricta de seguridad: sanitización de secretos, metadata segura y control ante hallazgos de guardia de raíz.
+- [x] **Criterio 7:** Se diseña la interfaz y contrato JSON para enviar snapshots fechados de capacidades y modelos a **SGE Observer**.
+- [x] **Criterio 8:** Se documenta la penalización matemática en scoring ante fallos de delegación (`status=not_executed`, `plan_solo`, `timeout_sin_evidencia`).
 
 ---
 
@@ -65,7 +64,7 @@ El presente RDD (*Receipt Driven Development*) define la arquitectura de autodes
 1. **Identificador y Binario:** Nombre canónico (`id`), comando ejecutable (`command`), ruta absoluta del binario (`binary_path`).
 2. **Versión:** Versión semántica o hash de build extraído del runtime (`version`).
 3. **Configuración no secreta:** Rutas de configuración activas (`config_paths`), endpoints públicos (`endpoints`), flags por defecto.
-4. **Proveedores / Backends:** Lista de backends configurados (ej. `bailian`, `anthropic`, `openrouter`, `ollama`).
+4. **Proveedores / Backends:** Lista de backends configurados (ej. `anthropic`, `openrouter`, `ollama`).
 5. **Modelos:** Identificadores exactos de modelos soportados y su estado (`active`, `available`, `unverified`).
 6. **Modos disponibles:** Modos de operación (`chat`, `agentic`, `read_only`, `edit`, `review`, `debate`, `architecture`).
 7. **Herramientas y Permisos:** Tools expuestas por el runtime (`shell`, `filesystem`, `git`, `docker`, etc.) y permisos efectivos auditados.
@@ -86,9 +85,9 @@ Se erradica la premisa `agente == modelo`. Un agente es un arnés de ejecución 
 #### Jerarquía Conceptual:
 ```text
 Usuario (operador)
-  └── Agente (ej. qwen-code, claude-code, hermes, agy, openclaw)
-        └── Proveedor / Backend (ej. bailian, anthropic-api, openrouter, local-ollama)
-              └── Modelo (ej. qwen3.8-max, claude-3-7-sonnet, glm-5)
+  └── Agente (ej. claude-code, hermes, agy, openclaw)
+        └── Proveedor / Backend (ej. anthropic-api, deepseek, openrouter, local-ollama)
+              └── Modelo (ej. deepseek-v4-pro, claude-3-7-sonnet)
                     ├── Capacidades (contexto, tool-use, multimodalidad, modos)
                     ├── Métricas por Tarea / Repo (rendimiento, tasa de acierto, latencia)
                     └── Historial Empírico (recibos verificables #79, veredictos)
@@ -105,26 +104,23 @@ El schema v2 introducido en el issue #148 (`fetched_at`, `cost_hint`, `promo`, `
   "user_id": "<user_id>",
   "agents": [
     {
-      "id": "qwen-code",
-      "name": "Qwen Code CLI",
-      "vendor": "Alibaba Group",
+      "id": "hermes",
+      "name": "Hermes",
       "binary": {
-        "command": "qwen",
-        "path": "~/.local/bin/qwen",
+        "command": "hermes",
+        "path": "~/.local/bin/hermes",
         "version": "1.4.2"
       },
       "config_metadata": {
-        "settings_path": "~/.qwen/settings.json",
         "has_credentials": true,
-        "auth_type": "token_plan_api_key"
+        "auth_type": "api_key"
       },
       "providers": [
         {
-          "id": "bailian",
-          "name": "Alibaba Cloud Bailian Token Plan",
-          "endpoint": "token-plan.ap-southeast-1.maas.aliyuncs.com",
+          "id": "deepseek",
+          "name": "DeepSeek",
           "plan": {
-            "name": "Qwen Standard Plan",
+            "name": "Standard Plan",
             "active": true,
             "period_start": "2026-08-24T07:31:52Z",
             "period_end": "2026-09-24T12:00:00Z",
@@ -132,13 +128,13 @@ El schema v2 introducido en el issue #148 (`fetched_at`, `cost_hint`, `promo`, `
           },
           "models": [
             {
-              "id": "qwen3.8-max",
+              "id": "deepseek-v4-pro",
               "status": "active",
               "source_type": "runtime",
               "verified": true,
               "last_verified_at": "2026-09-04T21:30:00Z",
               "cost_hint": {
-                "unit": "token_plan_quota",
+                "unit": "plan_quota",
                 "promo": "unlimited_in_plan_window"
               },
               "capabilities": {
@@ -151,7 +147,7 @@ El schema v2 introducido en el issue #148 (`fetched_at`, `cost_hint`, `promo`, `
               }
             },
             {
-              "id": "glm-5",
+              "id": "deepseek-flash",
               "status": "available",
               "source_type": "docs_official",
               "verified": false,
@@ -208,48 +204,9 @@ Para evitar inventarios obsoletos o alucinaciones sobre modelos no probados, `or
 
 ---
 
-### 3.4. Criterio 4: Qwen Code como Caso Piloto
+### 3.4. Criterio 4: Capacidades Multimodales y Tool-Use
 
-- [x] **Checklist Criterio 4:** Parametrización real de Qwen Code, plan Bailian activo, separación entre modelo verificado (`qwen3.8-max`) y modelos declarados pendientes de validación.
-
-Se formaliza la integración piloto observada en el workspace según la auditoría del issue #81:
-
-#### Parámetros Reales del Caso Piloto:
-- **Agente:** Qwen Code CLI (Alibaba Group).
-- **Modelo Activo Verificado:** `qwen3.8-max` (marcado como `verified: true`, `source_type: "runtime"`).
-- **Vía de Conexión:** Token Plan Bailian (Alibaba Cloud Model Studio).
-- **Endpoint:** `token-plan.ap-southeast-1.maas.aliyuncs.com`.
-- **Archivo de Configuración:** `~/.qwen/settings.json` (auditado: solo metadata segura, sin imprimir tokens).
-- **Detalle de Suscripción:**
-  - Plan: **Qwen Standard Plan**.
-  - Inicio de vigencia: `2026-08-24 07:31:52 UTC`.
-  - Fin de vigencia: `2026-09-24 12:00:00 UTC`.
-  - Auto-renovación: Deshabilitada (`auto_renewal: false`).
-- **Modelos Declarados en Coding Plan (Estado `unverified` / `docs_official`):**
-  - `qwen3.5`
-  - `qwen3.6`
-  - `qwen3.7-plus`
-  - `glm-5`
-  - `kimi-k2.5`
-  - `MiniMax-M2.5`
-- **Capacidades Declaradas por Qwen Code:**
-  - Lectura, escritura y edición de código en múltiples stacks.
-  - Ejecución de builds, unit tests y linters.
-  - Búsqueda sintáctica y semántica en codebases locales.
-  - Ejecución controlada en shell Linux.
-  - Operaciones de control de versiones con Git y gestión de contenedores Docker.
-  - Consumo de skills compartidas del workspace (`.agents/skills/`).
-  - Delegación a subagentes y gestión de planes de trabajo.
-  - Memoria persistente entre sesiones operativas.
-
-> [!IMPORTANT]
-> **Política con Modelos Declarados:** Los modelos `glm-5`, `kimi-k2.5`, `MiniMax-M2.5`, etc., quedan registrados en el catálogo con `status: "available"`, `source_type: "docs_official"` y `verified: false`. El orquestador **no asumirá que funcionan** para tareas críticas hasta que `orq agents refresh qwen-code` o un primer recibo verificable certifique su interoperabilidad real.
-
----
-
-### 3.5. Criterio 5: Capacidades Multimodales y Tool-Use
-
-- [x] **Checklist Criterio 5:** Taxonomía completa de inputs, outputs, tools y modos operativos soportados por la arquitectura.
+- [x] **Checklist Criterio 4:** Taxonomía completa de inputs, outputs, tools y modos operativos soportados por la arquitectura.
 
 El orquestador modela las capacidades de cada par `(agente, modelo)` bajo cuatro dimensiones ortogonales:
 
@@ -276,9 +233,9 @@ Si un modelo carece de soporte para herramientas críticas (ej. ejecución de sh
 
 ---
 
-### 3.6. Criterio 6: Scoring Personalizado por Usuario
+### 3.5. Criterio 5: Scoring Personalizado por Usuario
 
-- [x] **Checklist Criterio 6:** Dimensiones mínimas, métricas empíricas (calidad técnica, obediencia, compilabilidad, corrección humana, latencia), función de utilidad adaptativa.
+- [x] **Checklist Criterio 5:** Dimensiones mínimas, métricas empíricas (calidad técnica, obediencia, compilabilidad, corrección humana, latencia), función de utilidad adaptativa.
 
 El scoring no depende de tablas generales de internet (Leaderboards sintéticos), sino del desempeño comprobable en el entorno específico del operador (Linux CachyOS / Debian Proxmox, Go/Rust nativo, cero bloat NPM, cumplimiento estricto de la ley de gobernanza interna del proyecto).
 
@@ -288,9 +245,9 @@ El scoring no depende de tablas generales de internet (Leaderboards sintéticos)
 3. `language_stack`: Stack tecnológico (`go`, `rust`, `shell`, `markdown`, `sql`).
 4. `task_type`: Tipo de tarea (`feature`, `bugfix`, `refactor`, `documentation_rdd`, `review_security`).
 5. `risk_level`: Nivel de riesgo (`bajo`, `medio`, `alto`, `critico`).
-6. `agent_id`: Agente evaluado (`qwen-code`, `claude-code`, `agy`, `hermes`).
-7. `provider_id`: Proveedor (`bailian`, `anthropic`, `openrouter`).
-8. `model_id`: Modelo exacto (`qwen3.8-max`, `claude-3-7-sonnet`, `glm-5`).
+6. `agent_id`: Agente evaluado (`claude-code`, `agy`, `hermes`).
+7. `provider_id`: Proveedor (`anthropic`, `deepseek`, `openrouter`).
+8. `model_id`: Modelo exacto (`deepseek-v4-pro`, `claude-3-7-sonnet`).
 9. `mode`: Modo de ejecución (`agentic`, `edit`, `review`).
 10. `timestamp_bucket`: Ventana temporal para ponderación por decaimiento.
 
@@ -307,9 +264,9 @@ $$Score = w_1 S_{rec} + w_2 C_{law} + w_3 Q_{tech} + w_4 D_{doc} + w_5 E_{cost} 
 
 ---
 
-### 3.7. Criterio 7: Política de Seguridad y Control de Secretos
+### 3.6. Criterio 6: Política de Seguridad y Control de Secretos
 
-- [x] **Checklist Criterio 7:** Manejo de metadata segura, sanitización de credenciales, protocolo de confirmación ante archivos sensibles (`.secrets`), mención de hallazgos de guardia de raíz.
+- [x] **Checklist Criterio 6:** Manejo de metadata segura, sanitización de credenciales, protocolo de confirmación ante archivos sensibles (`.secrets`), mención de hallazgos de guardia de raíz.
 
 #### Directrices Estrictas de Seguridad:
 1. **Metadata Segura Únicamente:** Los comandos de autodiscovery (`discover`, `refresh`, `doctor`) tienen **prohibido** leer o volcar al stdout/logs tokens de API, contraseñas, hashes privados o contenidos de archivos de variables de entorno.
@@ -317,23 +274,13 @@ $$Score = w_1 S_{rec} + w_2 C_{law} + w_3 Q_{tech} + w_4 D_{doc} + w_5 E_{cost} 
 3. **Protocolo ante `.secrets` y Archivos Sensibles:**
    - Si durante el discovery o escaneo de carpetas de configuración se detecta la existencia de `.secrets`, `.env`, archivos con permisos restringidos o scripts de prueba de proveedores, el agente **detiene cualquier lectura profunda**.
    - Se requiere autorización explícita de Freddy para auditar dichos directorios.
-4. **Hallazgos de Guardia de Raíz del Caso Piloto:**
-   Durante la primera sesión de Qwen Code se detectaron archivos en la raíz del entorno:
-   - `.hermes.md` (archivo de instrucciones)
-   - `CLAUDE.md` (configuración de arnés)
-   - `.rtk` (estado del wrapper)
-   - `.secrets` (archivo privado sensible)
-   - `test_bailian_provider.py` (script de prueba local)
-   - `test_hook.txt` (archivo temporal de testing)
-   - `violates.txt` (registro de auditoría de pruebas)
-
-   **Tratamiento:** Estos archivos se tratan como metadatos de entorno. `.secrets` queda permanentemente excluido de cualquier indexación o transmisión.
+   - `.secrets` queda permanentemente excluido de cualquier indexación o transmisión.
 
 ---
 
-### 3.8. Criterio 8: Contrato de Telemetría con SGE Observer
+### 3.7. Criterio 7: Contrato de Telemetría con SGE Observer
 
-- [x] **Checklist Criterio 8:** Definición del evento `agent.discovery.snapshot`, endpoint `POST /api/events/ingest`, autenticación con `X-Host-Token`, estructura del payload fechado.
+- [x] **Checklist Criterio 7:** Definición del evento `agent.discovery.snapshot`, endpoint `POST /api/events/ingest`, autenticación con `X-Host-Token`, estructura del payload fechado.
 
 Para mantener sincronizada la torre de control central en `sge-panel.humanbyte.net`, `orq` expone y transmite los snapshots fechados hacia **SGE Observer LLM**.
 
@@ -355,10 +302,10 @@ Para mantener sincronizada la torre de control central en `sge-panel.humanbyte.n
     "active_models_count": 12,
     "agents_summary": [
       {
-        "agent_id": "qwen-code",
+        "agent_id": "hermes",
         "version": "1.4.2",
-        "provider": "bailian",
-        "active_model": "qwen3.8-max",
+        "provider": "deepseek",
+        "active_model": "deepseek-v4-pro",
         "plan_status": "active_standard",
         "plan_expires_at": "2026-09-24T12:00:00Z"
       },
@@ -377,9 +324,9 @@ Para mantener sincronizada la torre de control central en `sge-panel.humanbyte.n
 
 ---
 
-### 3.9. Criterio 9: Efecto de Fallos de Delegación en Scoring (`not_executed`)
+### 3.8. Criterio 8: Efecto de Fallos de Delegación en Scoring (`not_executed`)
 
-- [x] **Checklist Criterio 9:** Mapeo con estados de #79 (`DelegateReceipt`), penalizaciones por `not_executed`, `plan_solo`, `timeout_sin_evidencia`, decaimiento en la matriz de enrutamiento.
+- [x] **Checklist Criterio 8:** Mapeo con estados de #79 (`DelegateReceipt`), penalizaciones por `not_executed`, `plan_solo`, `timeout_sin_evidencia`, decaimiento en la matriz de enrutamiento.
 
 Un agente que acepta una delegación pero no entrega resultados ejecutados genera costos innecesarios y pérdida de tiempo. `orq` vincula directamente los estados del recibo de delegación (`DelegateReceipt`, #79) con el score del par `(agente, modelo)`:
 
@@ -415,7 +362,6 @@ Un agente que acepta una delegación pero no entrega resultados ejecutados gener
 ### 4.1. Relación con el Issue #148 (Model-Market Sync & Adaptive Fallback)
 El issue #148 estableció la base del catálogo dinámico, el soporte para promociones de mercado (ej. Claude +50%) y el fallback adaptativo cuando un proveedor falla. Este RDD #81 **completa y cierra el ciclo** al:
 - Pasar de un feed externo a un **discovery local bidireccional** (`orq agents discover`).
-- Incorporar planes con vigencia temporal fija (como el Qwen Standard Plan de 30 días).
 - Medir la fiabilidad empírica para alimentar el fallback con métricas reales y no solo disponibilidad de API.
 
 ### 4.2. Relación con el Issue #79 (Receipt Driven Development & `DelegateReceipt`)
@@ -435,6 +381,6 @@ Para garantizar seguridad y foco, se mantienen explícitamente fuera del alcance
 
 ## 6. Follow-ups e Implementación Futura
 
-1. **Fase 1 (CLI & Discovery Engine):** Implementar en Rust/Go los subcomandos `orq agents discover`, `orq agents refresh <agent>` y `orq agents doctor` con parsers para Qwen Code, Claude Code y Hermes.
+1. **Fase 1 (CLI & Discovery Engine):** Implementar en Rust/Go los subcomandos `orq agents discover`, `orq agents refresh <agent>` y `orq agents doctor` con parsers para Claude Code y Hermes.
 2. **Fase 2 (Motor de Scoring & Persistencia):** Implementar la capa `internal/score` y `internal/discovery` con persistencia en SQLite para registrar métricas de ejecución por repo/tarea.
 3. **Fase 3 (Integración con Observer):** Conectar el emisor de eventos de `orq` con el endpoint `POST /api/events/ingest` de SGE Observer para telemetría centralizada de snapshots.

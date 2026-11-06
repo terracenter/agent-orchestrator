@@ -10,14 +10,14 @@ func TestFromLedgerPenalizesNotExecutedWithoutTreatingItAsSuccess(t *testing.T) 
 	summaries := FromLedger([]ledger.Event{
 		{Agent: "agy", Model: "flash", Status: "ok", Task: "doc"},
 		{Agent: "agy", Model: "flash", Status: "not_executed", Task: "delegate"},
-		{Agent: "qwen-code", Model: "qwen3.8-max", Status: "ok", Task: "code"},
+		{Agent: "hermes", Model: "deepseek-v4-pro", Status: "ok", Task: "code"},
 	})
 
 	if len(summaries) != 2 {
 		t.Fatalf("expected 2 summaries, got %d", len(summaries))
 	}
-	if summaries[0].Agent != "qwen-code" || summaries[0].Score != 1 {
-		t.Fatalf("expected qwen-code first with score 1, got %+v", summaries[0])
+	if summaries[0].Agent != "hermes" || summaries[0].Score != 1 {
+		t.Fatalf("expected hermes first with score 1, got %+v", summaries[0])
 	}
 	agy := summaries[1]
 	if agy.NotExecuted != 1 {

@@ -210,10 +210,15 @@ mod tests {
         let adapters_json = r#"{
             "schema_version": 1,
             "adapters": [{
-                "name": "qwen-code",
-                "binary": "qwen",
+                "name": "hermes",
+                "binary": "hermes",
                 "status": "available",
-                "argv": ["qwen", "$MODEL", "$TASK"]
+                "argv": ["hermes", "$MODEL", "$TASK"],
+                "detect": {
+                    "version_args": ["--version"],
+                    "version_args_verified": false,
+                    "models": {"source": "catalog"}
+                }
             }]
         }"#;
         fs::write(&adapters_path, adapters_json).unwrap();
@@ -221,8 +226,8 @@ mod tests {
         let initial_catalog_json = r#"{
             "schema_version": 2,
             "agents": {
-                "qwen-code": [{
-                    "id": "qwen3.8-max",
+                "hermes": [{
+                    "id": "hermes-3-llama-3.1-405b",
                     "source": "runtime",
                     "confidence": "high",
                     "notes": "initial",
@@ -235,7 +240,7 @@ mod tests {
 
         // First refresh
         let rep1 = run_refresh(AgentRefreshArgs {
-            agent: "qwen-code".to_string(),
+            agent: "hermes".to_string(),
             adapters_config: Some(adapters_path.display().to_string()),
             models_config: Some(models_path.display().to_string()),
             db_path: Some(db_path.display().to_string()),
@@ -244,18 +249,21 @@ mod tests {
         .unwrap();
 
         let (catalog1, _) = models::load_catalog(Some(&models_path)).await.unwrap();
-        let qwen_models1 = catalog1.agents.get("qwen-code").unwrap();
-        let m1 = qwen_models1.iter().find(|m| m.id == "qwen3.8-max").unwrap();
+        let hermes_models1 = catalog1.agents.get("hermes").unwrap();
+        let m1 = hermes_models1
+            .iter()
+            .find(|m| m.id == "hermes-3-llama-3.1-405b")
+            .unwrap();
         assert!(m1.fetched_at.is_some());
         assert_ne!(m1.fetched_at.as_deref(), Some("2020-01-01T00:00:00Z"));
         assert_eq!(m1.fetched_at.as_deref(), Some(rep1.refreshed_at.as_str()));
 
         // Check SQLite
         let store = state::open(Some(&db_path)).unwrap();
-        let records1 = store.list_agent_models("qwen-code").unwrap();
+        let records1 = store.list_agent_models("hermes").unwrap();
         let db_m1 = records1
             .iter()
-            .find(|r| r.model_id == "qwen3.8-max")
+            .find(|r| r.model_id == "hermes-3-llama-3.1-405b")
             .unwrap();
         let meta1: serde_json::Value = serde_json::from_str(&db_m1.metadata_json).unwrap();
         assert_eq!(
@@ -268,7 +276,7 @@ mod tests {
 
         // Second refresh
         let rep2 = run_refresh(AgentRefreshArgs {
-            agent: "qwen-code".to_string(),
+            agent: "hermes".to_string(),
             adapters_config: Some(adapters_path.display().to_string()),
             models_config: Some(models_path.display().to_string()),
             db_path: Some(db_path.display().to_string()),
@@ -277,15 +285,18 @@ mod tests {
         .unwrap();
 
         let (catalog2, _) = models::load_catalog(Some(&models_path)).await.unwrap();
-        let qwen_models2 = catalog2.agents.get("qwen-code").unwrap();
-        let m2 = qwen_models2.iter().find(|m| m.id == "qwen3.8-max").unwrap();
+        let hermes_models2 = catalog2.agents.get("hermes").unwrap();
+        let m2 = hermes_models2
+            .iter()
+            .find(|m| m.id == "hermes-3-llama-3.1-405b")
+            .unwrap();
         assert_eq!(m2.fetched_at.as_deref(), Some(rep2.refreshed_at.as_str()));
         assert_ne!(m1.fetched_at, m2.fetched_at);
 
-        let records2 = store.list_agent_models("qwen-code").unwrap();
+        let records2 = store.list_agent_models("hermes").unwrap();
         let db_m2 = records2
             .iter()
-            .find(|r| r.model_id == "qwen3.8-max")
+            .find(|r| r.model_id == "hermes-3-llama-3.1-405b")
             .unwrap();
         let meta2: serde_json::Value = serde_json::from_str(&db_m2.metadata_json).unwrap();
         assert_eq!(
@@ -305,10 +316,15 @@ mod tests {
         let adapters_json = r#"{
             "schema_version": 1,
             "adapters": [{
-                "name": "qwen-code",
-                "binary": "qwen",
+                "name": "hermes",
+                "binary": "hermes",
                 "status": "available",
-                "argv": ["qwen", "$MODEL", "$TASK"]
+                "argv": ["hermes", "$MODEL", "$TASK"],
+                "detect": {
+                    "version_args": ["--version"],
+                    "version_args_verified": false,
+                    "models": {"source": "catalog"}
+                }
             }]
         }"#;
         fs::write(&adapters_path, adapters_json).unwrap();
@@ -317,7 +333,7 @@ mod tests {
         let initial_catalog_json = r#"{
             "schema_version": 2,
             "agents": {
-                "qwen-code": [
+                "hermes": [
                     {
                         "id": "orphan-discontinued-model-v1",
                         "source": "manual",
@@ -327,7 +343,7 @@ mod tests {
                         "status": "deprecated"
                     },
                     {
-                        "id": "qwen3.8-max",
+                        "id": "hermes-3-llama-3.1-405b",
                         "source": "runtime",
                         "confidence": "high",
                         "notes": "active",
@@ -340,7 +356,7 @@ mod tests {
         fs::write(&models_path, initial_catalog_json).unwrap();
 
         run_refresh(AgentRefreshArgs {
-            agent: "qwen-code".to_string(),
+            agent: "hermes".to_string(),
             adapters_config: Some(adapters_path.display().to_string()),
             models_config: Some(models_path.display().to_string()),
             db_path: Some(db_path.display().to_string()),
@@ -349,13 +365,15 @@ mod tests {
         .unwrap();
 
         let (catalog, _) = models::load_catalog(Some(&models_path)).await.unwrap();
-        let qwen_models = catalog.agents.get("qwen-code").unwrap();
+        let hermes_models = catalog.agents.get("hermes").unwrap();
 
         // Orphan model must NOT exist in the refreshed catalog
-        assert!(qwen_models
+        assert!(hermes_models
             .iter()
             .all(|m| m.id != "orphan-discontinued-model-v1"));
         // Runtime models must exist
-        assert!(qwen_models.iter().any(|m| m.id == "qwen3.8-max"));
+        assert!(hermes_models
+            .iter()
+            .any(|m| m.id == "hermes-3-llama-3.1-405b"));
     }
 }

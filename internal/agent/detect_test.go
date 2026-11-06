@@ -20,7 +20,7 @@ func TestDetectAgentsWithHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "qwen"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "hermes"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -29,8 +29,8 @@ func TestDetectAgentsWithHome(t *testing.T) {
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	qwenCfgDir := filepath.Join(tempHome, ".qwen")
-	if err := os.MkdirAll(qwenCfgDir, 0o700); err != nil {
+	hermesCfgDir := filepath.Join(tempHome, ".hermes")
+	if err := os.MkdirAll(hermesCfgDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,7 +39,7 @@ func TestDetectAgentsWithHome(t *testing.T) {
 		t.Fatal("expected agent detections")
 	}
 
-	var foundOpenClaw, foundAGY, foundQwen bool
+	var foundOpenClaw, foundAGY, foundHermes bool
 	for _, d := range detections {
 		if d.Agent == "openclaw" {
 			foundOpenClaw = true
@@ -56,22 +56,22 @@ func TestDetectAgentsWithHome(t *testing.T) {
 				t.Fatalf("expected agy to be installed")
 			}
 		}
-		if d.Agent == "qwen-code" {
-			foundQwen = true
+		if d.Agent == "hermes" {
+			foundHermes = true
 			if !d.Installed {
-				t.Fatalf("expected qwen-code to be installed")
+				t.Fatalf("expected hermes to be installed")
 			}
-			if d.ConfigPath != qwenCfgDir {
-				t.Fatalf("expected qwen config path %s, got %s", qwenCfgDir, d.ConfigPath)
+			if d.ConfigPath != hermesCfgDir {
+				t.Fatalf("expected hermes config path %s, got %s", hermesCfgDir, d.ConfigPath)
 			}
 			if !d.Verified {
-				t.Fatalf("expected qwen-code detection to be verified by runtime/config presence")
+				t.Fatalf("expected hermes detection to be verified by runtime/config presence")
 			}
 		}
 	}
 
-	if !foundOpenClaw || !foundAGY || !foundQwen {
-		t.Fatalf("expected to find openclaw, agy and qwen-code in detections")
+	if !foundOpenClaw || !foundAGY || !foundHermes {
+		t.Fatalf("expected to find openclaw, agy and hermes in detections")
 	}
 }
 

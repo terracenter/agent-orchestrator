@@ -602,7 +602,7 @@ enum AgentsSubcommand {
     },
     /// Re-inspect a single agent runtime.
     Refresh {
-        /// Agent adapter name (e.g. qwen-code, claude-code, hermes).
+        /// Agent adapter name (e.g. claude-code, hermes).
         agent: String,
         /// Optional adapters registry JSON path. Uses bundled config when omitted.
         #[arg(long)]
@@ -724,7 +724,7 @@ enum ObserverSubcommand {
 enum QuotaCommand {
     /// Ingest or record a quota snapshot manually or from JSON.
     Record {
-        /// Provider identifier (e.g., agy, claude-code, codex, qwen).
+        /// Provider identifier (e.g., agy, claude-code, codex, hermes).
         #[arg(long)]
         provider: Option<String>,
         /// Quota scope/group (e.g., weekly, five_hour, session, daily).
