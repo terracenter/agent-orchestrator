@@ -660,7 +660,7 @@ pub fn list(
 
 #[cfg(test)]
 mod tests {
-    use super::{default_catalog, merge_feed_into_catalog, parse_catalog, parse_market_feed};
+    use super::{merge_feed_into_catalog, parse_catalog, parse_market_feed};
 
     #[test]
     fn accepts_schema_version_1_and_migrates_to_2() {
