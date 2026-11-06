@@ -34,11 +34,11 @@ func TestCmdRunDefaultsToDryRun(t *testing.T) {
 
 func TestCmdRunExecuteParsesSucceededReceipt(t *testing.T) {
 	runner := fakeOrqAgent(t, `#!/usr/bin/env bash
-printf '{"schema_version":1,"correlation_id":"test","agent":"qwen-code","model":"qwen3.8-max","command":["fake"],"status":"succeeded","policy_reason":"allowed","started_at_unix":1,"duration_ms":2,"timeout_seconds":5,"exit_code":0,"stdout_tail":"ok","stderr_tail":"","secrets_read":false}\n'
+printf '{"schema_version":1,"correlation_id":"test","agent":"hermes","model":"deepseek-v4-pro","command":["fake"],"status":"succeeded","policy_reason":"allowed","started_at_unix":1,"duration_ms":2,"timeout_seconds":5,"exit_code":0,"stdout_tail":"ok","stderr_tail":"","secrets_read":false}\n'
 `)
 
 	output := captureStdout(t, func() {
-		if err := cmdRun([]string{"--execute", "--agent", "qwen-code", "--model", "qwen3.8-max", "--timeout", "5", "--orq-agent-bin", runner, "--format", "json", "hacer smoke"}); err != nil {
+		if err := cmdRun([]string{"--execute", "--agent", "hermes", "--model", "deepseek-v4-pro", "--timeout", "5", "--orq-agent-bin", runner, "--format", "json", "hacer smoke"}); err != nil {
 			t.Fatalf("cmdRun returned error: %v", err)
 		}
 	})
@@ -64,11 +64,11 @@ printf '{"schema_version":1,"correlation_id":"test","agent":"qwen-code","model":
 
 func TestCmdRunExecuteFailedReceiptIsNotExecuted(t *testing.T) {
 	runner := fakeOrqAgent(t, `#!/usr/bin/env bash
-printf '{"schema_version":1,"correlation_id":"test","agent":"qwen-code","model":"qwen3.8-max","command":["fake"],"status":"timed_out","policy_reason":"allowed","started_at_unix":1,"duration_ms":2,"timeout_seconds":5,"exit_code":null,"stdout_tail":"partial","stderr_tail":"timed out","secrets_read":false}\n'
+printf '{"schema_version":1,"correlation_id":"test","agent":"hermes","model":"deepseek-v4-pro","command":["fake"],"status":"timed_out","policy_reason":"allowed","started_at_unix":1,"duration_ms":2,"timeout_seconds":5,"exit_code":null,"stdout_tail":"partial","stderr_tail":"timed out","secrets_read":false}\n'
 `)
 
 	output := captureStdout(t, func() {
-		if err := cmdRun([]string{"--execute", "--agent", "qwen-code", "--model", "qwen3.8-max", "--orq-agent-bin", runner, "--format", "json", "hacer timeout"}); err != nil {
+		if err := cmdRun([]string{"--execute", "--agent", "hermes", "--model", "deepseek-v4-pro", "--orq-agent-bin", runner, "--format", "json", "hacer timeout"}); err != nil {
 			t.Fatalf("cmdRun returned error: %v", err)
 		}
 	})

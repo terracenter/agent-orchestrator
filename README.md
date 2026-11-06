@@ -50,7 +50,7 @@ catalog flags and catalog-specific environment variables take precedence.
 orq detect --format json
 orq discover --format json
 orq agents discover
-orq models --agent qwen-code --format json
+orq models --agent hermes --format json
 orq route --task-kind mechanical --format json
 
 # Enrutar con disponibilidad diaria de agentes (allowlist/denylist)

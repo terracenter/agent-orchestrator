@@ -42,10 +42,6 @@ A continuación se detallan los agentes registrados y sus configuraciones de mod
 | **agy** | google | `gemini-3.1-pro-low` | 2 | Análisis técnico fuerte y refutación antes de escalar a Claude | No |
 | **agy** | open-model | `gpt-oss-120b-medium` | 0 | Validación barata de prompts, resúmenes y tareas mecánicas cuando AGY lo expone | Sí |
 | **agy** | nvidia | `free-or-low-cost` | 0 | Tareas mecánicas y validaciones baratas si AGY lo expone | No |
-| **qwen-code** | bailian | `qwen3.8-max` | 1 | Código, búsqueda en repos, shell/git/docker y tareas técnicas medianas bajo plan Standard reportado por runtime | Sí |
-| **qwen-code** | bailian | `qwen3.5` | 1 | Modelo disponible reportado por Qwen Code; validar empíricamente antes de asignación crítica | No |
-| **qwen-code** | bailian | `qwen3.6` | 1 | Modelo disponible reportado por Qwen Code; validar empíricamente antes de asignación crítica | No |
-| **qwen-code** | bailian | `qwen3.7-plus` | 1 | Modelo disponible reportado por Qwen Code; validar empíricamente antes de asignación crítica | No |
 | **claude-code** | anthropic | `sonnet` | 3 | Código, revisión crítica, seguridad, bloqueos y refutación de decisiones | Sí |
 | **claude-code** | anthropic | `opus` | 4 | Arquitectura compleja, auditoría crítica o decisión mayor | Sí |
 | **claude-code** | anthropic | `fable` | 2 | Modelo Claude pendiente de clasificar; usar solo si la CLI lo expone y hay confirmación operativa | No |
@@ -61,7 +57,6 @@ Resultados de la auto-detección local mediante `rtk orq agents detect --format 
 | **hermes** | Sí | `~/.local/bin/hermes` | `~/.hermes` | Runner para tareas de integración y exploración. |
 | **claude-code**| Sí | `~/.local/bin/claude` | `~/.claude` | Revisión crítica, seguridad y refutación (review_only). |
 | **pi** | Sí | `~/.local/share/pi-node/node-v22.23.2-linux-x64/bin/pi` | PENDIENTE | Supervisor principal; detener y delegar si hay tensión de presupuesto. |
-| **qwen-code** | Sí | `~/.local/bin/qwen` o `PATH` | `~/.qwen` | Runner multi-modelo para código y tareas técnicas; detección segura sin leer settings ni secretos. |
 | **codex** | No | PENDIENTE | PENDIENTE | Runner y asistente secundario. |
 | **nvidia-api** | No | PENDIENTE | PENDIENTE | Smoke tests, clasificación barata y tareas mecánicas. |
 
@@ -81,13 +76,7 @@ Salida consolidada del comando de diagnóstico:
 
 *Todos los agentes clave cuentan con CLI funcional que responde correctamente a flags de ayuda (`--help`).*
 
-## 3.1 Qwen Code — piloto de autodiscovery seguro (#81)
-
-`orq agents detect` reconoce `qwen-code` mediante presencia del binario `qwen` y/o directorio de configuración `~/.qwen`, pero no lee archivos de configuración potencialmente sensibles. El primer perfil verificado se registra como `qwen-code/bailian/qwen3.8-max` porque fue reportado por runtime en una ejecución empírica del usuario. Los modelos `qwen3.5`, `qwen3.6` y `qwen3.7-plus` quedan como disponibles/no verificados hasta que exista prueba empírica versionada.
-
-Regla de seguridad: no imprimir ni auditar `.secrets`, tokens, endpoints privados o contenido de `~/.qwen/settings.json`; solo se permite metadata segura como existencia de binario/directorio y modelos declarados por ejecución controlada.
-
-## 3.2 Snapshots de capacidades/modelos (#81)
+## 3.1 Snapshots de capacidades/modelos (#81)
 
 `orq models snapshot --format json` emite un snapshot fechado por combinación `agente/proveedor/modelo`. Cada registro separa:
 
@@ -99,9 +88,9 @@ Regla de seguridad: no imprimir ni auditar `.secrets`, tokens, endpoints privado
 - `captured_at` para trazabilidad temporal;
 - nota de seguridad explícita.
 
-La evidencia empírica de Qwen Code se limita al runtime reportado por el usuario en #81. Modelos no verificados reciben fuente `status=pendiente` hasta validación por runtime, documentación oficial o tareas reales. Este comando no lee configuración privada, tokens ni `.secrets`; prepara el contrato de datos para aprendizaje/scoring posterior y para exportación a Observer en un corte separado.
+Los modelos no verificados reciben fuente `status=pendiente` hasta validación por runtime, documentación oficial o tareas reales. Este comando no lee configuración privada, tokens ni `.secrets`; prepara el contrato de datos para aprendizaje/scoring posterior y para exportación a Observer en un corte separado.
 
-## 3.3 Scoring personalizado inicial (#81)
+## 3.2 Scoring personalizado inicial (#81)
 
 `orq score --format json` resume el ledger local por `agente/modelo` para aprender del historial real del usuario. El primer scoring es deliberadamente simple y verificable:
 
@@ -128,21 +117,14 @@ A continuación se lista el backlog de PRs sugeridos para el orquestador:
 ## 5. Soporte Host-Local (Modelos Locales vía Ollama)
 
 *   **Capacidad Verificada [V]**: Host local de desarrollo (CachyOS, AMD Zen4, 30.2 GiB RAM) accesible vía VPN de Tailscale, documentado en el vault privado del operador (no público).
-*   **Comandos Verificados [V]**: Comandos de ejecución mediante el agente `hermes` integrando el proveedor `ollama-local` documentados en el vault privado:
-    ```bash
-    hermes --model qwen2.5-coder:7b-instruct-q4_K_M --provider ollama-local
-    ```
+*   **Comandos Verificados [V]**: Comandos de ejecución mediante el agente `hermes` integrando el proveedor `ollama-local`, documentados en el vault privado.
 *   **Modelos Locales Detectados (Documentados) [V]**:
-    *   `qwen2.5-coder:7b-instruct-q4_K_M` (Activo/Producción en el host local)
-    *   `qwen2.5:7b` (Disponible si se carga en Ollama)
     *   `deepseek-r1:7b` (Disponible si se carga en Ollama)
     *   `llama3.2:latest` (Disponible si se carga en Ollama)
 *   **Limitaciones**:
     *   No hay binarios de inferencia locales (`ollama`, `llama-server`, `llama-cli`, `lmstudio`, `vllm`, `llamacpp`) instalados en el host del orquestador.
     *   La comunicación con el host local depende enteramente de que la VPN de Tailscale esté activa y ruteable.
     *   Se requiere autorización/evidencia explícita previa para conectarse por SSH al host remoto en flujos automáticos.
-*   **Usos Recomendados de Bajo Riesgo**:
-    *   Fallback de Nivel 0 (costo cero de API) para tareas de desarrollo mecánico e implementación de código de nivel medio utilizando el modelo `qwen2.5-coder:7b-instruct-q4_K_M`.
 
 ---
 

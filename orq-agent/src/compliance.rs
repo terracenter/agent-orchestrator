@@ -2206,7 +2206,7 @@ Found 2 memories:
             schema_version: 1,
             correlation_id: "c2".to_string(),
             agent: "hermes".to_string(),
-            model: "qwen-2.5-coder".to_string(),
+            model: "deepseek-flash".to_string(),
             command: vec!["orq".to_string()],
             status: crate::receipt::DelegateStatus::Validated,
             reason: None,
@@ -2287,10 +2287,10 @@ Found 2 memories:
             "orq log --model claude-3-5-sonnet"
         ));
         assert!(!is_hardcoded_model_invocation(
-            "smoke --agent hermes --model qwen-2.5-coder"
+            "smoke --agent hermes --model deepseek-flash"
         ));
         assert!(!is_hardcoded_model_invocation(
-            "orq smoke --agent hermes --model qwen"
+            "orq smoke --agent hermes --model deepseek-v4-pro"
         ));
         assert!(!is_hardcoded_model_invocation(
             "rtk cargo test --manifest-path orq-agent/Cargo.toml smoke"

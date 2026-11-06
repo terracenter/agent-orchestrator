@@ -32,7 +32,7 @@ orq discover --format json
 orq agents discover
 
 # Inspect known models and route an explicit task kind.
-orq models --agent qwen-code --format json
+orq models --agent hermes --format json
 orq route --task-kind mechanical --format json
 
 # Inspect quota, evidence and available command options.
@@ -54,7 +54,7 @@ Run `orq <command> --help` before using a command with external effects such as
 {
   "date": "2026-09-09",
   "available_agents": ["claude-code", "codex", "agy"],
-  "unavailable_agents": ["hermes", "qwen-code", "openclaw", "pi", "nvidia-api"],
+  "unavailable_agents": ["hermes", "openclaw", "pi", "nvidia-api"],
   "notes": "Availability declared for the session"
 }
 ```
@@ -92,7 +92,7 @@ not implement reroute itself.
 
 ```bash
 # Default path: $HOME/.local/state/orq-agent/events.jsonl
-ORQ_EVENT_LOG_PATH=/path/to/events.jsonl orq delegate --agent qwen-code --model qwen3.6-flash --task "..." --task-id my-task
+ORQ_EVENT_LOG_PATH=/path/to/events.jsonl orq delegate --agent hermes --model deepseek-flash --task "..." --task-id my-task
 ```
 
 The file is created with `0600` permissions. Each line is a JSON object with
@@ -150,7 +150,7 @@ the builtin — there is no environment variable, so the ceiling cannot be
 changed silently from the shell:
 
 ```bash
-orq exec --agent qwen-code --model qwen3.8-max --task-file task.md \
+orq exec --agent hermes --model deepseek-v4-pro --task-file task.md \
   --budget-config /path/to/budget.json \
   --models-config /path/to/models-catalog.json \
   --db-path /path/to/state.sqlite

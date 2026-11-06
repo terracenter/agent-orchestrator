@@ -6,7 +6,6 @@ Orq no debe decidir rutas solo por intuición, listas estáticas o memoria conve
 
 Ejemplos recientes:
 
-- `qwen-code/qwen3.8-max` funciona como CLI real, pero el registry de Orq lo rechaza como `unknown agent/model pair`.
 - `claude-3-5-haiku-20241022` aparece como ruta barata en Orq, pero el proveedor lo reporta deprecated/EOL; el uso real requiere `claude-haiku-4-5`.
 - `orq-watch-clients` solo observaba `COMMAND` y omitía runners envueltos por `rtk`, `node` o `python` hasta que se amplió a `ARGS`.
 - Hermes existe como runner local, pero está en cuarentena/deprecated y no debe ser priorizado.
@@ -33,7 +32,7 @@ Construir un ciclo de aprendizaje controlado para que Orq pueda responder:
 
 Cada agente/modelo debe tener una ficha verificable con:
 
-- agente (`pi`, `qwen-code`, `openclaw`, `agy`, `claude-code`, etc.);
+- agente (`pi`, `openclaw`, `agy`, `claude-code`, etc.);
 - modelo o alias exacto;
 - comando real usado;
 - estado: `candidate`, `available`, `certified`, `gated`, `deprecated_or_quarantine`, `failed`;
@@ -51,7 +50,7 @@ Cada agente/modelo debe tener una ficha verificable con:
 Comando futuro:
 
 ```bash
-orq-agent models --agent qwen-code --format json
+orq-agent models --agent hermes --format json
 ```
 
 Debe consultar al runner sin leer secretos y devolver modelos/alias disponibles si el CLI lo soporta.
@@ -61,7 +60,7 @@ Debe consultar al runner sin leer secretos y devolver modelos/alias disponibles 
 Comando futuro:
 
 ```bash
-orq-agent smoke --agent qwen-code --model qwen3.8-max --format json
+orq-agent smoke --agent hermes --model deepseek-v4-pro --format json
 ```
 
 Debe ejecutar una tarea mínima, acotada y barata, y producir receipt JSON.
@@ -71,7 +70,7 @@ Debe ejecutar una tarea mínima, acotada y barata, y producir receipt JSON.
 Comando futuro:
 
 ```bash
-orq-agent certify --agent qwen-code --model qwen3.8-max --task-kind rust-review --receipt <receipt.json>
+orq-agent certify --agent hermes --model deepseek-v4-pro --task-kind rust-review --receipt <receipt.json>
 ```
 
 Debe registrar que ese agente/modelo pasó un caso concreto.
@@ -82,7 +81,6 @@ Debe registrar que ese agente/modelo pasó un caso concreto.
 
 Ejemplo:
 
-- `rust-review` → Qwen certificado + validación local.
 - `policy/security-review` → Claude Haiku si está disponible y no deprecated.
 - `critical-architecture` → requiere aprobación humana para Sonnet/Opus.
 - `legacy/quarantine` → Hermes no se usa salvo autorización explícita.
@@ -116,13 +114,12 @@ La certificación debe basarse en:
 
 ## Criterios de aceptación del MVP
 
-- [x] `orq-agent models --agent <agent> --format json` existe para al menos `qwen-code` y `pi`, con fallback seguro si el runner no expone catálogo.
+- [x] `orq-agent models --agent <agent> --format json` existe para al menos `hermes` y `pi`, con fallback seguro si el runner no expone catálogo.
 - [x] `orq-agent smoke` genera receipt JSON, no lee secretos y valida marcador `ORQ_SMOKE_OK`.
 - [x] `orq-agent exec` emite receipts JSON tempranos para `invalid_request` y `spawn_failed`.
 - [x] `orq-agent exec` usa lectura concurrente con ring buffer acotado y preserva salida parcial en timeout.
 - [x] `orq-agent exec` mata el process group Unix en timeout y acota waits/colección de tails.
 - [x] `orq run --execute` consume `orq-agent exec` como backend real progresivo y marca `executed=true` solo con receipt `status=succeeded`.
-- El registry acepta `qwen-code/qwen3.8-max` solo después de evidencia positiva.
 - Orq registra cuándo un modelo falla por deprecated/EOL.
 - `orq route` puede explicar por qué eligió un agente/modelo usando evidencia previa.
 - Toda nueva idea de routing/policy queda registrada como doc, issue, ADR o receipt.
@@ -152,7 +149,7 @@ Antes de entrar en routing automático, todo par `agent/model` pasa por *proposa
 3. Si el agente/modelo coincide con patrones gated (`sonnet`, `opus`, `claude-code` u otros definidos en política), queda bloqueado hasta aprobación humana explícita.
 4. Solo veredictos aprobados alimentan routing certificado.
 
-El circuit-breaker/backoff forma parte de la certificación. Un timeout o fallo repetido abre circuito para ese par agente/modelo; mientras esté abierto, `orq route` debe omitirlo aunque aparezca en el catálogo bootstrap/export. La reapertura requiere smoke/certify nuevo y receipt exitoso. Ejemplos actuales de cuarentena: `qwen-code/qwen3.8-max` para deep reasoning, `qwen-code/deepseek-v4-flash-0731` por timeout, y `openclaw/default` por adapter roto.
+El circuit-breaker/backoff forma parte de la certificación. Un timeout o fallo repetido abre circuito para ese par agente/modelo; mientras esté abierto, `orq route` debe omitirlo aunque aparezca en el catálogo bootstrap/export. La reapertura requiere smoke/certify nuevo y receipt exitoso. Ejemplo actual de cuarentena: `openclaw/default` por adapter roto.
 
 La persistencia es obligatoria y múltiple:
 
@@ -167,14 +164,9 @@ No basta con que la decisión exista en el chat. Antes de cambiar routing se con
 
 > Los registros siguientes son **evidencia histórica** (estado observado en su momento), no un catálogo operativo. El estado vivo está en SQLite (`ORQ_STATE_DB`) y en receipts/certifications; un modelo aquí marcado como deprecated, en cuarentena o bloqueado **no debe usarse como default de ruteo** aunque siga apareciendo en la config JSON de bootstrap/export.
 
-- `qwen-code/qwen3.6-flash`: validado como candidato medio para documentación, mecánica simple y `doc_watcher` corto.
 - `agy/gemini-3.6-flash-medium`: validado como default fuerte para `simple_review`, `short_text_review` y ejecución real acotada.
 - `agy/gemini-3.1-pro-high`: validado como default para arquitectura/deep reasoning mientras Claude esté gated.
 - `pi/nvidia/openai/gpt-oss-20b`: validado solo para juez corto y texto breve; no usar en tareas largas.
-- `qwen-code/qwen3.8-flash`: ejecuta tareas mecánicas, pero requiere alineación de catálogo/certificación antes de promoverlo.
-- `qwen-code/qwen3.8-max`: en cuarentena para deep reasoning por timeout reciente; no rutear automáticamente.
-- `qwen-code/deepseek-v4-flash-0731`: en cuarentena por timeout reciente.
-- `qwen-code/glm-5.2`: requiere certificación adicional; no promover como estable para readonly.
 - `claude-haiku-4-5`: usable solo con aprobación explícita y `--allow-gated`; reemplaza rutas viejas `claude-3-5-haiku-*`.
 - `claude-3-5-haiku-20241022` y `claude-3-5-haiku-latest`: deprecated/EOL, no deben rutearse automáticamente.
 - `hermes`: presente localmente, pero `deprecated_or_quarantine`.

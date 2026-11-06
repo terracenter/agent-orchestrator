@@ -306,12 +306,12 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn default_registry_loads_qwen() {
+    fn default_registry_loads_hermes() {
         let registry = default_registry().unwrap();
         assert!(registry
             .adapters
             .iter()
-            .any(|adapter| adapter.name == "qwen-code"));
+            .any(|adapter| adapter.name == "hermes"));
     }
 
     #[test]
@@ -328,23 +328,15 @@ mod tests {
     #[test]
     fn interpolates_argv_literals_only() {
         let registry = default_registry().unwrap();
-        let qwen = registry
+        let hermes = registry
             .adapters
             .into_iter()
-            .find(|adapter| adapter.name == "qwen-code")
+            .find(|adapter| adapter.name == "hermes")
             .unwrap();
-        let adapter = ConfiguredAdapter { definition: qwen };
+        let adapter = ConfiguredAdapter { definition: hermes };
         assert_eq!(
             adapter.build_argv("m", "task"),
-            vec![
-                "--safe-mode",
-                "-m",
-                "m",
-                "-p",
-                "task",
-                "--output-format",
-                "text"
-            ]
+            vec!["-m", "m", "-z", "task"]
         );
     }
 
@@ -406,18 +398,18 @@ mod tests {
 
     #[test]
     fn binary_path_ignores_env_var_override() {
-        let qwen_def = super::AdapterDefinition {
-            name: "qwen-code".to_string(),
-            binary: "nonexistent-qwen-bin-xyz".to_string(),
+        let hermes_def = super::AdapterDefinition {
+            name: "hermes".to_string(),
+            binary: "nonexistent-hermes-bin-xyz".to_string(),
             status: AdapterStatus::Available,
             argv: vec!["$MODEL".to_string(), "$TASK".to_string()],
             detect: None,
         };
         let adapter = ConfiguredAdapter {
-            definition: qwen_def,
+            definition: hermes_def,
         };
-        std::env::set_var("ORQ_AGENT_BIN_QWEN_CODE", "/bin/sh");
+        std::env::set_var("ORQ_AGENT_BIN_HERMES", "/bin/sh");
         assert_eq!(adapter.binary_path(), None);
-        std::env::remove_var("ORQ_AGENT_BIN_QWEN_CODE");
+        std::env::remove_var("ORQ_AGENT_BIN_HERMES");
     }
 }

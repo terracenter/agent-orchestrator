@@ -20,7 +20,7 @@ La visión funcional no cambia. Cambia la implementación objetivo: **Orq será 
 ## Estado actual
 
 - Visión Rust-first aprobada en [`docs/adr-migracion-rust.md`](docs/adr-migracion-rust.md): Go queda congelado para features nuevas salvo compatibilidad/migración.
-- `orq-agent` Rust ya ejecuta agentes reales con receipts JSON, timeouts, process group kill, ring buffer y smoke real Qwen.
+- `orq-agent` Rust ya ejecuta agentes reales con receipts JSON, timeouts, process group kill y ring buffer.
 - `orq run --execute` en Go consume temporalmente `orq-agent exec`; esta capa es puente de migración, no arquitectura final.
 - `orq budget`: guardrails de presupuesto y compactación manual en Pi.
 - `orq route`: clasificación básica, recomendación de agente/modelo y ajuste opcional por snapshots de capacidad agregados vía `--capacity-file`.
@@ -80,7 +80,6 @@ La visión funcional no cambia. Cambia la implementación objetivo: **Orq será 
 ## Fase 7 — Configuración multi-agente
 
 - [x] Implementar `orq agents detect` para inspección segura de presencia/rutas de runners.
-- [x] Detectar Qwen Code de forma segura por binario/directorio y registrar perfiles Bailian iniciales sin leer secretos (#81).
 - [x] Emitir `orq models snapshot` con capacidades/modelos fechados, fuentes separadas y evidencia segura para aprendizaje posterior (#81).
 - [x] Agregar scoring inicial por agente/modelo desde ledger, penalizando `not_executed` sin tratarlo como éxito (#81).
 - [x] Ajustar routing no crítico con snapshots de capacidad agregados desde archivo JSON explícito (`orq route --capacity-file`) (#68, PR #77).
@@ -113,7 +112,7 @@ Certificación: [`docs/model-capability-certification.md`](docs/model-capability
 - [x] Crear matriz de paridad de comandos para validar una posible migración completa (`docs/matriz-paridad-rust.md`).
 - [x] Crear crate/binario `orq-agent` sin reemplazar todavía el `orq` Go legacy.
 - [x] Implementar `orq-agent detect --format json` sin leer secretos.
-- [x] Implementar adapters iniciales detectados: `pi`, `openclaw`, `agy`, `qwen-code`.
+- [x] Implementar adapters iniciales detectados: `pi`, `openclaw`, `agy`.
 - [x] Reactivar `hermes` como runner gestionado (issue #125).
 - [ ] Mantener NVIDIA solo bajo Pi por ahora; no tratar `nvidia-api` como agente local si no hay runner real.
 - [x] Implementar MVP inicial de `orq-agent exec` con timeout, stdout/stderr, exit code y receipt JSON; incluye kill por process group Unix, streaming/ring buffer acotado y salida parcial en timeout.

@@ -8,7 +8,7 @@ Aceptada.
 
 El orquestador actual está implementado principalmente en Go y ya tiene routing, ledger, auditoría, detección, receipts y documentación operativa. Sin embargo, el requisito nuevo es más exigente: ejecutar agentes reales, controlar procesos, aplicar timeouts, generar recibos verificables y evitar que Pi sea cuello de botella.
 
-Rust ya demostró valor operativo en el punto más delicado del sistema: ejecución real de agentes, timeouts, process groups, ring buffer acotado, receipts JSON, política de agentes y smoke real con Qwen.
+Rust ya demostró valor operativo en el punto más delicado del sistema: ejecución real de agentes, timeouts, process groups, ring buffer acotado, receipts JSON y política de agentes.
 
 Mantener una arquitectura permanente `orq` Go -> `orq-agent` Rust -> runner/agente agrega capas, contratos duplicados, modelos de error duplicados y riesgo de desincronización. Esa capa intermedia solo es aceptable como compatibilidad temporal.
 

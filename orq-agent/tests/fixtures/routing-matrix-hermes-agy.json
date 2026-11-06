@@ -7,9 +7,9 @@
   "routes": [
     {
       "task_kind": "documentation",
-      "default_agent": "qwen-code",
-      "default_model": "qwen3.6-flash",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
+      "default_agent": "hermes",
+      "default_model": "deepseek-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
       "escalate_to": "agy/gemini-3.6-flash-medium",
       "avoid": [],
       "rationale": "Fixture for CLI certificate and quota tests; not used in production routing."
@@ -18,7 +18,7 @@
       "task_kind": "debugging",
       "default_agent": "agy",
       "default_model": "gemini-3.7-flash-high",
-      "cheap_sufficient": "qwen-code/qwen3.6-flash",
+      "cheap_sufficient": "hermes/deepseek-flash",
       "escalate_to": "claude-code/claude-sonnet-5",
       "avoid": [],
       "rationale": "Fixture for CLI quota and gated-adapter tests; not used in production routing."

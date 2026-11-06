@@ -49,12 +49,12 @@ fn fake_runner(name: &str, body: &str) -> String {
     perms.set_mode(0o755);
     fs::set_permissions(&path, perms).unwrap();
 
-    if name.starts_with("qwen") {
-        let _ = fs::copy(&path, dir.join("qwen"));
-        if let Ok(meta) = fs::metadata(dir.join("qwen")) {
+    if name.starts_with("hermes") {
+        let _ = fs::copy(&path, dir.join("hermes"));
+        if let Ok(meta) = fs::metadata(dir.join("hermes")) {
             let mut p = meta.permissions();
             p.set_mode(0o755);
-            let _ = fs::set_permissions(dir.join("qwen"), p);
+            let _ = fs::set_permissions(dir.join("hermes"), p);
         }
     } else if name.starts_with("agy") {
         let _ = fs::copy(&path, dir.join("agy"));
@@ -105,7 +105,7 @@ fn make_runner(name: &str, body: &str) -> (tempfile::TempDir, String) {
     fs::set_permissions(&path, perms).unwrap();
 
     let aliases = match name {
-        n if n.starts_with("qwen") && n != "qwen" => vec!["qwen"],
+        n if n.starts_with("hermes") && n != "hermes" => vec!["hermes"],
         n if n.starts_with("agy") && n != "agy" => vec!["agy"],
         n if n.starts_with("claude") && n != "claude" => vec!["claude"],
         "doctor-rtk" => vec!["rtk"],
@@ -151,11 +151,11 @@ fn test_cmd(bin: &str) -> Command {
     cmd
 }
 
-/// Routing fixture for CLI tests that exercise qwen-code/agy/claude quota and
+/// Routing fixture for CLI tests that exercise hermes/agy/claude quota and
 /// certificate behaviour. Production routing lives in `config/routing-matrix.json`.
 const LEGACY_ROUTE_CONFIG: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/routing-matrix-qwen-agy.json"
+    "/tests/fixtures/routing-matrix-hermes-agy.json"
 );
 
 fn test_cmd_with_path(bin: &str, bin_dir: &std::path::Path) -> Command {
@@ -185,7 +185,7 @@ fn detect_supports_external_adapters_registry() {
     .assert()
     .success()
     .stdout(predicate::str::contains("custom-agent"))
-    .stdout(predicate::str::contains("qwen-code").not())
+    .stdout(predicate::str::contains("hermes").not())
     .stdout(predicate::str::contains("\"secrets_read\": false"));
 }
 
@@ -242,27 +242,30 @@ fn exec_supports_external_adapters_registry() {
 
 #[test]
 fn exec_supports_external_policy_config() {
-    let runner = fake_runner("qwen-policy", "#!/usr/bin/env bash\necho should-not-run\n");
+    let runner = fake_runner(
+        "hermes-policy",
+        "#!/usr/bin/env bash\necho should-not-run\n",
+    );
     let task = temp_file_path("orq-agent-policy-task-");
     fs::write(&task, "hello policy").unwrap();
     let policy = temp_file_path("orq-agent-policy-");
     fs::write(
         &policy,
-        r#"{"schema_version":1,"approval_required_model_patterns":["max"],"blocked_adapter_statuses":["deprecated_or_quarantine"],"gated_adapter_statuses":["gated"]}"#,
+        r#"{"schema_version":1,"approval_required_model_patterns":["v4-pro"],"blocked_adapter_statuses":["deprecated_or_quarantine"],"gated_adapter_statuses":["gated"]}"#,
     )
     .unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = test_cmd("orq-agent");
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--policy-config",
@@ -278,7 +281,7 @@ fn exec_supports_external_policy_config() {
         .success()
         .stdout(predicate::str::contains("\"status\": \"blocked\""))
         .stdout(predicate::str::contains(
-            "model qwen3.8-max requires explicit human approval",
+            "model deepseek-v4-pro requires explicit human approval",
         ))
         .stdout(predicate::str::contains("\"policy_source\": "))
         .stdout(predicate::str::contains("should-not-run").not());
@@ -523,7 +526,7 @@ fn policy_insecure_env_override_fails_closed() {
 #[test]
 fn policy_valid_cli_override_accepted_with_receipt_hash() {
     let (_runner_dir, _runner) = make_runner(
-        "qwen-valid-cli-override",
+        "hermes-valid-cli-override",
         "#!/usr/bin/env bash\necho should-not-run\n",
     );
     let task = temp_file_path("orq-agent-cli-override-task-");
@@ -541,9 +544,9 @@ fn policy_valid_cli_override_accepted_with_receipt_hash() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.6-flash",
+            "deepseek-flash",
             "--task-file",
             task.to_str().unwrap(),
             "--policy-config",
@@ -559,7 +562,7 @@ fn policy_valid_cli_override_accepted_with_receipt_hash() {
         .success()
         .stdout(predicate::str::contains("\"status\": \"blocked\""))
         .stdout(predicate::str::contains(
-            "model qwen3.6-flash requires explicit human approval",
+            "model deepseek-flash requires explicit human approval",
         ))
         .stdout(predicate::str::contains(custom_policy.to_str().unwrap()))
         .stdout(predicate::str::contains(custom_policy.to_str().unwrap()))
@@ -570,8 +573,8 @@ fn policy_valid_cli_override_accepted_with_receipt_hash() {
 #[test]
 fn policy_default_builtin_config_recorded_in_receipt() {
     let (_runner_dir, _runner) = make_runner(
-        "qwen-builtin-policy",
-        "#!/usr/bin/env bash\necho qwen-builtin-ok\n",
+        "hermes-builtin-policy",
+        "#!/usr/bin/env bash\necho hermes-builtin-ok\n",
     );
     let task = temp_file_path("orq-agent-builtin-policy-task-");
     fs::write(&task, "hello builtin policy").unwrap();
@@ -583,9 +586,9 @@ fn policy_default_builtin_config_recorded_in_receipt() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3-coder-next",
+            "deepseek-flash",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -604,8 +607,9 @@ fn policy_default_builtin_config_recorded_in_receipt() {
 }
 
 #[test]
-fn exec_qwen_fake_succeeds_with_receipt() {
-    let (_runner_dir, _runner) = make_runner("qwen-ok", "#!/usr/bin/env bash\necho fake-qwen-ok\n");
+fn exec_hermes_fake_succeeds_with_receipt() {
+    let (_runner_dir, _runner) =
+        make_runner("hermes-ok", "#!/usr/bin/env bash\necho fake-hermes-ok\n");
     let task = temp_file_path("orq-agent-task-");
     fs::write(&task, "hello fake").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
@@ -616,9 +620,9 @@ fn exec_qwen_fake_succeeds_with_receipt() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -631,29 +635,57 @@ fn exec_qwen_fake_succeeds_with_receipt() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"status\": \"succeeded\""))
-        .stdout(predicate::str::contains("fake-qwen-ok"))
+        .stdout(predicate::str::contains("fake-hermes-ok"))
         .stdout(predicate::str::contains("hello fake").not())
         .stdout(predicate::str::contains("<task 10 bytes>"));
 }
 
 #[test]
-fn models_qwen_reports_candidate_without_secrets() {
+fn models_hermes_reports_candidate_without_secrets() {
+    let models = temp_file_path("orq-agent-models-");
+    fs::write(
+        &models,
+        r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-v4-pro","source":"manual","confidence":"high","notes":"test","fetched_at":"2026-11-05T00:00:00Z","status":"active"}]}}"#,
+    )
+    .unwrap();
     let mut cmd = test_cmd("orq-agent");
-    cmd.args(["models", "--agent", "qwen-code", "--format", "json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("qwen3.8-max"))
-        .stdout(predicate::str::contains("\"secrets_read\": false"));
+    cmd.args([
+        "models",
+        "--agent",
+        "hermes",
+        "--config",
+        models.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("deepseek-v4-pro"))
+    .stdout(predicate::str::contains("\"secrets_read\": false"));
 }
 
 #[test]
 fn orq_binary_alias_supports_models_command() {
+    let models = temp_file_path("orq-agent-models-");
+    fs::write(
+        &models,
+        r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-v4-pro","source":"manual","confidence":"high","notes":"test","fetched_at":"2026-11-05T00:00:00Z","status":"active"}]}}"#,
+    )
+    .unwrap();
     let mut cmd = Command::cargo_bin("orq").unwrap();
-    cmd.args(["models", "--agent", "qwen-code", "--format", "json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("qwen3.8-max"))
-        .stdout(predicate::str::contains("\"secrets_read\": false"));
+    cmd.args([
+        "models",
+        "--agent",
+        "hermes",
+        "--config",
+        models.to_str().unwrap(),
+        "--format",
+        "json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("deepseek-v4-pro"))
+    .stdout(predicate::str::contains("\"secrets_read\": false"));
 }
 
 #[test]
@@ -731,27 +763,27 @@ fn route_default_config_reports_documentation_without_secrets() {
 #[test]
 fn route_uses_certificate_directory_for_exact_match() {
     let runner = fake_runner(
-        "qwen-route-cert",
-        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.6-flash'\n",
+        "hermes-route-cert",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=hermes model=deepseek-flash'\n",
     );
     let cert_dir = tempfile::Builder::new()
         .prefix("orq-agent-route-certs-")
         .tempdir()
         .unwrap();
-    let output = cert_dir.path().join("qwen-docs.json");
+    let output = cert_dir.path().join("hermes-docs.json");
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
     let mut certify = test_cmd("orq-agent");
     certify
-        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+        .env("ORQ_AGENT_BIN_HERMES", &runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "certify",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.6-flash",
+            "deepseek-flash",
             "--task-kind",
             "documentation",
             "--timeout",
@@ -768,7 +800,7 @@ fn route_uses_certificate_directory_for_exact_match() {
 
     let mut route = test_cmd("orq-agent");
     route
-        .env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+        .env("ORQ_AGENT_BIN_HERMES", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "route",
@@ -822,24 +854,24 @@ fn route_supports_external_config() {
 }
 
 #[test]
-fn certify_qwen_fake_writes_certificate() {
+fn certify_hermes_fake_writes_certificate() {
     let runner = fake_runner(
-        "qwen-certify",
-        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.8-max'\n",
+        "hermes-certify",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=hermes model=deepseek-v4-pro'\n",
     );
     let output = temp_file_path("orq-agent-cert-");
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = test_cmd("orq-agent");
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "certify",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-kind",
             "documentation",
             "--timeout",
@@ -857,28 +889,28 @@ fn certify_qwen_fake_writes_certificate() {
         .stdout(predicate::str::contains("\"receipt_sha256\""));
 
     let certificate = fs::read_to_string(output).unwrap();
-    assert!(certificate.contains("qwen3.8-max"));
+    assert!(certificate.contains("deepseek-v4-pro"));
     assert!(certificate.contains("documentation"));
 }
 
 #[test]
-fn smoke_qwen_fake_succeeds_with_receipt() {
+fn smoke_hermes_fake_succeeds_with_receipt() {
     let runner = fake_runner(
-        "qwen-smoke",
-        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=qwen3.8-max'\n",
+        "hermes-smoke",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=hermes model=deepseek-v4-pro'\n",
     );
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
     let mut cmd = test_cmd("orq-agent");
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "smoke",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--timeout",
             "5",
             "--db-path",
@@ -940,9 +972,9 @@ fn exec_rejects_timeout_above_ceiling_as_receipt() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -973,9 +1005,9 @@ fn exec_missing_binary_returns_spawn_failed_receipt() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -988,13 +1020,13 @@ fn exec_missing_binary_returns_spawn_failed_receipt() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"status\": \"spawn_failed\""))
-        .stdout(predicate::str::contains("spawning agent qwen-code"));
+        .stdout(predicate::str::contains("spawning agent hermes"));
 }
 
 #[test]
 fn exec_timeout_preserves_partial_stdout_tail() {
     let (_runner_dir, _runner) = make_runner(
-        "qwen-partial",
+        "hermes-partial",
         "#!/usr/bin/env bash\necho partial-before-timeout\nsleep 5\n",
     );
     let task = temp_file_path("orq-agent-partial-task-");
@@ -1007,9 +1039,9 @@ fn exec_timeout_preserves_partial_stdout_tail() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -1027,7 +1059,7 @@ fn exec_timeout_preserves_partial_stdout_tail() {
 
 #[test]
 fn exec_output_tail_is_bounded_to_recent_output() {
-    let (_runner_dir, _runner) = make_runner("qwen-long-output", "#!/usr/bin/env bash\npython3 - <<'PY'\nprint('A' * 20000)\nprint('RECENT-TAIL-MARKER')\nPY\n");
+    let (_runner_dir, _runner) = make_runner("hermes-long-output", "#!/usr/bin/env bash\npython3 - <<'PY'\nprint('A' * 20000)\nprint('RECENT-TAIL-MARKER')\nPY\n");
     let task = temp_file_path("orq-agent-long-output-task-");
     fs::write(&task, "hello long output").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
@@ -1038,9 +1070,9 @@ fn exec_output_tail_is_bounded_to_recent_output() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -1066,7 +1098,7 @@ fn exec_timeout_kills_child_process_group() {
         "#!/usr/bin/env bash\n(sleep 2; echo orphan-alive > '{}') &\nsleep 10\n",
         marker.display()
     );
-    let (_runner_dir, _runner) = make_runner("qwen-process-group", &body);
+    let (_runner_dir, _runner) = make_runner("hermes-process-group", &body);
     let task = temp_file_path("orq-agent-pgid-task-");
     fs::write(&task, "hello pgid").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
@@ -1077,9 +1109,9 @@ fn exec_timeout_kills_child_process_group() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -1110,7 +1142,7 @@ fn exec_pgid_cleanup() {
         "#!/usr/bin/env bash\ntrap '' TERM\n(sleep 2; echo child-alive > '{}') &\nwhile true; do sleep 1; done\n",
         marker.display()
     );
-    let (_runner_dir, _runner) = make_runner("qwen-pgid-cleanup-runner", &body);
+    let (_runner_dir, _runner) = make_runner("hermes-pgid-cleanup-runner", &body);
     let task = temp_file_path("orq-agent-pgid-cleanup-task-");
     fs::write(&task, "hello pgid cleanup").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
@@ -1121,9 +1153,9 @@ fn exec_pgid_cleanup() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -1147,8 +1179,8 @@ fn exec_pgid_cleanup() {
 }
 
 #[test]
-fn exec_qwen_fake_timeout_is_reported() {
-    let (_runner_dir, _runner) = make_runner("qwen-sleep", "#!/usr/bin/env bash\nsleep 5\n");
+fn exec_hermes_fake_timeout_is_reported() {
+    let (_runner_dir, _runner) = make_runner("hermes-sleep", "#!/usr/bin/env bash\nsleep 5\n");
     let task = temp_file_path("orq-agent-timeout-task-");
     fs::write(&task, "hello timeout").unwrap();
     let state_dir = tempfile::tempdir().unwrap();
@@ -1159,9 +1191,9 @@ fn exec_qwen_fake_timeout_is_reported() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.8-max",
+            "deepseek-v4-pro",
             "--task-file",
             task.to_str().unwrap(),
             "--db-path",
@@ -1303,7 +1335,7 @@ fn quota_cli_manual_record_without_percentages_derives_quota_unknown() {
             "quota",
             "record",
             "--provider",
-            "qwen",
+            "hermes",
             "--scope",
             "general",
             "--format",
@@ -1311,7 +1343,7 @@ fn quota_cli_manual_record_without_percentages_derives_quota_unknown() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"provider\": \"hermes\""))
         .stdout(predicate::str::contains("\"scope\": \"general\""))
         .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
         .stdout(predicate::str::contains("\"remaining_pct\": null"))
@@ -1320,10 +1352,17 @@ fn quota_cli_manual_record_without_percentages_derives_quota_unknown() {
     let mut report_cmd = test_cmd("orq-agent");
     report_cmd
         .env("ORQ_STATE_DB", &db)
-        .args(["quota", "report", "--provider", "qwen", "--format", "json"])
+        .args([
+            "quota",
+            "report",
+            "--provider",
+            "hermes",
+            "--format",
+            "json",
+        ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"provider\": \"hermes\""))
         .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
         .stdout(predicate::str::contains("\"scope\": \"general\""))
         .stdout(predicate::str::contains("\"status\": \"quota_unknown\""));
@@ -1342,7 +1381,8 @@ fn quota_cli_record_json_array_and_report_with_resets() {
         {"provider": "claude-code", "scope": "session", "used_pct": 30.0},
         {"provider": "claude-code", "scope": "weekly", "used_pct": 3.0, "metadata": {"promo": "+50% until Sep 13"}},
         {"provider": "codex", "scope": "short-term", "remaining_pct": 22.0, "captured_at_unix": 1700000000, "reset_in_seconds": 14760},
-        {"provider": "codex", "scope": "long-term", "remaining_pct": 80.0, "captured_at_unix": 1700000000, "reset_in_seconds": 440640}
+        {"provider": "codex", "scope": "long-term", "remaining_pct": 80.0, "captured_at_unix": 1700000000, "reset_in_seconds": 440640},
+        {"provider": "hermes", "scope": "session", "remaining_pct": 50.0}
     ]"#;
 
     let mut record_cmd = test_cmd("orq-agent");
@@ -1377,8 +1417,7 @@ fn quota_cli_record_json_array_and_report_with_resets() {
         .stdout(predicate::str::contains("\"provider\": \"agy\""))
         .stdout(predicate::str::contains("\"provider\": \"claude-code\""))
         .stdout(predicate::str::contains("\"provider\": \"codex\""))
-        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
-        .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
+        .stdout(predicate::str::contains("\"provider\": \"hermes\""))
         .stdout(predicate::str::contains("claude-gpt-five-hour"))
         .stdout(predicate::str::contains("\"reset_at_unix\": 1700009180"))
         .stdout(predicate::str::contains("\"reset_at_unix\": 1700014760"))
@@ -1455,7 +1494,7 @@ fn quota_cli_normalizes_provider_case_and_aggregates_partial_unknown() {
 }
 
 #[test]
-fn quota_cli_qwen_without_detector_reports_quota_unknown() {
+fn quota_cli_hermes_without_detector_reports_quota_unknown() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
@@ -1465,7 +1504,7 @@ fn quota_cli_qwen_without_detector_reports_quota_unknown() {
             "quota",
             "report",
             "--provider",
-            "qwen",
+            "hermes",
             "--db-path",
             db.to_str().unwrap(),
             "--format",
@@ -1473,7 +1512,7 @@ fn quota_cli_qwen_without_detector_reports_quota_unknown() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"provider\": \"qwen\""))
+        .stdout(predicate::str::contains("\"provider\": \"hermes\""))
         .stdout(predicate::str::contains("\"status\": \"quota_unknown\""))
         .stdout(predicate::str::contains("\"scopes\": []"))
         .stdout(predicate::str::contains("\"secrets_read\": false"));
@@ -1582,7 +1621,7 @@ fn quota_cli_migration_idempotent_on_existing_db() {
 #[test]
 fn route_cli_avoids_five_hour_exhausted_scope() {
     let runner_agy = fake_runner("agy-route", "#!/usr/bin/env bash\necho agy-ok\n");
-    let runner_qwen = fake_runner("qwen-route", "#!/usr/bin/env bash\necho qwen-ok\n");
+    let runner_hermes = fake_runner("hermes-route", "#!/usr/bin/env bash\necho hermes-ok\n");
     let runner_claude = fake_runner("claude-route", "#!/usr/bin/env bash\necho claude-ok\n");
 
     let state_dir = tempfile::tempdir().unwrap();
@@ -1609,13 +1648,13 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
         .assert()
         .success();
 
-    let mut record_qwen = test_cmd("orq-agent");
-    record_qwen
+    let mut record_hermes = test_cmd("orq-agent");
+    record_hermes
         .args([
             "quota",
             "record",
             "--provider",
-            "qwen",
+            "hermes",
             "--scope",
             "general",
             "--remaining-pct",
@@ -1631,7 +1670,7 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
     let mut route_cmd = test_cmd("orq-agent");
     route_cmd
         .env("ORQ_AGENT_BIN_AGY", runner_agy)
-        .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
+        .env("ORQ_AGENT_BIN_HERMES", runner_hermes)
         .env("ORQ_AGENT_BIN_CLAUDE_CODE", runner_claude)
         .args([
             "route",
@@ -1646,11 +1685,9 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
         ])
         .assert()
         .success()
+        .stdout(predicate::str::contains("\"selected_agent\": \"hermes\""))
         .stdout(predicate::str::contains(
-            "\"selected_agent\": \"qwen-code\"",
-        ))
-        .stdout(predicate::str::contains(
-            "\"selected_model\": \"qwen3.6-flash\"",
+            "\"selected_model\": \"deepseek-flash\"",
         ))
         .stdout(predicate::str::contains("\"fallback_applied\": true"));
 }
@@ -1658,7 +1695,10 @@ fn route_cli_avoids_five_hour_exhausted_scope() {
 #[test]
 fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
     let runner_agy = fake_runner("agy-route-gated", "#!/usr/bin/env bash\necho agy-ok\n");
-    let runner_qwen = fake_runner("qwen-route-gated", "#!/usr/bin/env bash\necho qwen-ok\n");
+    let runner_hermes = fake_runner(
+        "hermes-route-gated",
+        "#!/usr/bin/env bash\necho hermes-ok\n",
+    );
     let runner_claude = fake_runner(
         "claude-route-gated",
         "#!/usr/bin/env bash\necho claude-ok\n",
@@ -1689,14 +1729,14 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
         .assert()
         .success();
 
-    // Cheap Qwen is also exhausted
-    let mut record_qwen = test_cmd("orq-agent");
-    record_qwen
+    // Cheap Hermes is also exhausted
+    let mut record_hermes = test_cmd("orq-agent");
+    record_hermes
         .args([
             "quota",
             "record",
             "--provider",
-            "qwen",
+            "hermes",
             "--scope",
             "general",
             "--remaining-pct",
@@ -1734,7 +1774,7 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
     let mut route_cmd = test_cmd("orq-agent");
     route_cmd
         .env("ORQ_AGENT_BIN_AGY", runner_agy)
-        .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
+        .env("ORQ_AGENT_BIN_HERMES", runner_hermes)
         .env("ORQ_AGENT_BIN_CLAUDE_CODE", runner_claude)
         .args([
             "route",
@@ -1766,7 +1806,7 @@ fn route_cli_prefers_gated_with_allow_gated_when_weekly_quota_high() {
 #[test]
 fn route_cli_quota_unknown_does_not_penalize() {
     let runner_agy = fake_runner("agy-route-unk", "#!/usr/bin/env bash\necho agy-ok\n");
-    let runner_qwen = fake_runner("qwen-route-unk", "#!/usr/bin/env bash\necho qwen-ok\n");
+    let runner_hermes = fake_runner("hermes-route-unk", "#!/usr/bin/env bash\necho hermes-ok\n");
 
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
@@ -1777,7 +1817,7 @@ fn route_cli_quota_unknown_does_not_penalize() {
             "quota",
             "record",
             "--provider",
-            "qwen",
+            "hermes",
             "--scope",
             "general",
             "--db-path",
@@ -1810,7 +1850,7 @@ fn route_cli_quota_unknown_does_not_penalize() {
     let mut route_cmd = test_cmd("orq-agent");
     route_cmd
         .env("ORQ_AGENT_BIN_AGY", runner_agy)
-        .env("ORQ_AGENT_BIN_QWEN_CODE", runner_qwen)
+        .env("ORQ_AGENT_BIN_HERMES", runner_hermes)
         .args([
             "route",
             "--config",
@@ -1824,11 +1864,9 @@ fn route_cli_quota_unknown_does_not_penalize() {
         ])
         .assert()
         .success()
+        .stdout(predicate::str::contains("\"selected_agent\": \"hermes\""))
         .stdout(predicate::str::contains(
-            "\"selected_agent\": \"qwen-code\"",
-        ))
-        .stdout(predicate::str::contains(
-            "\"selected_model\": \"qwen3.6-flash\"",
+            "\"selected_model\": \"deepseek-flash\"",
         ))
         .stdout(predicate::str::contains("\"fallback_applied\": false"));
 }
@@ -2111,9 +2149,9 @@ fn models_refresh_cli_merges_feed_idempotently() {
     let initial_catalog = r#"{
         "schema_version": 1,
         "agents": {
-            "qwen-code": [
+            "hermes": [
                 {
-                    "id": "qwen3.6-flash",
+                    "id": "deepseek-flash",
                     "source": "manual",
                     "confidence": "baseline",
                     "notes": "initial candidate"
@@ -2127,14 +2165,14 @@ fn models_refresh_cli_merges_feed_idempotently() {
         "schema_version": 1,
         "feed_source": "test_feed_source",
         "agents": {
-            "qwen-code": [
+            "hermes": [
                 {
-                    "id": "qwen3.6-flash",
+                    "id": "deepseek-flash",
                     "promo": "special 50% weekly usage limit",
                     "cost_hint": 0.0001
                 },
                 {
-                    "id": "qwen3.8-max",
+                    "id": "deepseek-v4-pro",
                     "cost_hint": 0.005,
                     "status": "active",
                     "notes": "newly added model"
@@ -2172,7 +2210,7 @@ fn models_refresh_cli_merges_feed_idempotently() {
     // Verify catalog on disk was updated
     let updated_catalog = fs::read_to_string(&catalog_path).unwrap();
     assert!(updated_catalog.contains("special 50% weekly usage limit"));
-    assert!(updated_catalog.contains("qwen3.8-max"));
+    assert!(updated_catalog.contains("deepseek-v4-pro"));
     assert!(updated_catalog.contains("old-deprecated-model"));
     assert!(updated_catalog.contains("\"schema_version\": 2"));
 
@@ -2443,7 +2481,10 @@ fn delegate_cli_help() {
 
 #[test]
 fn agents_discover_cli_with_fake_runner() {
-    let runner = fake_runner("qwen-discover", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let runner = fake_runner(
+        "hermes-discover",
+        "#!/usr/bin/env bash\necho 'hermes 1.4.2'\n",
+    );
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
     let adapters_file = state_dir.path().join("adapters.json");
@@ -2451,18 +2492,18 @@ fn agents_discover_cli_with_fake_runner() {
 
     fs::write(
         &adapters_file,
-        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+        r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
     fs::write(
         &models_file,
-        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+        r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-v4-pro","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
     )
     .unwrap();
 
     let mut cmd = test_cmd("orq-agent");
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", &runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "agents",
@@ -2481,7 +2522,7 @@ fn agents_discover_cli_with_fake_runner() {
         .stdout(predicate::str::contains("\"snapshot_at\""))
         .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains("\"id\": \"qwen-code\""))
+        .stdout(predicate::str::contains("\"id\": \"hermes\""))
         .stdout(predicate::str::contains("\"version\": \"1.4.2\""))
         .stdout(predicate::str::contains("\"agents_persisted\": 1"));
 
@@ -2490,7 +2531,10 @@ fn agents_discover_cli_with_fake_runner() {
 
 #[test]
 fn agents_refresh_cli_with_fake_runner() {
-    let runner = fake_runner("qwen-refresh", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let runner = fake_runner(
+        "hermes-refresh",
+        "#!/usr/bin/env bash\necho 'hermes 1.4.2'\n",
+    );
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
     let adapters_file = state_dir.path().join("adapters.json");
@@ -2498,23 +2542,23 @@ fn agents_refresh_cli_with_fake_runner() {
 
     fs::write(
         &adapters_file,
-        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+        r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
     fs::write(
         &models_file,
-        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+        r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-v4-pro","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
     )
     .unwrap();
 
     let mut cmd = test_cmd("orq-agent");
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", &runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "agents",
             "refresh",
-            "qwen-code",
+            "hermes",
             "--adapters-config",
             adapters_file.to_str().unwrap(),
             "--models-config",
@@ -2529,7 +2573,7 @@ fn agents_refresh_cli_with_fake_runner() {
         .stdout(predicate::str::contains("\"refreshed_at\""))
         .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains("\"id\": \"qwen-code\""))
+        .stdout(predicate::str::contains("\"id\": \"hermes\""))
         .stdout(predicate::str::contains("\"version\": \"1.4.2\""))
         .stdout(predicate::str::contains("\"models_persisted\""));
 }
@@ -2547,7 +2591,7 @@ fn agents_doctor_cli_reports_health() {
     let adapters_file = state_dir.path().join("adapters.json");
     fs::write(
         &adapters_file,
-        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+        r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
@@ -2580,7 +2624,7 @@ fn agents_doctor_cli_fails_on_missing_required_wrapper() {
     let adapters_file = state_dir.path().join("adapters.json");
     fs::write(
         &adapters_file,
-        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+        r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
@@ -2604,7 +2648,7 @@ fn agents_doctor_cli_fails_on_missing_required_wrapper() {
 
 #[test]
 fn models_snapshot_cli_exports_json() {
-    let runner = fake_runner("qwen-snap", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let runner = fake_runner("hermes-snap", "#!/usr/bin/env bash\necho 'hermes 1.4.2'\n");
     let state_dir = tempfile::tempdir().unwrap();
     let snap_out = state_dir.path().join("snapshot-export.json");
     let adapters_file = state_dir.path().join("adapters.json");
@@ -2612,18 +2656,18 @@ fn models_snapshot_cli_exports_json() {
 
     fs::write(
         &adapters_file,
-        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+        r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
     fs::write(
         &models_file,
-        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+        r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-v4-pro","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
     )
     .unwrap();
 
     let mut cmd = test_cmd("orq-agent");
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", &runner)
         .args([
             "models",
             "snapshot",
@@ -2642,7 +2686,7 @@ fn models_snapshot_cli_exports_json() {
         .stdout(predicate::str::contains("\"fetched_at\""))
         .stdout(predicate::str::contains("\"source\": \"runtime_doctor\""))
         .stdout(predicate::str::contains("\"secrets_read\": false"))
-        .stdout(predicate::str::contains("\"id\": \"qwen-code\""));
+        .stdout(predicate::str::contains("\"id\": \"hermes\""));
 
     assert!(snap_out.exists());
     let snap_content = fs::read_to_string(snap_out).unwrap();
@@ -2652,7 +2696,7 @@ fn models_snapshot_cli_exports_json() {
 
 #[test]
 fn orq_alias_supports_agents_and_models_snapshot() {
-    let runner = fake_runner("qwen-alias", "#!/usr/bin/env bash\necho 'qwen 1.4.2'\n");
+    let runner = fake_runner("hermes-alias", "#!/usr/bin/env bash\necho 'hermes 1.4.2'\n");
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
     let adapters_file = state_dir.path().join("adapters.json");
@@ -2660,18 +2704,18 @@ fn orq_alias_supports_agents_and_models_snapshot() {
 
     fs::write(
         &adapters_file,
-        r#"{"schema_version":1,"adapters":[{"name":"qwen-code","binary":"qwen","status":"available","argv":["$MODEL","$TASK"]}]}"#,
+        r#"{"schema_version":1,"adapters":[{"name":"hermes","binary":"hermes","status":"available","argv":["$MODEL","$TASK"]}]}"#,
     )
     .unwrap();
 
     fs::write(
         &models_file,
-        r#"{"schema_version":2,"agents":{"qwen-code":[{"id":"qwen3.8-max","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
+        r#"{"schema_version":2,"agents":{"hermes":[{"id":"deepseek-v4-pro","source":"runtime","confidence":"high","notes":"test model","cost_hint":0.002,"status":"active"}]}}"#,
     )
     .unwrap();
 
     let mut cmd = Command::cargo_bin("orq").unwrap();
-    cmd.env("ORQ_AGENT_BIN_QWEN_CODE", &runner)
+    cmd.env("ORQ_AGENT_BIN_HERMES", &runner)
         .env("ORQ_STATE_DB", &db)
         .args([
             "agents",
@@ -2897,9 +2941,9 @@ fn delegate_auto_ingests_receipt_into_empirical_history() {
             "--task",
             "test auto ingest tras delegate",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.6-flash",
+            "deepseek-flash",
             "--db-path",
             db.to_str().unwrap(),
             "--format",
@@ -3388,9 +3432,9 @@ fn coordination_cli_upserts_filters_and_rebuilds_idempotently() {
         "--branch",
         "dev-171",
         "--agent-id",
-        "qwen-code",
+        "hermes",
         "--model-id",
-        "qwen3.6-flash",
+        "deepseek-flash",
         "--runtime",
         "orq-agent",
         "--receipt",
@@ -3459,9 +3503,9 @@ fn delegate_projects_coordination_with_receipt_evidence() {
             "--task",
             "test projection",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
-            "qwen3.6-flash",
+            "deepseek-flash",
             "--coord-project",
             "agent-orchestrator",
             "--coord-issue",
@@ -3535,7 +3579,7 @@ fn coordination_cli_rejects_invalid_status() {
 #[test]
 fn exec_plan_mode_emits_receipt_without_running_or_spending() {
     let runner_path = fake_runner(
-        "qwen-plan-runner",
+        "hermes-plan-runner",
         "#!/usr/bin/env bash\necho 'SPAWNED'\nexit 1\n",
     );
     let state_dir = tempfile::tempdir().unwrap();
@@ -3545,7 +3589,7 @@ fn exec_plan_mode_emits_receipt_without_running_or_spending() {
 
     let output = Command::cargo_bin("orq-agent")
         .unwrap()
-        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("ORQ_AGENT_BIN_HERMES", &runner_path)
         .env(
             "PATH",
             format!(
@@ -3557,7 +3601,7 @@ fn exec_plan_mode_emits_receipt_without_running_or_spending() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "model-1",
             "--task-file",
@@ -3585,7 +3629,7 @@ fn exec_plan_mode_emits_receipt_without_running_or_spending() {
 #[test]
 fn exec_apply_mode_executes_plan_and_records_spend() {
     let runner_dir = tempfile::tempdir().unwrap();
-    let runner_path = runner_dir.path().join("qwen");
+    let runner_path = runner_dir.path().join("hermes");
     fs::write(
         &runner_path,
         "#!/usr/bin/env bash\necho 'EXECUTED OK'\nexit 0\n",
@@ -3613,7 +3657,7 @@ fn exec_apply_mode_executes_plan_and_records_spend() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "model-1",
             "--task-file",
@@ -3661,7 +3705,7 @@ fn exec_apply_mode_executes_plan_and_records_spend() {
 #[test]
 fn exec_apply_mode_rejects_tampered_plan_hash() {
     let runner_dir = tempfile::tempdir().unwrap();
-    let runner_path = runner_dir.path().join("qwen");
+    let runner_path = runner_dir.path().join("hermes");
     fs::write(
         &runner_path,
         "#!/usr/bin/env bash\necho 'SHOULD NOT RUN'\nexit 0\n",
@@ -3689,7 +3733,7 @@ fn exec_apply_mode_rejects_tampered_plan_hash() {
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "model-1",
             "--task-file",
@@ -3827,8 +3871,8 @@ fn policy_separated_gated_adapter_approval_enforcement() {
 #[test]
 fn policy_separated_restricted_model_approval_enforcement() {
     let runner_path = fake_runner(
-        "qwen-model-runner",
-        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=qwen-code model=claude-3-opus-20240229'\n",
+        "hermes-model-runner",
+        "#!/usr/bin/env bash\necho 'ORQ_SMOKE_OK agent=hermes model=claude-3-opus-20240229'\n",
     );
     let state_dir = tempfile::tempdir().unwrap();
     let task_file = state_dir.path().join("task.md");
@@ -3848,12 +3892,12 @@ fn policy_separated_restricted_model_approval_enforcement() {
     // 1. Gated model without approval -> blocked
     let out1 = Command::cargo_bin("orq-agent")
         .unwrap()
-        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("ORQ_AGENT_BIN_HERMES", &runner_path)
         .env("PATH", &runner_path_env)
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "claude-3-opus-20240229",
             "--task-file",
@@ -3875,12 +3919,12 @@ fn policy_separated_restricted_model_approval_enforcement() {
     // 2. Passing allow-gated-adapter DOES NOT approve restricted model -> still blocked!
     let out2 = Command::cargo_bin("orq-agent")
         .unwrap()
-        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("ORQ_AGENT_BIN_HERMES", &runner_path)
         .env("PATH", &runner_path_env)
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "claude-3-opus-20240229",
             "--task-file",
@@ -3905,12 +3949,12 @@ fn policy_separated_restricted_model_approval_enforcement() {
     // 3. Passing approve-model for a different model -> still blocked
     let out3 = Command::cargo_bin("orq-agent")
         .unwrap()
-        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("ORQ_AGENT_BIN_HERMES", &runner_path)
         .env("PATH", &runner_path_env)
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "claude-3-opus-20240229",
             "--task-file",
@@ -3936,12 +3980,12 @@ fn policy_separated_restricted_model_approval_enforcement() {
     // 4. Passing matching approve-model and approve-reason -> allowed / executed
     let out4 = Command::cargo_bin("orq-agent")
         .unwrap()
-        .env("ORQ_AGENT_BIN_QWEN_CODE", &runner_path)
+        .env("ORQ_AGENT_BIN_HERMES", &runner_path)
         .env("PATH", &runner_path_env)
         .args([
             "exec",
             "--agent",
-            "qwen-code",
+            "hermes",
             "--model",
             "claude-3-opus-20240229",
             "--task-file",

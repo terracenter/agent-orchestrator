@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const DEFAULT_KNOWN_PROVIDERS: &[&str] = &["agy", "claude-code", "codex", "qwen"];
+pub const DEFAULT_KNOWN_PROVIDERS: &[&str] = &["agy", "claude-code", "codex"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuotaReport {
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn normalizes_quota_unknown_when_no_percentages() {
         let raw = RawSnapshotInput {
-            provider: "QWEN".to_string(),
+            provider: "HERMES".to_string(),
             scope: "general".to_string(),
             remaining_pct: None,
             used_pct: None,
@@ -301,7 +301,7 @@ mod tests {
             metadata_json: None,
         };
         let input = normalize_snapshot_input(raw).expect("normalize");
-        assert_eq!(input.provider, "qwen");
+        assert_eq!(input.provider, "hermes");
         assert_eq!(input.status, Some("quota_unknown".to_string()));
         assert_eq!(input.remaining_pct, None);
         assert_eq!(input.used_pct, None);

@@ -296,22 +296,22 @@ mod tests {
     fn catalog_source_reads_catalog_entries() {
         let spec = spec(r#"{"source":"catalog"}"#);
         let catalog = parse_catalog(
-            r#"{"schema_version":1,"agents":{"qwen-code":[{"id":"qwen3.6-flash","source":"s","confidence":"c","notes":"n"}]}}"#,
+            r#"{"schema_version":1,"agents":{"hermes":[{"id":"deepseek-flash","source":"s","confidence":"c","notes":"n"}]}}"#,
         )
         .expect("catalog");
-        let resolution = resolve_models("qwen-code", Some(&spec), &catalog, None);
+        let resolution = resolve_models("hermes", Some(&spec), &catalog, None);
         assert_eq!(resolution.source, "catalog");
         assert_eq!(resolution.models.len(), 1);
-        assert_eq!(resolution.models[0].id, "qwen3.6-flash");
+        assert_eq!(resolution.models[0].id, "deepseek-flash");
     }
 
     #[test]
     fn missing_spec_falls_back_to_catalog() {
         let catalog = parse_catalog(
-            r#"{"schema_version":1,"agents":{"qwen-code":[{"id":"qwen3.6-flash","source":"s","confidence":"c","notes":"n"}]}}"#,
+            r#"{"schema_version":1,"agents":{"hermes":[{"id":"deepseek-flash","source":"s","confidence":"c","notes":"n"}]}}"#,
         )
         .expect("catalog");
-        let resolution = resolve_models("qwen-code", None, &catalog, None);
+        let resolution = resolve_models("hermes", None, &catalog, None);
         assert_eq!(resolution.source, "catalog");
         assert_eq!(resolution.models.len(), 1);
     }

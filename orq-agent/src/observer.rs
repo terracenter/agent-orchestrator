@@ -684,12 +684,12 @@ mod tests {
             source: "runtime_doctor".to_string(),
             agents: vec![
                 RuntimeAgentSnapshot {
-                    id: "qwen-code".to_string(),
-                    name: "Qwen Code".to_string(),
-                    vendor: "bailian".to_string(),
+                    id: "hermes".to_string(),
+                    name: "Hermes".to_string(),
+                    vendor: "deepseek".to_string(),
                     binary: RuntimeBinaryInfo {
-                        command: "qwen".to_string(),
-                        path: Some("/usr/local/bin/qwen".to_string()),
+                        command: "hermes".to_string(),
+                        path: Some("/usr/local/bin/hermes".to_string()),
                         version: Some("1.4.2".to_string()),
                         detected: true,
                     },
@@ -700,11 +700,11 @@ mod tests {
                         secrets_read: false,
                     },
                     providers: vec![RuntimeProvider {
-                        id: "bailian".to_string(),
-                        name: "Alibaba Cloud Bailian".to_string(),
+                        id: "deepseek".to_string(),
+                        name: "DeepSeek".to_string(),
                         endpoint: None,
                         plan: Some(RuntimePlan {
-                            name: "Qwen Standard Plan".to_string(),
+                            name: "Standard Plan".to_string(),
                             active: true,
                             period_start: None,
                             period_end: Some("2026-09-24T12:00:00Z".to_string()),
@@ -712,7 +712,7 @@ mod tests {
                         }),
                         models: vec![
                             RuntimeModel {
-                                id: "qwen3.8-max".to_string(),
+                                id: "deepseek-v4-pro".to_string(),
                                 status: "active".to_string(),
                                 source_type: "catalog".to_string(),
                                 verified: true,
@@ -721,7 +721,7 @@ mod tests {
                                 capabilities: None,
                             },
                             RuntimeModel {
-                                id: "qwen3.8-plus".to_string(),
+                                id: "deepseek-flash".to_string(),
                                 status: "active".to_string(),
                                 source_type: "catalog".to_string(),
                                 verified: false,
@@ -730,7 +730,7 @@ mod tests {
                                 capabilities: None,
                             },
                             RuntimeModel {
-                                id: "qwen-turbo-old".to_string(),
+                                id: "deepseek-old".to_string(),
                                 status: "deprecated".to_string(),
                                 source_type: "catalog".to_string(),
                                 verified: false,
@@ -797,18 +797,18 @@ mod tests {
         assert_eq!(event.host_ip, "192.168.1.50");
         assert_eq!(event.payload.snapshot_id, "snap-20260904-213500-host01");
         assert_eq!(event.payload.discovered_agents_count, 2);
-        // qwen has 2 active models (1 deprecated), claude has 1 active model -> total 3 active models
+        // hermes has 2 active models (1 deprecated), claude has 1 active model -> total 3 active models
         assert_eq!(event.payload.active_models_count, 3);
         assert_eq!(event.payload.agents_summary.len(), 2);
 
-        let qwen_sum = &event.payload.agents_summary[0];
-        assert_eq!(qwen_sum.agent_id, "qwen-code");
-        assert_eq!(qwen_sum.version.as_deref(), Some("1.4.2"));
-        assert_eq!(qwen_sum.provider.as_deref(), Some("bailian"));
-        assert_eq!(qwen_sum.active_model.as_deref(), Some("qwen3.8-max"));
-        assert_eq!(qwen_sum.plan_status.as_deref(), Some("Qwen Standard Plan"));
+        let hermes_sum = &event.payload.agents_summary[0];
+        assert_eq!(hermes_sum.agent_id, "hermes");
+        assert_eq!(hermes_sum.version.as_deref(), Some("1.4.2"));
+        assert_eq!(hermes_sum.provider.as_deref(), Some("deepseek"));
+        assert_eq!(hermes_sum.active_model.as_deref(), Some("deepseek-v4-pro"));
+        assert_eq!(hermes_sum.plan_status.as_deref(), Some("Standard Plan"));
         assert_eq!(
-            qwen_sum.plan_expires_at.as_deref(),
+            hermes_sum.plan_expires_at.as_deref(),
             Some("2026-09-24T12:00:00Z")
         );
 

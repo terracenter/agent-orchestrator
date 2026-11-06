@@ -50,7 +50,7 @@ func CapabilitySnapshots(profiles []Profile, capturedAt time.Time) []CapabilityS
 
 func inputsFor(agent string) []string {
 	switch agent {
-	case "qwen-code", "claude-code", "agy", "pi", "openclaw", "hermes":
+	case "claude-code", "agy", "pi", "openclaw", "hermes":
 		return []string{"text", "files", "repo"}
 	default:
 		return []string{"text"}
@@ -59,7 +59,7 @@ func inputsFor(agent string) []string {
 
 func outputsFor(agent string) []string {
 	switch agent {
-	case "qwen-code", "claude-code", "agy", "pi", "openclaw", "hermes":
+	case "claude-code", "agy", "pi", "openclaw", "hermes":
 		return []string{"text", "code", "patch", "markdown", "json"}
 	default:
 		return []string{"text", "json"}
@@ -68,8 +68,6 @@ func outputsFor(agent string) []string {
 
 func toolsFor(agent string) []string {
 	switch agent {
-	case "qwen-code":
-		return []string{"filesystem", "shell", "git", "github", "docker", "workspace-skills"}
 	case "claude-code", "pi", "agy", "hermes", "openclaw":
 		return []string{"filesystem", "shell", "git", "github", "workspace-skills"}
 	default:
@@ -86,9 +84,6 @@ func modesFor(profile Profile) []string {
 
 func evidenceFor(profile Profile) []CapabilitySource {
 	evidence := []CapabilitySource{{Kind: "registry", Source: "config/agent-profiles.json", Description: "perfil operativo declarado en Orq"}}
-	if profile.Agent == "qwen-code" {
-		evidence = append(evidence, CapabilitySource{Kind: "empirical", Source: "github issue #81", Description: "primer runtime Qwen Code reportado por usuario; qwen3.8-max verificado, otros modelos pendientes"})
-	}
 	if !profile.Verified {
 		evidence = append(evidence, CapabilitySource{Kind: "status", Source: "orq", Description: "pendiente de validacion runtime/docs oficiales/evidencia empirica"})
 	}

@@ -45,7 +45,7 @@ make install
 orq detect --format json
 orq discover --format json
 orq agents discover
-orq models --agent qwen-code --format json
+orq models --agent hermes --format json
 orq route --task-kind mechanical --format json
 
 # Route with daily agent availability (allowlist/denylist)

@@ -353,7 +353,7 @@ mod tests {
         let config = default_config().unwrap();
         assert!(config.adapters.contains_key("claude-code"));
         assert!(config.adapters.contains_key("agy"));
-        assert!(config.adapters.contains_key("qwen-code"));
+        assert!(config.adapters.contains_key("hermes"));
         assert!(config.adapters.contains_key("hermes"));
     }
 
@@ -491,6 +491,6 @@ mod tests {
         let (config, path) = load_config(None).await.unwrap();
         assert_ne!(path, "builtin");
         assert!(path.ends_with("home-capabilities.json"));
-        assert!(config.adapters.contains_key("qwen-code"));
+        assert!(config.adapters.contains_key("hermes"));
     }
 }

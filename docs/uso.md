@@ -32,7 +32,7 @@ orq discover --format json
 orq agents discover
 
 # Consultar modelos y enrutar por un task kind explicito.
-orq models --agent qwen-code --format json
+orq models --agent hermes --format json
 orq route --task-kind mechanical --format json
 
 # Consultar cuota, evidencia y opciones de los comandos.
@@ -54,7 +54,7 @@ como `exec`, `smoke`, `certify`, `delegate` u `observer`.
 {
   "date": "2026-09-09",
   "available_agents": ["claude-code", "codex", "agy"],
-  "unavailable_agents": ["hermes", "qwen-code", "openclaw", "pi", "nvidia-api"],
+  "unavailable_agents": ["hermes", "openclaw", "pi", "nvidia-api"],
   "notes": "Disponibilidad declarada para la sesión"
 }
 ```
@@ -92,7 +92,7 @@ implementa el reroute en si.
 
 ```bash
 # Ruta por defecto: $HOME/.local/state/orq-agent/events.jsonl
-ORQ_EVENT_LOG_PATH=/ruta/al/events.jsonl orq delegate --agent qwen-code --model qwen3.6-flash --task "..." --task-id mi-tarea
+ORQ_EVENT_LOG_PATH=/ruta/al/events.jsonl orq delegate --agent hermes --model deepseek-flash --task "..." --task-id mi-tarea
 ```
 
 El archivo se crea con permisos `0600`. Cada linea es un objeto JSON con
@@ -150,7 +150,7 @@ sobreescribir el builtin — no hay variable de entorno, para que el techo no
 pueda cambiarse silenciosamente desde el shell:
 
 ```bash
-orq exec --agent qwen-code --model qwen3.8-max --task-file tarea.md \
+orq exec --agent hermes --model deepseek-v4-pro --task-file tarea.md \
   --budget-config /ruta/a/budget.json \
   --models-config /ruta/a/models-catalog.json \
   --db-path /ruta/al/state.sqlite

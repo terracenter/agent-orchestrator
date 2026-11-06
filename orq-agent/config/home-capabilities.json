@@ -10,9 +10,6 @@
         ".gemini/antigravity-cli/antigravity-oauth-token"
       ]
     },
-    "qwen-code": {
-      "home_paths": [".qwen/settings.json"]
-    },
     "hermes": {
       "home_paths": [".hermes/.env", ".hermes/config.yaml"]
     },
