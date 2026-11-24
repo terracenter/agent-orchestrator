@@ -849,7 +849,7 @@ fn route_supports_external_config() {
         .stdout(predicate::str::contains("routing-matrix.json"))
         .stdout(predicate::str::contains("\"default_agent\": \"hermes\""))
         .stdout(predicate::str::contains(
-            "\"default_model\": \"deepseek-flash\"",
+            "\"default_model\": \"glm-5.3-flash\"",
         ));
 }
 

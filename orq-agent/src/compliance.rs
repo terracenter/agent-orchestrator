@@ -1210,17 +1210,13 @@ fn is_plan_handoff(fname: &str, content: &str) -> bool {
         return false;
     }
     let lower = content.to_lowercase();
-    if lower.contains("# handoff: plan")
+    lower.contains("# handoff: plan")
         || lower.contains("# plan")
         || lower.contains("## plan")
         || lower.contains("plan de trabajo")
         || lower.contains("priorización")
         || lower.contains("priorizacion")
         || lower.contains("backlog")
-    {
-        return true;
-    }
-    false
 }
 
 fn get_latest_plan_handoff(handoffs_path: &Path) -> Option<(PathBuf, String)> {

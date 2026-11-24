@@ -216,10 +216,7 @@ fn is_semver_like(s: &str) -> bool {
         return false;
     }
     let second_digits = parts[1].split('-').next().unwrap_or("");
-    if !second_digits.chars().all(|c| c.is_ascii_digit()) || second_digits.is_empty() {
-        return false;
-    }
-    true
+    second_digits.chars().all(|c| c.is_ascii_digit()) && !second_digits.is_empty()
 }
 
 pub fn resolve_binary_path(env_key: &str, binary_name: &str) -> Option<String> {
