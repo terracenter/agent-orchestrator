@@ -8,22 +8,22 @@
     {
       "task_kind": "mechanical",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
         "claude-code/fable"
       ],
-      "rationale": "Trabajo mecanico y repetitivo: Hermes deepseek-flash es el runner instalado de coste 0; Claude opus/sonnet/fable son review_only."
+      "rationale": "Trabajo mecanico y repetitivo: Hermes glm-5.3-flash es el runner instalado de coste 0; Claude opus/sonnet/fable son review_only."
     },
     {
       "task_kind": "documentation",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -34,9 +34,9 @@
     {
       "task_kind": "simple_review",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -47,22 +47,22 @@
     {
       "task_kind": "write_tests",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
         "claude-code/fable"
       ],
-      "rationale": "Generar tests exige razonamiento y ejecucion real: Hermes deepseek-v4-pro es el unico runner instalado no gated para esta tarea."
+      "rationale": "Generar tests exige razonamiento y ejecucion real: Hermes glm-5.3 es el unico runner instalado no gated para esta tarea."
     },
     {
       "task_kind": "debugging",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -73,9 +73,9 @@
     {
       "task_kind": "small_refactor",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -86,9 +86,9 @@
     {
       "task_kind": "large_refactor",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -99,9 +99,9 @@
     {
       "task_kind": "monorepo_long_context",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -112,9 +112,9 @@
     {
       "task_kind": "frontend",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -125,9 +125,9 @@
     {
       "task_kind": "database",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -138,9 +138,9 @@
     {
       "task_kind": "sysadmin_linux",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -151,9 +151,9 @@
     {
       "task_kind": "simple_cybersecurity",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -164,9 +164,9 @@
     {
       "task_kind": "deep_cybersecurity",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -177,9 +177,9 @@
     {
       "task_kind": "architecture",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -190,9 +190,9 @@
     {
       "task_kind": "deep_reasoning",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -203,9 +203,9 @@
     {
       "task_kind": "real_tool_execution",
       "default_agent": "hermes",
-      "default_model": "deepseek-v4-pro",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -216,9 +216,9 @@
     {
       "task_kind": "readonly_analysis",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -229,9 +229,9 @@
     {
       "task_kind": "doc_watcher",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",
@@ -242,9 +242,9 @@
     {
       "task_kind": "short_text_review",
       "default_agent": "hermes",
-      "default_model": "deepseek-flash",
-      "cheap_sufficient": "hermes/deepseek-flash",
-      "escalate_to": "hermes/deepseek-v4-pro",
+      "default_model": "glm-5.3-flash",
+      "cheap_sufficient": "hermes/glm-5.3-flash",
+      "escalate_to": "hermes/glm-5.3",
       "avoid": [
         "claude-code/claude-opus-4-1-20250805",
         "claude-code/claude-sonnet-4-5-20250929",

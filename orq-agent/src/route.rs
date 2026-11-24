@@ -86,10 +86,7 @@ pub fn agent_matches(pattern: &str, agent: &str) -> bool {
             return true;
         }
     }
-    if (p == "agy" && a == "antigravity") || (p == "antigravity" && a == "agy") {
-        return true;
-    }
-    false
+    (p == "agy" && a == "antigravity") || (p == "antigravity" && a == "agy")
 }
 
 pub async fn load_daily_availability(
@@ -907,7 +904,7 @@ mod tests {
             .find(|route| route.task_kind == "documentation")
             .unwrap();
         assert_eq!(route.default_agent, "hermes");
-        assert_eq!(route.default_model, "deepseek-flash");
+        assert_eq!(route.default_model, "glm-5.3-flash");
     }
 
     #[test]
@@ -1023,7 +1020,7 @@ mod tests {
             schema_version: 1,
             correlation_id: "corr-1".to_string(),
             agent: "hermes".to_string(),
-            model: "deepseek-flash".to_string(),
+            model: "glm-5.3-flash".to_string(),
             command: vec!["run".to_string()],
             status: crate::receipt::ExecStatus::Succeeded,
             policy_reason: "allowed".to_string(),
@@ -1064,7 +1061,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(decision.selected_agent, "hermes");
-        assert_eq!(decision.selected_model, "deepseek-flash");
+        assert_eq!(decision.selected_model, "glm-5.3-flash");
         assert!(decision.preferred_certificate.is_some());
     }
 
