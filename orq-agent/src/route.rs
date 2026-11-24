@@ -895,6 +895,32 @@ mod tests {
     use crate::policy;
     use crate::state::BreakerOutcome;
 
+    /// Defaults declarados por la propia matriz (fuente única) para la ruta
+    /// `documentation`. Se lee el MISMO archivo que resuelve
+    /// `load_default_config` via `resolve_path`, con `serde_json`, para que el
+    /// test afirme contra el valor que la matriz declara y no contra un id
+    /// fijado como literal (la matriz es dinámica, ver issue #264).
+    fn matrix_documentation_defaults() -> (String, String) {
+        let path = crate::config::resolve_path(
+            None,
+            super::ROUTING_CONFIG_ENV,
+            super::ROUTING_CONFIG_FILE,
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let matrix: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let route = matrix["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|route| route["task_kind"] == "documentation")
+            .unwrap();
+        (
+            route["default_agent"].as_str().unwrap().to_string(),
+            route["default_model"].as_str().unwrap().to_string(),
+        )
+    }
+
     #[test]
     fn default_config_loads_documentation_route() {
         let config = load_default_config().unwrap();
@@ -903,8 +929,9 @@ mod tests {
             .iter()
             .find(|route| route.task_kind == "documentation")
             .unwrap();
-        assert_eq!(route.default_agent, "hermes");
-        assert_eq!(route.default_model, "glm-5.3-flash");
+        let (expected_agent, expected_model) = matrix_documentation_defaults();
+        assert_eq!(route.default_agent, expected_agent);
+        assert_eq!(route.default_model, expected_model);
     }
 
     #[test]
@@ -983,11 +1010,16 @@ mod tests {
     #[test]
     fn test_certified_capability_routing() {
         let config = load_default_config().unwrap();
+        let route = config
+            .routes
+            .iter()
+            .find(|route| route.task_kind == "documentation")
+            .unwrap();
         let detected = DetectReport {
             schema_version: 1,
             agents: vec![
                 AgentDetection {
-                    name: "hermes".to_string(),
+                    name: route.default_agent.clone(),
                     binary: "test-runner".to_string(),
                     detected: true,
                     binary_path: Some("test-runner".to_string()),
@@ -1019,8 +1051,8 @@ mod tests {
         let receipt = crate::receipt::ExecReceipt {
             schema_version: 1,
             correlation_id: "corr-1".to_string(),
-            agent: "hermes".to_string(),
-            model: "glm-5.3-flash".to_string(),
+            agent: route.default_agent.clone(),
+            model: route.default_model.clone(),
             command: vec!["run".to_string()],
             status: crate::receipt::ExecStatus::Succeeded,
             policy_reason: "allowed".to_string(),
@@ -1060,8 +1092,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(decision.selected_agent, "hermes");
-        assert_eq!(decision.selected_model, "glm-5.3-flash");
+        assert_eq!(decision.selected_agent, route.default_agent);
+        assert_eq!(decision.selected_model, route.default_model);
         assert!(decision.preferred_certificate.is_some());
     }
 

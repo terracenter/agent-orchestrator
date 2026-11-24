@@ -831,6 +831,19 @@ fn route_supports_external_config() {
     let state_dir = tempfile::tempdir().unwrap();
     let db = state_dir.path().join("state.sqlite");
 
+    // Los ids se derivan de la propia matriz (fuente única, issue #264): el
+    // test no fija ningún id de modelo/agente como literal.
+    let matrix: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+    let route = matrix["routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|route| route["task_kind"] == "documentation")
+        .unwrap();
+    let expected_agent = route["default_agent"].as_str().unwrap();
+    let expected_model = route["default_model"].as_str().unwrap();
+
     let mut cmd = test_cmd("orq-agent");
     cmd.env("ORQ_STATE_DB", &db)
         .args([
@@ -847,10 +860,14 @@ fn route_supports_external_config() {
         .assert()
         .success()
         .stdout(predicate::str::contains("routing-matrix.json"))
-        .stdout(predicate::str::contains("\"default_agent\": \"hermes\""))
-        .stdout(predicate::str::contains(
-            "\"default_model\": \"glm-5.3-flash\"",
-        ));
+        .stdout(predicate::str::contains(format!(
+            "\"default_agent\": \"{}\"",
+            expected_agent
+        )))
+        .stdout(predicate::str::contains(format!(
+            "\"default_model\": \"{}\"",
+            expected_model
+        )));
 }
 
 #[test]
