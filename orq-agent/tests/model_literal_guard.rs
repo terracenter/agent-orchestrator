@@ -151,7 +151,7 @@ fn skip_non_code(bytes: &[u8], mut i: usize) -> usize {
                     j += 1;
                     let mut closing = Vec::with_capacity(hashes + 1);
                     closing.push(b'"');
-                    closing.extend(std::iter::repeat(b'#').take(hashes));
+                    closing.extend(std::iter::repeat_n(b'#', hashes));
                     'outer: while j < n {
                         if bytes[j] == b'"' {
                             let mut k = 0usize;
